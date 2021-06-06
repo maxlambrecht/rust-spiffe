@@ -1,11 +1,12 @@
 //! X.509-SVID types.
 
-use crate::cert::parsing::to_certificate_vec;
-use crate::cert::validations::{validate_leaf_certificate, validate_signing_certificates};
+mod validations;
 
 use crate::cert::errors::{CertificateError, PrivateKeyError};
+use crate::cert::parsing::to_certificate_vec;
 use crate::cert::{Certificate, PrivateKey};
-use crate::spiffe_id::SpiffeId;
+use crate::spiffe_id::{SpiffeId, SpiffeIdError};
+use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
 use crate::svid::Svid;
 use std::convert::TryFrom;
 
@@ -30,6 +31,38 @@ pub enum X509SvidError {
     /// The chain of certificates is empty.
     #[error("no certificates found in chain")]
     EmptyChain,
+
+    /// 'CA' flag not allowed in leaf certificate.
+    #[error("leaf certificate must not have CA flag set to true")]
+    LeafCertificateHasCaFlag,
+
+    /// 'cRLSign' not allowed as key usage in leaf certificate.
+    #[error("leaf certificate must not have 'cRLSign' set as key usage")]
+    LeafCertificateHasCrlSign,
+
+    /// 'keyCertSign' not allowed as key usage in leaf certificate.
+    #[error("leaf certificate must not have 'keyCertSign' set as key usage")]
+    LeafCertificateHasKeyCertSign,
+
+    /// 'digitalSignature' as key usage must be present in leaf certificate.
+    #[error("leaf certificate must have 'digitalSignature' set as key usage")]
+    LeafCertificatedNoDigitalSignature,
+
+    /// 'CA' flag must be set in intermediate certificate.
+    #[error("signing certificate must have CA flag set to true")]
+    SigningCertificatedNoCa,
+
+    /// 'keyCertSign' as key usage must be present in intermediate certificate.
+    #[error("signing certificate must have 'keyCertSign' set as key usage")]
+    SigningCertificatedNoKeyCertSign,
+
+    /// No URI Subject Alternative Names found.
+    #[error("leaf certificate misses the SPIFFE-ID in the URI SAN")]
+    MissingSpiffeId,
+
+    /// The URI Subject Alternative Name is not a valid SPIFFE ID.
+    #[error("failed parsing SPIFFE ID from certificate URI SAN")]
+    InvalidSpiffeId(#[from] SpiffeIdError),
 
     /// Error processing or validating the X.509 certificates.
     #[error(transparent)]

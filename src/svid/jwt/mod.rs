@@ -275,7 +275,7 @@ where
     impl<'de> de::Visitor<'de> for StringOrVec {
         type Value = Vec<String>;
 
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
             formatter.write_str("string or sequence of strings")
         }
 

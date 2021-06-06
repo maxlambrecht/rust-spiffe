@@ -73,10 +73,7 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
-            result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::LeafCertificateHasCaFlag)
-        );
+        assert_eq!(result.unwrap_err(), X509SvidError::LeafCertificateHasCaFlag);
     }
 
     #[test]
@@ -88,7 +85,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::LeafCertificateHasCrlSign)
+            X509SvidError::LeafCertificateHasCrlSign
         );
     }
 
@@ -101,7 +98,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::LeafCertificateHasKeyCertSign)
+            X509SvidError::LeafCertificateHasKeyCertSign
         );
     }
 
@@ -114,7 +111,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::LeafCertificatedNoDigitalSignature)
+            X509SvidError::LeafCertificatedNoDigitalSignature
         );
     }
 
@@ -125,10 +122,7 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
-            result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::MissingSpiffeId)
-        );
+        assert_eq!(result.unwrap_err(), X509SvidError::MissingSpiffeId);
     }
 
     #[test]
@@ -138,10 +132,7 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
-            result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::SigningCertificatedNoCa)
-        );
+        assert_eq!(result.unwrap_err(), X509SvidError::SigningCertificatedNoCa);
     }
 
     #[test]
@@ -154,7 +145,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::SigningCertificatedNoKeyCertSign)
+            X509SvidError::SigningCertificatedNoKeyCertSign
         );
     }
 

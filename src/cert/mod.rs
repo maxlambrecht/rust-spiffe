@@ -7,9 +7,7 @@ use std::convert::TryFrom;
 use zeroize::Zeroize;
 
 pub mod errors;
-
 pub(crate) mod parsing;
-pub(crate) mod validations;
 
 /// This type contains a single certificate by value.
 ///

@@ -1,7 +1,9 @@
 use crate::cert::errors::CertificateError;
 use crate::cert::Certificate;
 use x509_parser::certificate::X509Certificate;
+use x509_parser::der_parser::oid::Oid;
 use x509_parser::error::X509Error;
+use x509_parser::extensions::ParsedExtension;
 use x509_parser::nom::Err;
 use x509_parser::nom::Err::Incomplete;
 
@@ -37,4 +39,19 @@ pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
         }
     };
     Ok(x509)
+}
+
+// Returns the X.509 extension in the certificate the for the provided OID.
+pub(crate) fn get_x509_extension<'a, 'b>(
+    cert: &'a X509Certificate<'_>,
+    oid: &'b Oid<'a>,
+) -> Result<&'a ParsedExtension<'a>, CertificateError> {
+    let extensions = &cert.tbs_certificate.extensions;
+    let parsed_extension = match extensions.get(oid) {
+        None => {
+            return Err(CertificateError::MissingX509Extension(oid.to_string()));
+        }
+        Some(s) => s.parsed_extension(),
+    };
+    Ok(parsed_extension)
 }
