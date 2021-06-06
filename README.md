@@ -79,10 +79,6 @@ let jwt_bundle: &JwtBundle = jwt_bundles.get_bundle(&trust_domain).unwrap();
 // get the JWT authorities (public keys) in the bundle
 let jwt_authority: &JwtAuthority = jwt_bundle.find_jwt_authority("a_key_id").unwrap();
 
-// parse a JwtSvid validating the token signature with a JWT bundle source.
-let validated_jwt_svid =
-    match JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles, &["audience1"]) {
-        Ok(svid) => svid,
-        Err(e) => return Err(e.into()),
-    };
+// parse a `JwtSvid` validating the token signature with a JWT bundle source.
+let validated_jwt_svid = JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles_set, &["service1.com"])?; 
 ```
