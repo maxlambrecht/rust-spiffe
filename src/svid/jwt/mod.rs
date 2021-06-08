@@ -9,7 +9,7 @@ use thiserror::Error;
 use zeroize::Zeroize;
 
 use crate::bundle::jwt::{JwtAuthority, JwtBundle};
-use crate::bundle::BundleSource;
+use crate::bundle::BundleRefSource;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 use crate::svid::Svid;
 use std::error::Error;
@@ -83,7 +83,7 @@ pub enum JwtSvidError {
 
     /// Other errors that can arise.
     #[error("error parsing JWT-SVID")]
-    Other(#[from] Box<dyn Error + Send + 'static>),
+    Other(#[from] Box<dyn Error + Send + Sync + 'static>),
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Zeroize)]
@@ -137,7 +137,7 @@ impl JwtSvid {
     /// If the function cannot parse or verify the signature of the token, a [`JwtSvidError`] variant will be returned.
     pub fn parse_and_validate<T: AsRef<str> + ToString>(
         token: &str,
-        bundle_source: &impl BundleSource<Item = JwtBundle>,
+        bundle_source: &impl BundleRefSource<Item = JwtBundle>,
         expected_audience: &[T],
     ) -> Result<Self, JwtSvidError> {
         let jwt_svid = JwtSvid::parse_insecure(token)?;
@@ -182,7 +182,7 @@ impl JwtSvid {
     // Get the bundle associated to the trust_domain in the bundle_source, then from the bundle
     // return the jwt_authority with the key_id
     fn find_jwt_authority<'a>(
-        bundle_source: &'a impl BundleSource<Item = JwtBundle>,
+        bundle_source: &'a impl BundleRefSource<Item = JwtBundle>,
         trust_domain: &TrustDomain,
         key_id: &str,
     ) -> Result<&'a JwtAuthority, JwtSvidError> {
@@ -352,7 +352,7 @@ mod test {
 
         // generate signed token
         let token = generate_token(
-            target_audience.clone(),
+            target_audience,
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             Some("some_key_id".to_string()),

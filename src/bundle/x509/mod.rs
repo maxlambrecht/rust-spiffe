@@ -1,6 +1,6 @@
 //! X.509 bundle types.
 
-use crate::bundle::{Bundle, BundleSource};
+use crate::bundle::{Bundle, BundleRefSource};
 use crate::cert::errors::CertificateError;
 use crate::cert::parsing::{parse_der_encoded_bytes_as_x509_certificate, to_certificate_vec};
 use crate::cert::Certificate;
@@ -150,14 +150,14 @@ impl Default for X509BundleSet {
     }
 }
 
-impl BundleSource for X509BundleSet {
+impl BundleRefSource for X509BundleSet {
     type Item = X509Bundle;
 
     /// Returns the [`X509Bundle`] associated to the given [`TrustDomain`].
     fn get_bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + 'static>> {
+    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + Sync + 'static>> {
         Ok(self.bundles.get(trust_domain))
     }
 }

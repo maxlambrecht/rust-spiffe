@@ -10,15 +10,29 @@ pub mod x509;
 pub trait Bundle {}
 
 /// Represents a source of bundles queryable by [`TrustDomain`].
+pub trait BundleRefSource {
+    /// The type of the bundles provided by the source.
+    type Item: Bundle;
+
+    /// Returns the reference to bundle (set of public keys authorities) associated to the [`TrustDomain`].
+    /// If it cannot be found a bundle associated to the trust domain, it returns `Ok(None)`.
+    /// If there's is an error in source fetching the bundle, it returns an `Err<Box<dyn Error + Send + Sync + 'static>>`.
+    fn get_bundle_for_trust_domain(
+        &self,
+        trust_domain: &TrustDomain,
+    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + Sync + 'static>>;
+}
+
+/// Represents a source of bundles queryable by [`TrustDomain`].
 pub trait BundleSource {
     /// The type of the bundles provided by the source.
     type Item: Bundle;
 
-    /// Returns the bundle (set of public keys authorities) associated to the [`TrustDomain`].
+    /// Returns a owned bundle (set of public keys authorities) associated to the [`TrustDomain`].
     /// If it cannot be found a bundle associated to the trust domain, it returns `Ok(None)`.
-    /// If there's is an error in source fetching the bundle, it returns an `Err<Box<dyn Error + Send + 'static>>`.
+    /// If there's is an error in source fetching the bundle, it returns an `Err<Box<dyn Error + Send + Sync + 'static>>`.
     fn get_bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + 'static>>;
+    ) -> Result<Option<Self::Item>, Box<dyn Error + Send + Sync + 'static>>;
 }

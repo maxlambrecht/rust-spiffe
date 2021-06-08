@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::bundle::{Bundle, BundleSource};
+use crate::bundle::{Bundle, BundleRefSource};
 use crate::spiffe_id::TrustDomain;
 use jsonwebkey::JsonWebKey;
 
@@ -158,14 +158,14 @@ impl Default for JwtBundleSet {
     }
 }
 
-impl BundleSource for JwtBundleSet {
+impl BundleRefSource for JwtBundleSet {
     type Item = JwtBundle;
 
     /// Returns the [`JwtBundle`] associated to the given [`TrustDomain`].
     fn get_bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn std::error::Error + Send + 'static>> {
+    ) -> Result<Option<&Self::Item>, Box<dyn std::error::Error + Send + Sync + 'static>> {
         Ok(self.bundles.get(trust_domain))
     }
 }
