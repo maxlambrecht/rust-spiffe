@@ -8,9 +8,18 @@ to fetch X.509 and JWT SVIDs and Bundles. It also provides types that comply wit
 
 Under development.
 
-## Examples
+## Usage
 
-### Create a `WorkloadApiClient`
+To use `spiffe`, add this to your `Cargo.toml`:
+
+```toml
+[dependencies]
+spiffe = "0.1.0"
+```
+
+### Examples
+
+#### Create a `WorkloadApiClient`
 
 Providing the endpoint socket path as parameter:
 
@@ -24,7 +33,7 @@ Providing the endpoint socket path through the environment variable `SPIFFE_ENDP
 let client = WorkloadApiClient::default()?;
 ```
 
-### Fetching X.509 materials
+#### Fetching X.509 materials
 
 ```rust
 
@@ -54,7 +63,7 @@ let x509_authorities: &Vec<Certificate> = x509_bundle.authorities();
 ```
 
 
-### Fetching JWT tokens and bundles and validating tokens
+#### Fetching JWT tokens and bundles and validating tokens
 
 ```rust
 
