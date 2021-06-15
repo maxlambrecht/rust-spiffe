@@ -8,15 +8,15 @@
 //! # Examples
 //!
 //! ```no_run
-//! use rust_spiffe::bundle::jwt::{JwtAuthority, JwtBundle};
-//! use rust_spiffe::bundle::x509::{X509Bundle, X509BundleSet};
-//! use rust_spiffe::bundle::BundleSource;
-//! use rust_spiffe::cert::{Certificate, PrivateKey};
-//! use rust_spiffe::spiffe_id::{SpiffeId, TrustDomain};
-//! use rust_spiffe::svid::jwt::{JwtSvid, JwtSvidError};
-//! use rust_spiffe::svid::x509::X509Svid;
-//! use rust_spiffe::workload_api::client::WorkloadApiClient;
-//! use rust_spiffe::workload_api::x509_context::X509Context;
+//! use spiffe::bundle::jwt::{JwtAuthority, JwtBundle};
+//! use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
+//! use spiffe::bundle::BundleSource;
+//! use spiffe::cert::{Certificate, PrivateKey};
+//! use spiffe::spiffe_id::{SpiffeId, TrustDomain};
+//! use spiffe::svid::jwt::{JwtSvid, JwtSvidError};
+//! use spiffe::svid::x509::X509Svid;
+//! use spiffe::workload_api::client::WorkloadApiClient;
+//! use spiffe::workload_api::x509_context::X509Context;
 //! use std::convert::TryFrom;
 //! use std::error::Error;
 //!

@@ -3,13 +3,13 @@
 //! # Examples
 //!
 //! ```no_run
-//! 
-//! use std::error::Error;
-//! use rust_spiffe::workload_api::client::WorkloadApiClient;
 //!
-//! use rust_spiffe::svid::x509::X509Svid;
-//! use rust_spiffe::bundle::x509::X509BundleSet;
-//! use rust_spiffe::workload_api::x509_context::X509Context;
+//! use std::error::Error;
+//! use spiffe::workload_api::client::WorkloadApiClient;
+//!
+//! use spiffe::svid::x509::X509Svid;
+//! use spiffe::bundle::x509::X509BundleSet;
+//! use spiffe::workload_api::x509_context::X509Context;
 //!
 //! # fn main() -> Result<(), Box< dyn Error>> {
 //!

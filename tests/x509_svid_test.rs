@@ -1,10 +1,10 @@
 mod x509_svid_tests {
     use std::str::FromStr;
 
-    use rust_spiffe::spiffe_id::SpiffeId;
-    use rust_spiffe::svid::x509::{X509Svid, X509SvidError};
+    use spiffe::spiffe_id::SpiffeId;
+    use spiffe::svid::x509::{X509Svid, X509SvidError};
 
-    use rust_spiffe::cert::errors::{CertificateError, PrivateKeyError};
+    use spiffe::cert::errors::{CertificateError, PrivateKeyError};
 
     #[test]
     fn test_x509_svid_parse_from_der_chain() {

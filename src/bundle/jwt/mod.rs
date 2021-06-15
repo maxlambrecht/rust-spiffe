@@ -63,8 +63,8 @@ impl JwtBundle {
     /// # Examples
     ///
     /// ```
-    /// use rust_spiffe::bundle::jwt::{JwtAuthority, JwtBundle};
-    /// use rust_spiffe::spiffe_id::TrustDomain;
+    /// use spiffe::bundle::jwt::{JwtAuthority, JwtBundle};
+    /// use spiffe::spiffe_id::TrustDomain;
     ///
     /// let jwt_authorities = r#"{
     ///     "keys": [

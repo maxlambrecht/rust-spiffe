@@ -1,6 +1,6 @@
-use rust_spiffe::bundle::x509::{X509Bundle, X509BundleError};
-use rust_spiffe::cert::errors::CertificateError;
-use rust_spiffe::spiffe_id::TrustDomain;
+use spiffe::bundle::x509::{X509Bundle, X509BundleError};
+use spiffe::cert::errors::CertificateError;
+use spiffe::spiffe_id::TrustDomain;
 
 #[test]
 fn test_x509_bundle_parse_from_der() {

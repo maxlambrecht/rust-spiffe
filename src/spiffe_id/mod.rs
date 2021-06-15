@@ -88,7 +88,7 @@ impl SpiffeId {
     /// # Examples
     ///
     /// ```
-    /// use rust_spiffe::spiffe_id::SpiffeId;
+    /// use spiffe::spiffe_id::SpiffeId;
     ///
     /// let spiffe_id = SpiffeId::new("spiffe://example.org/path").unwrap();
     /// assert_eq!("example.org", spiffe_id.trust_domain().to_string());
@@ -210,7 +210,7 @@ impl TrustDomain {
     /// # Examples
     ///
     /// ```
-    /// use rust_spiffe::spiffe_id::TrustDomain;
+    /// use spiffe::spiffe_id::TrustDomain;
     ///
     /// let trust_domain = TrustDomain::new("Domain.Test").unwrap();
     /// assert_eq!("domain.test", trust_domain.to_string());
