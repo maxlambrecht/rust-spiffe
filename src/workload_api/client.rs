@@ -322,7 +322,11 @@ impl WorkloadApiClient {
     ) -> Result<(SpiffeId, Option<Claims>), ClientError> {
         let response = self.validate_jwt(audience, jwt_token)?;
 
-        let claims = response.claims.into_option().map(|claims| claims.try_into()).transpose()?;
+        let claims = response
+            .claims
+            .into_option()
+            .map(|claims| claims.try_into())
+            .transpose()?;
 
         Ok((response.spiffe_id.try_into()?, claims))
     }
