@@ -36,6 +36,7 @@
 //! # }
 //! ```
 
+use std::convert::TryInto;
 use std::str::FromStr;
 
 use futures::executor::block_on;
@@ -46,13 +47,14 @@ use thiserror::Error;
 use crate::bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
 use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 use crate::proto::workload::{
-    JWTBundlesRequest, JWTBundlesResponse, JWTSVIDRequest, JWTSVIDResponse, X509BundlesRequest,
-    X509BundlesResponse, X509SVIDRequest, X509SVIDResponse,
+    JWTBundlesRequest, JWTBundlesResponse, JWTSVIDRequest, JWTSVIDResponse, ValidateJWTSVIDRequest,
+    ValidateJWTSVIDResponse, X509BundlesRequest, X509BundlesResponse, X509SVIDRequest,
+    X509SVIDResponse,
 };
 use crate::proto::workload_grpc;
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
-use crate::svid::jwt::{JwtSvid, JwtSvidError};
+use crate::svid::jwt::{Claims, JwtSvid, JwtSvidError};
 use crate::svid::x509::{X509Svid, X509SvidError};
 use crate::workload_api::address::{
     get_default_socket_path, validate_socket_path, SocketPathError,
@@ -300,6 +302,30 @@ impl WorkloadApiClient {
             None => Err(ClientError::EmptyResponse),
         }
     }
+
+    /// Validates a JWT SVID token against the given audience. Returns the [`SpiffeId`] of the
+    /// SVID and the JWT claims.
+    ///
+    /// # Arguments
+    ///
+    /// * `audience`  - The audience of the validating party. Cannot be empty nor contain an empty string.
+    /// * `jwt_svid` - The token to validate.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub fn validate_jwt_token<T: AsRef<str> + ToString>(
+        &self,
+        audience: T,
+        jwt_token: &str,
+    ) -> Result<(SpiffeId, Option<Claims>), ClientError> {
+        let response = self.validate_jwt(audience, jwt_token)?;
+
+        let claims = response.claims.into_option().map(|claims| claims.try_into()).transpose()?;
+
+        Ok((response.spiffe_id.try_into()?, claims))
+    }
 }
 
 // Private methods
@@ -467,5 +493,19 @@ impl WorkloadApiClient {
             bundle_set.add_bundle(bundle);
         }
         Ok(bundle_set)
+    }
+
+    fn validate_jwt<T: AsRef<str> + ToString>(
+        &self,
+        audience: T,
+        jwt_svid: &str,
+    ) -> Result<ValidateJWTSVIDResponse, ClientError> {
+        let mut request = ValidateJWTSVIDRequest::new();
+        request.set_audience(audience.to_string());
+        request.set_svid(jwt_svid.to_string());
+
+        self.client
+            .validate_jwtsvid_opt(&request, WorkloadApiClient::call_options()?)
+            .map_err(|e| e.into())
     }
 }

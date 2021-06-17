@@ -1,6 +1,7 @@
 //! JWT SVID types.
 
 use std::str::FromStr;
+use std::convert::TryFrom;
 
 use chrono::{DateTime, TimeZone, Utc};
 use jsonwebtoken::{dangerous_insecure_decode, Algorithm};
@@ -65,6 +66,10 @@ pub enum JwtSvidError {
     #[error("algorithm in 'alg' header is not supported")]
     UnsupportedAlgorithm,
 
+    /// One of the required claims is missing. "aud", "sub" and "exp" must be present.
+    #[error("one of the required claims ({0}) is missing")]
+    RequiredClaimMissing(String),
+
     /// Cannot find a JWT bundle for the trust domain, to validate the token signature.
     #[error("cannot find JWT bundle for trust domain: {0}")]
     BundleNotFound(TrustDomain),
@@ -107,11 +112,43 @@ impl AsRef<str> for Token {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-struct Claims {
+/// Representation of the required
+/// [claims](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#3-jwt-claims) in a SPIFFE JWT-SVID.
+pub struct Claims {
     sub: String,
     #[serde(deserialize_with = "string_or_seq_string")]
     aud: Vec<String>,
     exp: u32,
+}
+
+impl Claims {
+    /// Get the sub claim.
+    pub fn get_sub(&self) -> &str {
+        &self.sub
+    }
+
+    /// Get the aud claim.
+    pub fn get_aud(&self) -> &Vec<String> {
+        &self.aud
+    }
+
+    /// Get the exp claim.
+    pub fn get_exp(&self) -> u32 {
+        self.exp
+    }
+}
+
+impl TryFrom<protobuf::well_known_types::Struct> for Claims {
+    type Error = JwtSvidError;
+
+    fn try_from(claims: protobuf::well_known_types::Struct) -> Result<Self, Self::Error> {
+        let fields = claims.fields;
+        Ok(Claims {
+            sub: fields.get("sub").ok_or_else(|| JwtSvidError::RequiredClaimMissing("sub".to_string()))?.get_string_value().to_string(),
+            aud: fields.get("aud").ok_or_else(|| JwtSvidError::RequiredClaimMissing("aud".to_string()))?.get_list_value().values.iter().map(|v| v.get_string_value().to_string()).collect(),
+            exp: fields.get("exp").ok_or_else(|| JwtSvidError::RequiredClaimMissing("exp".to_string()))?.get_number_value() as u32,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
