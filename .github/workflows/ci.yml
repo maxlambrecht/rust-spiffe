@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   format:
-    name: Execute rustfmt
+    name: Execute rustfmt and clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -12,23 +12,14 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
+          components: rustfmt, clippy
       - name: Execute rustfmt
         run: cargo +nightly fmt
-
-  build:
-    name: Build the library
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Setup Rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Build the project
-        run: cargo build
+      - name: Execute clippy
+        run: cargo +nightly clippy
 
   test:
-    name: Execute the tests
+    name: Execute the test script
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -36,32 +27,5 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-
-      - name: Install and start SPIRE server
-        run: |
-          curl -s -N -L https://github.com/spiffe/spire/releases/download/v0.12.3/spire-0.12.3-linux-x86_64-glibc.tar.gz | tar xz &&
-          cd spire-0.12.3/ &&
-          bin/spire-server run -config conf/server/server.conf &
-
-      - name: Wait for server to start
-        run: sleep 5
-
-      - name: Start SPIRE agent with join token
-        run: |
-          bin/spire-server token generate -spiffeID spiffe://example.org/myagent > /tmp/token &&
-          cut -d ' ' -f 2 /tmp/token > /tmp/token_stripped &&
-          bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< /tmp/token_stripped)" &
-
-      - name: Wait for the agent to start
-        run: sleep 5
-
-      - name: Register the workload
-        run: bin/spire-server entry create -parentID spiffe://example.org/myagent -spiffeID spiffe://example.org/myservice -selector unix:uid:$(id -u)
-
-      - name: Wait for the registration
-        run: sleep 5
-
-      - name: Test script
-        env:
-          SPIFFE_ENDPOINT_SOCKET: unix:/tmp/agent.sock
-        run: cargo test
+      - name: Run the script
+        run: ./ci.sh

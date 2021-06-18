@@ -201,7 +201,7 @@ impl JwtSvid {
 
         let mut validation = jsonwebtoken::Validation::new(jwt_svid.alg.to_owned());
         validation.validate_exp = true;
-        jsonwebtoken::decode::<Claims>(&token, &jwt_authority.key.to_decoding_key(), &validation)?;
+        jsonwebtoken::decode::<Claims>(token, &jwt_authority.key.to_decoding_key(), &validation)?;
 
         JwtSvid::validate_audience(&jwt_svid, expected_audience)?;
 
@@ -278,7 +278,7 @@ impl FromStr for JwtSvid {
     /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
         // decode token without signature or expiration validation
-        let token_data = dangerous_insecure_decode::<Claims>(&token)?;
+        let token_data = dangerous_insecure_decode::<Claims>(token)?;
 
         let claims = token_data.claims;
         let spiffe_id = SpiffeId::from_str(&claims.sub)?;
