@@ -1,12 +1,13 @@
-# rust-spiffe
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
+# Rust SPIFFE library
 
-## Overview
-
-This library provides functions to interact with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md) 
+An utility library to interact with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md)
 to fetch X.509 and JWT SVIDs and Bundles. It also provides types that comply with the [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
+See [spiffe.io](https://spiffe.io/).
 
-Under development.
+[![crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
+[![docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe)
+![CI](https://github.com/maxlambrecht/rust-spiffe/workflows/Continuous%20Integration/badge.svg)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
 
 ## Usage
 
@@ -14,7 +15,7 @@ To use `spiffe`, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.1.0"
+spiffe = "0.1.1"
 ```
 
 ### Examples
