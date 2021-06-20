@@ -22,4 +22,4 @@ sleep 5
 popd
 
 export SPIFFE_ENDPOINT_SOCKET="unix:/tmp/agent.sock"
-RUST_BACKTRACE=1 cargo test
+RUST_BACKTRACE=1 cargo test -- --include-ignored

@@ -230,6 +230,11 @@ impl JwtSvid {
         &self.expiry
     }
 
+    /// Returns the key id header of the JWT token.
+    pub fn key_id(&self) -> &str {
+        &self.kid
+    }
+
     // Get the bundle associated to the trust_domain in the bundle_source, then from the bundle
     // return the jwt_authority with the key_id
     fn find_jwt_authority<'a>(
