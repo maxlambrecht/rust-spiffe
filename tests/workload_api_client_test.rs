@@ -52,7 +52,7 @@ fn fetch_x509_svid() {
         "spiffe://example.org/myservice"
     );
 
-    assert_eq!(svid.cert_chain().len(), 2);
+    assert_eq!(svid.cert_chain().len(), 1);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn fetch_x509_context() {
         svid.spiffe_id().to_string(),
         "spiffe://example.org/myservice"
     );
-    assert_eq!(svid.cert_chain().len(), 2);
+    assert_eq!(svid.cert_chain().len(), 1);
 
     let bundle = x509_context
         .bundle_set()
@@ -77,15 +77,17 @@ fn fetch_x509_context() {
     assert_eq!(bundle.authorities().len(), 1);
 }
 
-#[test]
-#[ignore]
-fn fetch_x509_bundles() {
-    let client = WorkloadApiClient::default().unwrap();
-    let bundles = client.fetch_x509_bundles().unwrap();
-
-    let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
-    let bundle = bundle.unwrap().unwrap();
-
-    assert_eq!(bundle.trust_domain().to_string(), "example.org");
-    assert_eq!(bundle.authorities().len(), 1);
-}
+// Enable after SPIRE 1.0 is released and CI script points to it,
+// as the current version of the Workload API doesn't have the fetch_x509_bundles method.
+// #[test]
+// #[ignore]
+// fn fetch_x509_bundles() {
+//     let client = WorkloadApiClient::default().unwrap();
+//     let bundles = client.fetch_x509_bundles().unwrap();
+//
+//     let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
+//     let bundle = bundle.unwrap().unwrap();
+//
+//     assert_eq!(bundle.trust_domain().to_string(), "example.org");
+//     assert_eq!(bundle.authorities().len(), 1);
+// }
