@@ -18,9 +18,21 @@ jobs:
       - name: Execute clippy
         run: cargo +nightly clippy
 
-  test:
+  test-on-linux:
     name: Execute the test script
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - name: Run the script
+        run: ./ci.sh
+
+  test-on-macos:
+    name: Execute the test script
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v2
       - name: Setup Rust toolchain
