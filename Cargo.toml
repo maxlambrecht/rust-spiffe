@@ -1,14 +1,18 @@
 [package]
+edition = "2018"
 name = "spiffe"
+# When releasing to crates.io:
+# - Update CHANGELOG.md.
+# - Create a new tag
 version = "0.1.1"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
-edition = "2018"
+description = "Rust client library implementation for SPIFFE"
 license = "Apache-2.0"
+repository = "https://github.com/maxlambrecht/rust-spiffe"
+documentation = "https://docs.rs/spiffe"
+readme = "README.md"
 categories = ["cryptography"]
 keywords = ["SPIFFE", "X509", "JWT"]
-readme = "README.md"
-repository = "https://github.com/maxlambrecht/rust-spiffe"
-description = "Rust client library implementation for SPIFFE"
 
 [dependencies]
 protobuf = "2.24.1"
