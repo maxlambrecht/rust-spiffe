@@ -191,7 +191,10 @@ fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     let mut segment_end = 0;
 
     while segment_end < path.len() {
-        let c = path.as_bytes()[segment_end] as char;
+        let c = match path.chars().nth(segment_end) {
+            None => break,
+            Some(c) => c,
+        };
         if c == '/' {
             match &path[segment_start..segment_end] {
                 "/" => return Err(SpiffeIdError::EmptySegment),
