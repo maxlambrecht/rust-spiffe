@@ -36,7 +36,6 @@
 //! # }
 //! ```
 
-use std::convert::TryInto;
 use std::str::FromStr;
 
 use futures::executor::block_on;
@@ -54,7 +53,7 @@ use crate::proto::workload::{
 use crate::proto::workload_grpc;
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
-use crate::svid::jwt::{Claims, JwtSvid, JwtSvidError};
+use crate::svid::jwt::{JwtSvid, JwtSvidError};
 use crate::svid::x509::{X509Svid, X509SvidError};
 use crate::workload_api::address::{
     get_default_socket_path, validate_socket_path, SocketPathError,
@@ -319,16 +318,10 @@ impl WorkloadApiClient {
         &self,
         audience: T,
         jwt_token: &str,
-    ) -> Result<(SpiffeId, Option<Claims>), ClientError> {
-        let response = self.validate_jwt(audience, jwt_token)?;
-
-        let claims = response
-            .claims
-            .into_option()
-            .map(|claims| claims.try_into())
-            .transpose()?;
-
-        Ok((response.spiffe_id.try_into()?, claims))
+    ) -> Result<JwtSvid, ClientError> {
+        self.validate_jwt(audience, jwt_token)?;
+        let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
+        Ok(jwt_svid)
     }
 }
 

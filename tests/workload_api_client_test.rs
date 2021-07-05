@@ -18,9 +18,12 @@ fn fetch_jwt_svid() {
 fn fetch_and_validate_jwt_token() {
     let client = WorkloadApiClient::default().unwrap();
     let token = client.fetch_jwt_token(&["my_audience"], None).unwrap();
-    let (spiffe_id, claims) = client.validate_jwt_token("my_audience", &token).unwrap();
-    assert_eq!(claims.unwrap().get_aud(), &["my_audience"]);
-    assert_eq!(spiffe_id.to_string(), "spiffe://example.org/myservice");
+    let jwt_svid = client.validate_jwt_token("my_audience", &token).unwrap();
+    assert_eq!(jwt_svid.audience(), &["my_audience"]);
+    assert_eq!(
+        jwt_svid.spiffe_id().to_string(),
+        "spiffe://example.org/myservice"
+    );
 }
 
 #[test]
