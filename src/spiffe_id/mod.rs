@@ -94,7 +94,7 @@ impl SpiffeId {
             return Err(SpiffeIdError::Empty);
         }
 
-        if !id.contains(SCHEME_PREFIX) {
+        if &id[..SCHEME_PREFIX.len()] != SCHEME_PREFIX {
             return Err(SpiffeIdError::WrongScheme);
         }
 
@@ -183,7 +183,7 @@ fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
         return Ok(());
     }
 
-    if (path.as_bytes()[0] as char) != '/' {
+    if !path.starts_with('/') {
         return Err(SpiffeIdError::NoLeadingSlash);
     }
 
