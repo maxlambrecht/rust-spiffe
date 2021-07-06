@@ -1,5 +1,5 @@
 
-## 0.1.2 (July 6, 2021)
+## 0.2.0 (July 6, 2021)
 
   * Strict SPIFFE ID parsing (#8)
   * Method `validate_jwt_token` returns a `JwtSvid` parsed 

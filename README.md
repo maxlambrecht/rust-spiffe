@@ -15,7 +15,7 @@ To use `spiffe`, add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.1.2"
+spiffe = "0.2.0"
 ```
 
 ### Examples
