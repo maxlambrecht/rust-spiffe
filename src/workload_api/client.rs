@@ -302,13 +302,13 @@ impl WorkloadApiClient {
         }
     }
 
-    /// Validates a JWT SVID token against the given audience. Returns the [`SpiffeId`] of the
-    /// SVID and the JWT claims.
+    /// Validates a JWT SVID token against the given audience. Returns the [`JwtSvid`] parsed from
+    /// the validated token.
     ///
     /// # Arguments
     ///
     /// * `audience`  - The audience of the validating party. Cannot be empty nor contain an empty string.
-    /// * `jwt_svid` - The token to validate.
+    /// * `jwt_token` - The JWT token to validate.
     ///
     /// # Errors
     ///
@@ -319,7 +319,10 @@ impl WorkloadApiClient {
         audience: T,
         jwt_token: &str,
     ) -> Result<JwtSvid, ClientError> {
-        self.validate_jwt(audience, jwt_token)?;
+        // validate token with Workload API, the returned claims and spiffe_id are ignored as
+        // they are parsed from token when the `JwtSvid` object is created, this way we avoid having
+        // to validate that the response from the Workload API contains correct claims.
+        let _ = self.validate_jwt(audience, jwt_token)?;
         let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
         Ok(jwt_svid)
     }
