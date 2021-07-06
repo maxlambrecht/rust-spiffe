@@ -1,6 +1,5 @@
 //! JWT SVID types.
 
-use std::convert::TryFrom;
 use std::str::FromStr;
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -138,33 +137,6 @@ impl Claims {
     }
 }
 
-impl TryFrom<protobuf::well_known_types::Struct> for Claims {
-    type Error = JwtSvidError;
-
-    fn try_from(claims: protobuf::well_known_types::Struct) -> Result<Self, Self::Error> {
-        let fields = claims.fields;
-        Ok(Claims {
-            sub: fields
-                .get("sub")
-                .ok_or_else(|| JwtSvidError::RequiredClaimMissing("sub".to_string()))?
-                .get_string_value()
-                .to_string(),
-            aud: fields
-                .get("aud")
-                .ok_or_else(|| JwtSvidError::RequiredClaimMissing("aud".to_string()))?
-                .get_list_value()
-                .values
-                .iter()
-                .map(|v| v.get_string_value().to_string())
-                .collect(),
-            exp: fields
-                .get("exp")
-                .ok_or_else(|| JwtSvidError::RequiredClaimMissing("exp".to_string()))?
-                .get_number_value() as u32,
-        })
-    }
-}
-
 #[derive(Debug, Clone, PartialEq)]
 struct Header {
     inner: jsonwebtoken::Header,
@@ -218,6 +190,11 @@ impl JwtSvid {
     /// Returns the serialized JWT token.
     pub fn token(&self) -> &str {
         self.token.as_ref()
+    }
+
+    /// Returns the SPIFFE ID ('aud' claim) of the token.
+    pub fn spiffe_id(&self) -> &SpiffeId {
+        &self.spiffe_id
     }
 
     /// Returns the audience as present in the 'aud' claim.

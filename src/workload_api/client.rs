@@ -36,7 +36,6 @@
 //! # }
 //! ```
 
-use std::convert::TryInto;
 use std::str::FromStr;
 
 use futures::executor::block_on;
@@ -54,7 +53,7 @@ use crate::proto::workload::{
 use crate::proto::workload_grpc;
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
-use crate::svid::jwt::{Claims, JwtSvid, JwtSvidError};
+use crate::svid::jwt::{JwtSvid, JwtSvidError};
 use crate::svid::x509::{X509Svid, X509SvidError};
 use crate::workload_api::address::{
     get_default_socket_path, validate_socket_path, SocketPathError,
@@ -303,13 +302,13 @@ impl WorkloadApiClient {
         }
     }
 
-    /// Validates a JWT SVID token against the given audience. Returns the [`SpiffeId`] of the
-    /// SVID and the JWT claims.
+    /// Validates a JWT SVID token against the given audience. Returns the [`JwtSvid`] parsed from
+    /// the validated token.
     ///
     /// # Arguments
     ///
     /// * `audience`  - The audience of the validating party. Cannot be empty nor contain an empty string.
-    /// * `jwt_svid` - The token to validate.
+    /// * `jwt_token` - The JWT token to validate.
     ///
     /// # Errors
     ///
@@ -319,16 +318,13 @@ impl WorkloadApiClient {
         &self,
         audience: T,
         jwt_token: &str,
-    ) -> Result<(SpiffeId, Option<Claims>), ClientError> {
-        let response = self.validate_jwt(audience, jwt_token)?;
-
-        let claims = response
-            .claims
-            .into_option()
-            .map(|claims| claims.try_into())
-            .transpose()?;
-
-        Ok((response.spiffe_id.try_into()?, claims))
+    ) -> Result<JwtSvid, ClientError> {
+        // validate token with Workload API, the returned claims and spiffe_id are ignored as
+        // they are parsed from token when the `JwtSvid` object is created, this way we avoid having
+        // to validate that the response from the Workload API contains correct claims.
+        let _ = self.validate_jwt(audience, jwt_token)?;
+        let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
+        Ok(jwt_svid)
     }
 }
 
