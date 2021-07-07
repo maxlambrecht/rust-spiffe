@@ -4,7 +4,7 @@ name = "spiffe"
 # When releasing to crates.io:
 # - Update CHANGELOG.md.
 # - Create a new tag
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
 description = "Rust client library implementation for SPIFFE"
 license = "Apache-2.0"
