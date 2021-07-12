@@ -80,17 +80,15 @@ fn fetch_x509_context() {
     assert_eq!(bundle.authorities().len(), 1);
 }
 
-// Enable after SPIRE 1.0 is released and CI script points to it,
-// as the current version of the Workload API doesn't have the fetch_x509_bundles method.
-// #[test]
-// #[ignore]
-// fn fetch_x509_bundles() {
-//     let client = WorkloadApiClient::default().unwrap();
-//     let bundles = client.fetch_x509_bundles().unwrap();
-//
-//     let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
-//     let bundle = bundle.unwrap().unwrap();
-//
-//     assert_eq!(bundle.trust_domain().to_string(), "example.org");
-//     assert_eq!(bundle.authorities().len(), 1);
-// }
+#[test]
+#[ignore]
+fn fetch_x509_bundles() {
+    let client = WorkloadApiClient::default().unwrap();
+    let bundles = client.fetch_x509_bundles().unwrap();
+
+    let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
+    let bundle = bundle.unwrap().unwrap();
+
+    assert_eq!(bundle.trust_domain().to_string(), "example.org");
+    assert_eq!(bundle.authorities().len(), 1);
+}
