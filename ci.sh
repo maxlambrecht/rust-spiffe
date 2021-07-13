@@ -4,6 +4,7 @@
 
 set -euf -o pipefail
 
+# name of the spire folder in the release tar
 spire_folder="spire-858d04b"
 
 function cleanup() {
