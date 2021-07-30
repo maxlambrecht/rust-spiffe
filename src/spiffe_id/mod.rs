@@ -60,10 +60,6 @@ pub enum SpiffeIdError {
     #[error("path cannot contain dot segments")]
     DotSegment,
 
-    /// Path must have a leading slash.
-    #[error("path must have a leading slash")]
-    NoLeadingSlash,
-
     /// Path cannot have a trailing slash.
     #[error("path cannot have a trailing slash")]
     TrailingSlash,
