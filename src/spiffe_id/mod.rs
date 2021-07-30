@@ -129,6 +129,45 @@ impl SpiffeId {
         Ok(SpiffeId { trust_domain, path })
     }
 
+    /// Returns a new SPIFFE ID in the given trust domain with joined
+    /// path segments. The path segments must be valid according to the SPIFFE
+    /// specification and must not contain path separators.
+    /// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+    ///
+    /// # Arguments
+    ///
+    /// * `trust_domain` - A [`TrustDomain`] object.
+    /// * `segments` - A slice of path segments.
+    ///
+    /// # Errors
+    ///
+    /// If the segments contain not allowed characters, a [`SpiffeIdError`] variant will be returned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use spiffe::spiffe_id::{SpiffeId, TrustDomain};
+    ///
+    /// let trust_domain = TrustDomain::new("trustdomain").unwrap();
+    /// let spiffe_id = SpiffeId::from_segments(trust_domain, &["path1", "path2", "path3"]).unwrap();
+    /// assert_eq!(
+    ///     "spiffe://trustdomain/path1/path2/path3",
+    ///     spiffe_id.to_string()
+    /// );
+    /// ```
+    pub fn from_segments(
+        trust_domain: TrustDomain,
+        segments: &[&str],
+    ) -> Result<Self, SpiffeIdError> {
+        let mut path = String::new();
+        for p in segments {
+            validate_path(p)?;
+            path = format!("{}/{}", path, p);
+        }
+
+        Ok(SpiffeId { trust_domain, path })
+    }
+
     /// Returns the trust domain of the SPIFFE ID.
     pub fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
@@ -173,18 +212,11 @@ impl TryFrom<&str> for SpiffeId {
     }
 }
 
-// Validates that a path string is a conformant path for a SPIFFE ID. Namely:
-// - does not contain an empty segments (including a trailing slash)
-// - does not contain dot segments (i.e. '.' or '..')
-// - does not contain any percent encoded characters
-// - has only characters from the unreserved or sub-delims set from RFC3986.
-fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
+/// Validates that a path string is a conformant path for a SPIFFE ID.
+/// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
         return Ok(());
-    }
-
-    if !path.starts_with('/') {
-        return Err(SpiffeIdError::NoLeadingSlash);
     }
 
     let mut segment_start = 0;
@@ -529,6 +561,35 @@ mod spiffe_id_tests {
                 assert_eq!(
                     SpiffeId::new(&td).unwrap_err(),
                     SpiffeIdError::BadTrustDomainChar
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_from_segments_with_all_chars() {
+        // Go all the way through 255, which ensures we reject UTF-8 appropriately
+        for i in 0..=255_u8 {
+            let c = i as char;
+
+            let path = format!("path{}", c);
+            let trust_domain = TrustDomain::new("trustdomain").unwrap();
+
+            if PATH_CHARS.contains(&c) {
+                let spiffe_id = SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap();
+                assert_eq!(
+                    spiffe_id.to_string(),
+                    format!("spiffe://trustdomain/{}", path)
+                )
+            } else if c == '/' {
+                assert_eq!(
+                    SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap_err(),
+                    SpiffeIdError::TrailingSlash
+                );
+            } else {
+                assert_eq!(
+                    SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap_err(),
+                    SpiffeIdError::BadPathSegmentChar
                 );
             }
         }
