@@ -120,7 +120,9 @@ impl SpiffeId {
         let td = &rest[0..i];
         let path = &rest[i..];
 
-        validate_path(path)?;
+        if !path.is_empty() {
+            validate_path(path)?;
+        }
 
         let trust_domain = TrustDomain {
             name: td.to_string(),
@@ -216,7 +218,7 @@ impl TryFrom<&str> for SpiffeId {
 /// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
 pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
-        return Ok(());
+        return Err(SpiffeIdError::Empty);
     }
 
     let mut segment_start = 0;
