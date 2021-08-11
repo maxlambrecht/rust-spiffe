@@ -6,10 +6,8 @@ set -euf -o pipefail
 
 export SPIFFE_ENDPOINT_SOCKET="unix:/tmp/spire-agent/public/api.sock"
 
-spire_version="1.0.0"
-
-# name of the spire folder in the release tar
-spire_folder="spire-858d04b"
+spire_version="1.0.1"
+spire_folder="spire-${spire_version}"
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_agent_log_file="/tmp/spire-agent/agent.log"
 agent_id="spiffe://example.org/myagent"
@@ -70,7 +68,7 @@ fi
 
 # Register the workload through UID with the SPIFFE ID "spiffe://example.org/myservice"
 bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/myservice -selector unix:uid:$(id -u)
-sleep 10  # this value is derived from the default Agent sync interval0
+sleep 10  # this value is derived from the default Agent sync interval
 popd
 
 RUST_BACKTRACE=1 cargo test -- --include-ignored
