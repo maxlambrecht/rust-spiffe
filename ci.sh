@@ -6,7 +6,7 @@ set -euf -o pipefail
 
 export SPIFFE_ENDPOINT_SOCKET="unix:/tmp/spire-agent/public/api.sock"
 
-spire_version="1.0.1"
+spire_version="1.0.2"
 spire_folder="spire-${spire_version}"
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_agent_log_file="/tmp/spire-agent/agent.log"
