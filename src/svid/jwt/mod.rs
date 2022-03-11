@@ -2,7 +2,6 @@
 
 use std::str::FromStr;
 
-use chrono::{DateTime, TimeZone, Utc};
 use jsonwebtoken::{dangerous_insecure_decode, Algorithm};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use thiserror::Error;
@@ -15,6 +14,7 @@ use crate::svid::Svid;
 use std::error::Error;
 use std::fmt;
 use std::marker::PhantomData;
+use time::{Date, OffsetDateTime};
 
 const SUPPORTED_ALGORITHMS: &[Algorithm; 8] = &[
     Algorithm::RS256,
@@ -33,7 +33,8 @@ const SUPPORTED_ALGORITHMS: &[Algorithm; 8] = &[
 #[derive(Debug, Clone, PartialEq)]
 pub struct JwtSvid {
     spiffe_id: SpiffeId,
-    expiry: DateTime<Utc>,
+    expiry: Date,
+    // expiry: DateTime<Utc>,
     claims: Claims,
     kid: String,
     alg: Algorithm,
@@ -203,7 +204,7 @@ impl JwtSvid {
     }
 
     /// Returns the expiration date of the JWT token.
-    pub fn expiry(&self) -> &DateTime<Utc> {
+    pub fn expiry(&self) -> &Date {
         &self.expiry
     }
 
@@ -264,7 +265,9 @@ impl FromStr for JwtSvid {
 
         let claims = token_data.claims;
         let spiffe_id = SpiffeId::from_str(&claims.sub)?;
-        let expiry = Utc.timestamp(i64::from(claims.exp), 0);
+
+        let expiry = OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
+        let expiry = expiry.date();
 
         let kid = match token_data.header.kid {
             None => return Err(JwtSvidError::MissingKeyId),
