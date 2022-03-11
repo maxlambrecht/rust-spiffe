@@ -46,10 +46,9 @@ pub(crate) fn get_x509_extension<'a, 'b>(
     cert: &'a X509Certificate<'_>,
     oid: &'b Oid<'a>,
 ) -> Result<&'a ParsedExtension<'a>, CertificateError> {
-    let extensions = &cert.tbs_certificate.extensions;
-    let parsed_extension = match extensions.get(oid) {
+    let parsed_extension = match &cert.tbs_certificate.get_extension_unique(&oid)? {
         None => {
-            return Err(CertificateError::MissingX509Extension(oid.to_string()));
+            return Err(CertificateError::MissingX509Extension(oid.to_string()))
         }
         Some(s) => s.parsed_extension(),
     };
