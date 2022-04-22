@@ -1,4 +1,9 @@
 
+## 0.2.1 (April, 22, 2022)
+
+  * Fix the chrono RUSTSEC advisory (#17)
+  * Replace `chrono` by `time` crate.
+
 ## 0.2.0 (July 6, 2021)
 
   * Strict SPIFFE ID parsing (#8)
