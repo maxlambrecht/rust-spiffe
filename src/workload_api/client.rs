@@ -115,7 +115,7 @@ pub enum ClientError {
     InvalidTrustDomain(#[from] SpiffeIdError),
 
     /// Error returned by the GRPC library, when there is an error connecting to the Workload API.
-    #[error("error response from the Workload API")]
+    #[error("error response from the Workload API: {0}")]
     Grpc(#[from] grpcio::Error),
 }
 
