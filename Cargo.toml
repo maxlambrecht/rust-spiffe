@@ -32,7 +32,7 @@ time = "0.3"
 [target.'cfg(target_os = "linux")'.dependencies]
 grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(not(target_os = "linux"))'.dependencies]
 grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec", "use-bindgen"] }
 
 
