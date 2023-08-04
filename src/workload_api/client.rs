@@ -45,21 +45,14 @@ use thiserror::Error;
 use crate::bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
 use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 
-#[cfg(feature = "grpcio")]
 use crate::proto::workload::{
     JWTBundlesRequest, JWTBundlesResponse, JWTSVIDRequest, JWTSVIDResponse, ValidateJWTSVIDRequest,
     ValidateJWTSVIDResponse, X509BundlesRequest, X509BundlesResponse, X509SVIDRequest,
     X509SVIDResponse,
 };
-#[cfg(feature = "grpcio")]
 use crate::proto::workload_grpc;
-#[cfg(feature = "grpcio")]
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
-#[cfg(feature = "grpcio")]
 use grpcio::{CallOption, ChannelBuilder, EnvBuilder};
-
-#[cfg(feature = "tonic")]
-use crate::proto::spire::api;
 
 
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
