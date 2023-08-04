@@ -79,6 +79,11 @@ use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 #[cfg(feature = "tonic")]
 use tonic::metadata::*;
+#[cfg(feature = "tonic")]
+use crate::proto::spire::api::workload::{
+    JwtBundlesRequest, JwtBundlesResponse, Jwtsvid, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest, ValidateJwtsvidResponse,
+    X509BundlesRequest, X509BundlesResponse, X509svid, X509svidRequest, X509svidResponse, spiffe_workload_api_client::SpiffeWorkloadApiClient,
+};
 
 
 /// The default SVID is the first in the list of SVIDs returned by the Workload API.
@@ -159,7 +164,7 @@ pub enum ClientError {
 ///
 /// NOTE: It will support 'watch-for-updates' methods on later versions.
 pub struct WorkloadApiClient {
-    client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient<
+    client: SpiffeWorkloadApiClient<
         tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>
     >,
 }
@@ -190,7 +195,7 @@ impl WorkloadApiClient {
         }))
         .await?;
         
-        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder{})})
+        Ok(WorkloadApiClient{client:SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder{})})
     }
 
     /// Creates a new `WorkloadApiClient` using the default socket endpoint address.
@@ -212,14 +217,14 @@ impl WorkloadApiClient {
 
     /// new returns a new client
     pub fn new(conn: tonic::transport::Channel) -> Result<Self, ClientError> {
-        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::with_interceptor(conn, MetadataAdder{})})
+        Ok(WorkloadApiClient{client:SpiffeWorkloadApiClient::with_interceptor(conn, MetadataAdder{})})
     }
 
     /// Fetch a single x509_svid
     pub async fn fetch_x509_svid(mut self) -> Result<X509Svid, ClientError> {
-        let request = crate::proto::spire::api::workload::X509svidRequest::default();
+        let request = X509svidRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<crate::proto::spire::api::workload::X509svidResponse>> = self.client.fetch_x509svid(request).await?;
+        let response: tonic::Response<tonic::Streaming<X509svidResponse>> = self.client.fetch_x509svid(request).await?;
         let initial = response.into_inner().message().await?;
         WorkloadApiClient::parse_x509_svid_from_grpc_response(initial.unwrap_or_default())
     }
@@ -231,18 +236,159 @@ impl WorkloadApiClient {
     /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
     /// there is a problem processing the response.
     pub async fn fetch_x509_bundles(mut self) -> Result<X509BundleSet, ClientError> {
-        let request = crate::proto::spire::api::workload::X509BundlesRequest::default();
+        let request = X509BundlesRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<crate::proto::spire::api::workload::X509BundlesResponse>> = self.client.fetch_x509_bundles(request).await?;
+        let response: tonic::Response<tonic::Streaming<X509BundlesResponse>> = self.client.fetch_x509_bundles(request).await?;
         let initial = response.into_inner().message().await?;
         WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(initial.unwrap_or_default())
+    }
+
+
+    /// Fetches [`JwtBundleSet`] that is a set of [`JwtBundle`] keyed by the trust domain to which they belong.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn fetch_jwt_bundles(mut self) -> Result<JwtBundleSet, ClientError> {
+        let request = JwtBundlesRequest::default();
+
+        let response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> = self.client.fetch_jwt_bundles(request).await?;
+        let initial = response.into_inner().message().await?;
+
+        WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(initial.unwrap_or_default())
+    }
+
+    /// Fetches the [`X509Context`], which contains all the X.509 materials,
+    /// i.e. X509-SVIDs and X.509 bundles.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn fetch_x509_context(mut self) -> Result<X509Context, ClientError> {
+        let request = X509svidRequest::default();
+
+        let response: tonic::Response<tonic::Streaming<X509svidResponse>> = self.client.fetch_x509svid(request).await?;
+        let initial = response.into_inner().message().await?;
+        WorkloadApiClient::parse_x509_context_from_grpc_response(initial.unwrap_or_default())
+    }
+
+    /// Fetches a [`JwtSvid`] parsing the JWT token in the Workload API response, for the given audience and spiffe_id.
+    ///
+    /// # Arguments
+    ///
+    /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
+    /// * `spiffe_id` - Optional [`SpiffeId`] for the token 'sub' claim. If not provided, the Workload API returns the
+    /// default identity.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    ///
+    /// IMPORTANT: If there's no registration entries with the requested [`SpiffeId`] mapped to the calling workload,
+    /// it will return a [`ClientError::EmptyResponse`].
+    pub async fn fetch_jwt_svid<T: AsRef<str> + ToString>(
+        self,
+        audience: &[T],
+        spiffe_id: Option<&SpiffeId>,
+    ) -> Result<JwtSvid, ClientError> {
+        let response = self.fetch_jwt(audience, spiffe_id).await?;
+        match response.svids.get(DEFAULT_SVID) {
+            Some(r) => Ok(JwtSvid::from_str(&r.svid)?),
+            None => Err(ClientError::EmptyResponse),
+        }
+    }
+
+    /// Fetches a JWT token for the given audience and [`SpiffeId`].
+    ///
+    /// # Arguments
+    ///
+    /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
+    /// * `spiffe_id` - Optional reference [`SpiffeId`] for the token 'sub' claim. If not provided, the Workload API returns the
+    /// default identity,
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    ///
+    /// IMPORTANT: If there's no registration entries with the requested [`SpiffeId`] mapped to the calling workload,
+    /// it will return a [`ClientError::EmptyResponse`].
+    pub async fn fetch_jwt_token<T: AsRef<str> + ToString>(
+        self,
+        audience: &[T],
+        spiffe_id: Option<&SpiffeId>,
+    ) -> Result<String, ClientError> {
+        let response = self.fetch_jwt(audience, spiffe_id).await?;
+        match response.svids.get(DEFAULT_SVID) {
+            Some(r) => Ok(r.svid.to_string()),
+            None => Err(ClientError::EmptyResponse),
+        }
+    }
+
+    /// Validates a JWT SVID token against the given audience. Returns the [`JwtSvid`] parsed from
+    /// the validated token.
+    ///
+    /// # Arguments
+    ///
+    /// * `audience`  - The audience of the validating party. Cannot be empty nor contain an empty string.
+    /// * `jwt_token` - The JWT token to validate.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn validate_jwt_token<T: AsRef<str> + ToString>(
+        self,
+        audience: T,
+        jwt_token: &str,
+    ) -> Result<JwtSvid, ClientError> {
+        // validate token with Workload API, the returned claims and spiffe_id are ignored as
+        // they are parsed from token when the `JwtSvid` object is created, this way we avoid having
+        // to validate that the response from the Workload API contains correct claims.
+        let _ = self.validate_jwt(audience, jwt_token).await?;
+        let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
+        Ok(jwt_svid)
     }
 }
 
 /// private
 impl WorkloadApiClient{
+
+   async fn fetch_jwt<T: AsRef<str> + ToString>(
+        mut self,
+        audience: &[T],
+        spiffe_id: Option<&SpiffeId>,
+    ) -> Result<JwtsvidResponse, ClientError> {
+        let mut request = JwtsvidRequest::default();
+        if let Some(s) = spiffe_id {
+            request.spiffe_id = s.to_string()
+        }
+        audience
+            .iter()
+            .for_each(|s| request.audience.push(s.to_string()));
+
+        
+        Ok(self.client.fetch_jwtsvid(request).await?.into_inner())
+    }
+
+    async fn validate_jwt<T: AsRef<str> + ToString>(
+        mut self,
+        audience: T,
+        jwt_svid: &str,
+    ) -> Result<ValidateJwtsvidResponse, ClientError> {
+        let mut request = ValidateJwtsvidRequest{
+            audience: audience.to_string(),
+            svid: jwt_svid.to_string(),
+        };
+
+        Ok(self.client.validate_jwtsvid(request).await?.into_inner())
+    }
+
     fn parse_x509_svid_from_grpc_response(
-        response: crate::proto::spire::api::workload::X509svidResponse,
+        response: X509svidResponse,
     ) -> Result<X509Svid, ClientError> {
         let svid = match response.svids.get(DEFAULT_SVID) {
             None => return Err(ClientError::EmptyResponse),
@@ -257,7 +403,7 @@ impl WorkloadApiClient{
     }
 
     fn parse_x509_bundle_set_from_grpc_response(
-        response: crate::proto::spire::api::workload::X509BundlesResponse,
+        response: X509BundlesResponse,
     ) -> Result<X509BundleSet, ClientError> {
         let mut bundle_set = X509BundleSet::new();
 
@@ -270,6 +416,45 @@ impl WorkloadApiClient{
             bundle_set.add_bundle(bundle);
         }
         Ok(bundle_set)
+    }
+
+    fn parse_jwt_bundle_set_from_grpc_response(
+        response: JwtBundlesResponse,
+    ) -> Result<JwtBundleSet, ClientError> {
+        let mut bundle_set = JwtBundleSet::new();
+
+        for (td, bundle) in response.bundles.into_iter() {
+            let trust_domain = TrustDomain::try_from(td)?;
+            let bundle = match JwtBundle::from_jwt_authorities(trust_domain, &bundle) {
+                Ok(b) => b,
+                Err(e) => return Err(e.into()),
+            };
+            bundle_set.add_bundle(bundle);
+        }
+        Ok(bundle_set)
+    }
+
+    fn parse_x509_context_from_grpc_response(
+        response: X509svidResponse,
+    ) -> Result<X509Context, ClientError> {
+        let mut svids = Vec::new();
+        let mut bundle_set = X509BundleSet::new();
+        for svid in response.svids.into_iter() {
+            let x509_svid =
+                match X509Svid::parse_from_der(svid.x509_svid.as_ref(), svid.x509_svid_key.as_ref()) {
+                    Ok(s) => s,
+                    Err(e) => return Err(e.into()),
+                };
+            let trust_domain = x509_svid.spiffe_id().trust_domain().clone();
+            svids.push(x509_svid);
+            let bundle = match X509Bundle::parse_from_der(trust_domain, svid.bundle.as_ref()) {
+                Ok(b) => b,
+                Err(e) => return Err(e.into()),
+            };
+            bundle_set.add_bundle(bundle);
+        }
+
+        Ok(X509Context::new(svids, bundle_set))
     }
 }
 
