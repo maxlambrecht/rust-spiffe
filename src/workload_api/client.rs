@@ -32,6 +32,9 @@
 //! // fetch all the X.509 materials (SVIDs and bundles)
 //! let x509_context: X509Context = client.fetch_x509_context()?;
 //!
+//! // fetch a stream of X.509 materials (SVIDS and bundles)
+//! let x509_context_stream = client.watch_x509_context_stream()?;
+//!
 //! # Ok(())
 //! # }
 //! ```
@@ -59,6 +62,7 @@ use crate::workload_api::address::{
     get_default_socket_path, validate_socket_path, SocketPathError,
 };
 use crate::workload_api::x509_context::X509Context;
+use futures::Stream;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
@@ -325,6 +329,31 @@ impl WorkloadApiClient {
         let _ = self.validate_jwt(audience, jwt_token)?;
         let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
         Ok(jwt_svid)
+    }
+
+    /// Watches for updates to the [`X509Context`], which contains all the X.509 materials,
+    /// i.e. X509-SVIDs and X.509 bundles.
+    ///
+    /// Returns a stream of [`X509Context`] items.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is an error connecting to the Workload API.
+    pub fn watch_x509_context_stream(
+        &self,
+    ) -> Result<impl Stream<Item = Result<X509Context, ClientError>>, ClientError> {
+        let request = X509SVIDRequest::new();
+
+        let response = self
+            .client
+            .fetch_x509_svid_opt(&request, WorkloadApiClient::call_options()?)?;
+
+        let stream = response.map(|item| match item {
+            Ok(resp) => WorkloadApiClient::parse_x509_context_from_grpc_response(resp),
+            Err(e) => Err(ClientError::Grpc(e)),
+        });
+
+        Ok(stream)
     }
 }
 
