@@ -8,9 +8,10 @@ fn main() -> Result<(), anyhow::Error> {
         .compile_with_config(
             proto_config,
             &[
+                "spire-api-sdk/proto/spire/api/agent/delegatedidentity/v1/delegatedidentity.proto",
                 "src/proto/workload.proto",
                 ],
-            &["src/proto"],
+            &["spire-api-sdk/proto", "src/proto"],
         )?;
 
     Ok(())

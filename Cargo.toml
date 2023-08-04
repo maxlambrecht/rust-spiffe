@@ -15,7 +15,7 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "X509", "JWT"]
 
 [dependencies]
-protobuf = "2.27"
+protobuf = {version = "2.27", optional = true }
 futures = "0.3"
 thiserror = "1.0"
 url = "2.2"
@@ -29,15 +29,15 @@ serde_json = "1.0"
 zeroize = { version = "1.4", features = ["zeroize_derive"] }
 time = "0.3"
 
-tonic = { version = "0.8", default-features = false, features = ["prost", "codegen", "transport"] }
-prost = "0.11"
-prost-types = "0.11.1"
+tonic = { version = "0.8", default-features = false, features = ["prost", "codegen", "transport"], optional = true }
+prost = { version = "0.11" , optional = true }
+prost-types = {version = "0.11.1", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec"] }
+grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec", "use-bindgen"] }
+grpcio = { version = "0.9", default-features = false, features = ["protobuf-codec", "use-bindgen"], optional = true  }
 
 
 [dev-dependencies]
@@ -51,3 +51,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 tonic-build = { version = "0.8", default-features = false, features = ["prost"] }
 prost-build = "0.11"
 anyhow = "1.0.65"
+
+[features]
+tonic = ["dep:tonic", "dep:prost", "dep:prost-types"]
+grpcio = ["dep:grpcio", "dep:protobuf"]
+default = ["grpcio"]
