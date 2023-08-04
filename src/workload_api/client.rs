@@ -45,13 +45,17 @@ use thiserror::Error;
 use crate::bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
 use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 
+#[cfg(feature = "grpcio")]
 use crate::proto::workload::{
     JWTBundlesRequest, JWTBundlesResponse, JWTSVIDRequest, JWTSVIDResponse, ValidateJWTSVIDRequest,
     ValidateJWTSVIDResponse, X509BundlesRequest, X509BundlesResponse, X509SVIDRequest,
     X509SVIDResponse,
 };
+#[cfg(feature = "grpcio")]
 use crate::proto::workload_grpc;
+#[cfg(feature = "grpcio")]
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
+#[cfg(feature = "grpcio")]
 use grpcio::{CallOption, ChannelBuilder, EnvBuilder};
 
 
@@ -65,6 +69,16 @@ use crate::workload_api::x509_context::X509Context;
 use std::convert::TryFrom;
 use std::sync::Arc;
 
+
+
+#[cfg(feature = "tonic")]
+use tokio::net::UnixStream;
+#[cfg(feature = "tonic")]
+use tonic::transport::{Endpoint, Uri};
+#[cfg(feature = "tonic")]
+use tower::service_fn;
+
+
 /// The default SVID is the first in the list of SVIDs returned by the Workload API.
 pub const DEFAULT_SVID: usize = 0;
 
@@ -76,6 +90,7 @@ const SPIFFE_HEADER_VALUE: &str = "true";
 /// Supports one-shot calls for X.509 and JWT SVIDs and bundles.
 ///
 /// NOTE: It will support 'watch-for-updates' methods on later versions.
+#[cfg(feature = "grpcio")]
 #[allow(missing_debug_implementations)]
 pub struct WorkloadApiClient {
     client: workload_grpc::SpiffeWorkloadApiClient,
@@ -118,10 +133,76 @@ pub enum ClientError {
     InvalidTrustDomain(#[from] SpiffeIdError),
 
     /// Error returned by the GRPC library, when there is an error connecting to the Workload API.
+    #[cfg(feature = "grpcio")]
     #[error("error response from the Workload API")]
     Grpc(#[from] grpcio::Error),
+
+    /// Error returned by the GRPC library, when there is an error connecting to the Workload API.
+    #[cfg(feature = "tonic")]
+    #[error("error response from the Workload API")]
+    Grpc(#[from] tonic::Status),
 }
 
+#[cfg(feature = "tonic")]
+#[allow(missing_debug_implementations)]
+/// This type represents a client to interact with the Workload API.
+///
+/// Supports one-shot calls for X.509 and JWT SVIDs and bundles.
+///
+/// NOTE: It will support 'watch-for-updates' methods on later versions.
+pub struct WorkloadApiClient {
+    client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient<tonic::transport::Channel>,
+}
+
+#[cfg(feature = "tonic")]
+/// public
+impl WorkloadApiClient {
+    /// new returns a new client
+    pub async fn new_from_path(path: String) -> Result<Self, Box<dyn std::error::Error>> {
+        // let inner_path = path.clonme
+        let channel = Endpoint::try_from("http://[::]:50051")?
+        .connect_with_connector(service_fn(move |_: Uri| {
+            // Connect to a Uds socket
+            UnixStream::connect(path.clone())
+        }))
+        .await?;
+        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(channel)})
+    }
+    /// new returns a new client
+    pub fn new(conn: tonic::transport::Channel) -> Result<Self, Box<dyn std::error::Error>> {
+        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(conn)})
+    }
+
+    /// Fetch a single x509_svid
+    pub async fn fetch_x509_svid(mut self) -> Result<X509Svid, ClientError> {
+        let request = crate::proto::spire::api::workload::X509svidRequest::default();
+
+        let response = self.client.fetch_x509svid(request).await?;
+        let initial = response.into_inner().message().await?;
+        WorkloadApiClient::parse_x509_svid_from_grpc_response(initial.unwrap_or_default())
+    }
+}
+
+/// private
+impl WorkloadApiClient{
+    fn parse_x509_svid_from_grpc_response(
+        response: crate::proto::spire::api::workload::X509svidResponse,
+    ) -> Result<X509Svid, ClientError> {
+        let svid = match response.svids.get(DEFAULT_SVID) {
+            None => return Err(ClientError::EmptyResponse),
+            Some(s) => s,
+        };
+        let x509_svid =
+            match X509Svid::parse_from_der(svid.x509_svid.as_ref(), svid.x509_svid_key.as_ref()) {
+                Ok(s) => s,
+                Err(e) => return Err(e.into()),
+            };
+        Ok(x509_svid)
+    }
+}
+
+
+#[cfg(feature = "grpcio")]
 impl WorkloadApiClient {
     /// Creates a new `WorkloadApiClient` with the given Workload API socket path.
     ///
@@ -332,6 +413,7 @@ impl WorkloadApiClient {
 }
 
 // Private methods
+#[cfg(feature = "grpcio")]
 impl WorkloadApiClient {
     fn call_options() -> Result<CallOption, ClientError> {
         let mut metadata = grpcio::MetadataBuilder::new();
