@@ -141,6 +141,11 @@ pub enum ClientError {
     #[cfg(feature = "tonic")]
     #[error("error response from the Workload API")]
     Grpc(#[from] tonic::Status),
+
+    /// Error returned by the GRPC library, when there is an error connecting to the Workload API.
+    #[cfg(feature = "tonic")]
+    #[error("Error creating transport")]
+    Transport(#[from] tonic::transport::Error),
 }
 
 #[cfg(feature = "tonic")]
@@ -158,7 +163,7 @@ pub struct WorkloadApiClient {
 /// public
 impl WorkloadApiClient {
     /// new returns a new client
-    pub async fn new_from_path(path: String) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new_from_path(path: String) -> Result<Self, ClientError> {
         // let inner_path = path.clonme
         let channel = Endpoint::try_from("http://[::]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
@@ -168,8 +173,26 @@ impl WorkloadApiClient {
         .await?;
         Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(channel)})
     }
+
+    /// Creates a new `WorkloadApiClient` using the default socket endpoint address.
+    ///
+    /// Requires that the environment variable `SPIFFE_ENDPOINT_SOCKET` be set with
+    /// the path to the Workload API endpoint socket.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if environment variable is not set or if
+    /// the provided socket path is not valid.
+    pub async fn default() -> Result<Self, ClientError> {
+        let socket_path = match get_default_socket_path() {
+            None => return Err(ClientError::MissingEndpointSocketPath),
+            Some(s) => s,
+        };
+        Self::new_from_path(socket_path).await
+    }
+
     /// new returns a new client
-    pub fn new(conn: tonic::transport::Channel) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(conn: tonic::transport::Channel) -> Result<Self, ClientError> {
         Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(conn)})
     }
 
@@ -177,7 +200,7 @@ impl WorkloadApiClient {
     pub async fn fetch_x509_svid(mut self) -> Result<X509Svid, ClientError> {
         let request = crate::proto::spire::api::workload::X509svidRequest::default();
 
-        let response = self.client.fetch_x509svid(request).await?;
+        let response: tonic::Response<tonic::Streaming<crate::proto::spire::api::workload::X509svidResponse>> = self.client.fetch_x509svid(request).await?;
         let initial = response.into_inner().message().await?;
         WorkloadApiClient::parse_x509_svid_from_grpc_response(initial.unwrap_or_default())
     }
