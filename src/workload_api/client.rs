@@ -204,6 +204,20 @@ impl WorkloadApiClient {
         let initial = response.into_inner().message().await?;
         WorkloadApiClient::parse_x509_svid_from_grpc_response(initial.unwrap_or_default())
     }
+
+    /// Fetches [`X509BundleSet`], that is a set of [`X509Bundle`] keyed by the trust domain to which they belong.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn fetch_x509_bundles(mut self) -> Result<X509BundleSet, ClientError> {
+        let request = crate::proto::spire::api::workload::X509BundlesRequest::default();
+
+        let response: tonic::Response<tonic::Streaming<crate::proto::spire::api::workload::X509BundlesResponse>> = self.client.fetch_x509_bundles(request).await?;
+        let initial = response.into_inner().message().await?;
+        WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(initial.unwrap_or_default())
+    }
 }
 
 /// private
@@ -221,6 +235,22 @@ impl WorkloadApiClient{
                 Err(e) => return Err(e.into()),
             };
         Ok(x509_svid)
+    }
+
+    fn parse_x509_bundle_set_from_grpc_response(
+        response: crate::proto::spire::api::workload::X509BundlesResponse,
+    ) -> Result<X509BundleSet, ClientError> {
+        let mut bundle_set = X509BundleSet::new();
+
+        for (td, bundle) in response.bundles.into_iter() {
+            let trust_domain = TrustDomain::try_from(td)?;
+            let bundle = match X509Bundle::parse_from_der(trust_domain, &bundle) {
+                Ok(b) => b,
+                Err(e) => return Err(e.into()),
+            };
+            bundle_set.add_bundle(bundle);
+        }
+        Ok(bundle_set)
     }
 }
 
