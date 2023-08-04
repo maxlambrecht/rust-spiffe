@@ -77,6 +77,8 @@ use tokio::net::UnixStream;
 use tonic::transport::{Endpoint, Uri};
 #[cfg(feature = "tonic")]
 use tower::service_fn;
+#[cfg(feature = "tonic")]
+use tonic::metadata::*;
 
 
 /// The default SVID is the first in the list of SVIDs returned by the Workload API.
@@ -150,13 +152,28 @@ pub enum ClientError {
 
 #[cfg(feature = "tonic")]
 #[allow(missing_debug_implementations)]
+#[derive(Clone)]
 /// This type represents a client to interact with the Workload API.
 ///
 /// Supports one-shot calls for X.509 and JWT SVIDs and bundles.
 ///
 /// NOTE: It will support 'watch-for-updates' methods on later versions.
 pub struct WorkloadApiClient {
-    client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient<tonic::transport::Channel>,
+    client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient<
+        tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>
+    >,
+}
+
+#[cfg(feature = "tonic")]
+#[derive(Clone)]
+struct MetadataAdder;
+
+#[cfg(feature = "tonic")]
+impl tonic::service::Interceptor for MetadataAdder {
+    fn call(&mut self, mut request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+        request.metadata_mut().insert(SPIFFE_HEADER_KEY, SPIFFE_HEADER_VALUE.parse().unwrap());
+        Ok(request)
+    }
 }
 
 #[cfg(feature = "tonic")]
@@ -167,11 +184,13 @@ impl WorkloadApiClient {
         // let inner_path = path.clonme
         let channel = Endpoint::try_from("http://[::]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
+
             // Connect to a Uds socket
             UnixStream::connect(path.clone())
         }))
         .await?;
-        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(channel)})
+        
+        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder{})})
     }
 
     /// Creates a new `WorkloadApiClient` using the default socket endpoint address.
@@ -193,7 +212,7 @@ impl WorkloadApiClient {
 
     /// new returns a new client
     pub fn new(conn: tonic::transport::Channel) -> Result<Self, ClientError> {
-        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::new(conn)})
+        Ok(WorkloadApiClient{client: crate::proto::spire::api::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient::with_interceptor(conn, MetadataAdder{})})
     }
 
     /// Fetch a single x509_svid
