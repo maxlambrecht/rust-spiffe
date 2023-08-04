@@ -23,7 +23,7 @@ function cleanup() {
 trap cleanup EXIT
 
 # Install and run a SPIRE server
-curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-x86_64-glibc.tar.gz | tar xz
+curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-glibc.tar.gz | tar xz
 pushd "${spire_folder}"
 mkdir -p /tmp/spire-server
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
