@@ -15,18 +15,18 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "X509", "JWT"]
 
 [dependencies]
-protobuf = "2.27"
+protobuf = "2.28"
 futures = "0.3"
 thiserror = "1.0"
 url = "2.2"
 asn1 = { package = "simple_asn1", version = "0.6" }
-x509-parser = "0.13"
-pkcs8 = "0.8"
-jsonwebtoken = "8.1"
+x509-parser = "0.15"
+pkcs8 = "0.10"
+jsonwebtoken = "8.3"
 jsonwebkey = { version = "0.3", features = ["jsonwebtoken", "jwt-convert"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-zeroize = { version = "1.4", features = ["zeroize_derive"] }
+zeroize = { version = "1.6", features = ["zeroize_derive"] }
 time = "0.3"
 
 [target.'cfg(target_os = "linux")'.dependencies]
