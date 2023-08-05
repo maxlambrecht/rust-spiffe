@@ -75,8 +75,7 @@ const SPIFFE_HEADER_VALUE: &str = "true";
 /// This type represents a client to interact with the Workload API.
 ///
 /// Supports one-shot calls for X.509 and JWT SVIDs and bundles.
-///
-/// NOTE: It will support 'watch-for-updates' methods on later versions.
+/// Also supports a stream of X.509-Context (SVIDs and bundles).
 #[allow(missing_debug_implementations)]
 pub struct WorkloadApiClient {
     client: workload_grpc::SpiffeWorkloadApiClient,
