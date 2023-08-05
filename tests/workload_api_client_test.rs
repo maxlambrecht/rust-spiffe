@@ -4,6 +4,7 @@
 use spiffe::bundle::BundleRefSource;
 use spiffe::spiffe_id::TrustDomain;
 use spiffe::workload_api::client::WorkloadApiClient;
+use spiffe::workload_api::x509_context::X509Context;
 
 #[test]
 #[ignore]
@@ -63,7 +64,45 @@ fn fetch_x509_svid() {
 fn fetch_x509_context() {
     let client = WorkloadApiClient::default().unwrap();
     let x509_context = client.fetch_x509_context().unwrap();
+    validate_x509_context(&x509_context);
+}
 
+#[test]
+#[ignore]
+fn fetch_x509_bundles() {
+    let client = WorkloadApiClient::default().unwrap();
+    let bundles = client.fetch_x509_bundles().unwrap();
+
+    let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
+    let bundle = bundle.unwrap().unwrap();
+
+    assert_eq!(bundle.trust_domain().to_string(), "example.org");
+    assert_eq!(bundle.authorities().len(), 1);
+}
+
+#[test]
+#[ignore]
+fn watch_x509_context_stream() {
+    use futures::StreamExt;
+
+    let client = WorkloadApiClient::default().unwrap();
+    let mut x509_context_stream = client.watch_x509_context_stream().unwrap();
+
+    let mut updates_received = 0;
+    while updates_received < 3 {
+        match tokio_test::block_on(x509_context_stream.next()) {
+            Some(Ok(x509_context)) => {
+                assert!(x509_context.svids().len() > 0);
+                updates_received += 1;
+                validate_x509_context(&x509_context);
+            }
+            Some(Err(e)) => panic!("Error occurred while watching X509Context: {:?}", e),
+            None => panic!("X509Context stream ended unexpectedly"),
+        };
+    }
+}
+
+fn validate_x509_context(x509_context: &X509Context) {
     let svid = x509_context.default_svid().unwrap();
     assert_eq!(
         svid.spiffe_id().to_string(),
@@ -74,19 +113,6 @@ fn fetch_x509_context() {
     let bundle = x509_context
         .bundle_set()
         .get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
-    let bundle = bundle.unwrap().unwrap();
-
-    assert_eq!(bundle.trust_domain().to_string(), "example.org");
-    assert_eq!(bundle.authorities().len(), 1);
-}
-
-#[test]
-#[ignore]
-fn fetch_x509_bundles() {
-    let client = WorkloadApiClient::default().unwrap();
-    let bundles = client.fetch_x509_bundles().unwrap();
-
-    let bundle = bundles.get_bundle_for_trust_domain(&TrustDomain::new("example.org").unwrap());
     let bundle = bundle.unwrap().unwrap();
 
     assert_eq!(bundle.trust_domain().to_string(), "example.org");

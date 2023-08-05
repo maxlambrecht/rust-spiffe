@@ -66,8 +66,8 @@ if [ ${spire_agent_started} -ne 1 ]; then
     exit 1
 fi
 
-# Register the workload through UID with the SPIFFE ID "spiffe://example.org/myservice"
-bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/myservice -selector unix:uid:$(id -u)
+# Register the workload through UID with the SPIFFE ID "spiffe://example.org/myservice" with a TTL of 3 seconds
+bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/myservice -selector unix:uid:$(id -u) -ttl 3
 sleep 10  # this value is derived from the default Agent sync interval
 popd
 

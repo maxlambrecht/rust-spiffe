@@ -33,6 +33,7 @@ grpcio = { version = "0.12", default-features = false, features = ["protobuf-cod
 
 [dev-dependencies]
 jsonwebkey = { version = "0.3", features = ["generate"] }
+tokio-test = "0.4"
 
 # used to verify in tests that the certificates bytes from the X.509 SVIDs and bundle authorities
 # are parseable as OpenSSL X.509 certificates.
