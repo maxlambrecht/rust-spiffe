@@ -1,3 +1,11 @@
+# Changelog
+
+## 0.2.2 (August 5, 2023)
+
+  * Add `watch_x509_context_stream` method to `WorkloadApiClient` (#28)
+  * Update `grpcio` to `0.12.0` (#27)
+  * Update dependencies (#26)
+  * Add error info to `grpcio:Error` (#25)
 
 ## 0.2.1 (April, 22, 2022)
 
