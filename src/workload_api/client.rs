@@ -38,8 +38,6 @@
 
 use std::str::FromStr;
 
-use futures::executor::block_on;
-use futures::StreamExt;
 use thiserror::Error;
 
 use crate::bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
@@ -57,6 +55,12 @@ use crate::proto::workload_grpc;
 use crate::proto::workload_grpc::SpiffeWorkloadApiClient;
 #[cfg(feature = "grpcio")]
 use grpcio::{CallOption, ChannelBuilder, EnvBuilder};
+#[cfg(feature = "grpcio")]
+use futures::executor::block_on;
+#[cfg(feature = "grpcio")]
+use futures::StreamExt;
+#[cfg(feature = "grpcio")]
+use std::sync::Arc;
 
 
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
@@ -67,8 +71,6 @@ use crate::workload_api::address::{
 };
 use crate::workload_api::x509_context::X509Context;
 use std::convert::TryFrom;
-use std::sync::Arc;
-
 
 
 #[cfg(feature = "tonic")]
@@ -78,11 +80,9 @@ use tonic::transport::{Endpoint, Uri};
 #[cfg(feature = "tonic")]
 use tower::service_fn;
 #[cfg(feature = "tonic")]
-use tonic::metadata::*;
-#[cfg(feature = "tonic")]
 use crate::proto::spire::api::workload::{
-    JwtBundlesRequest, JwtBundlesResponse, Jwtsvid, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest, ValidateJwtsvidResponse,
-    X509BundlesRequest, X509BundlesResponse, X509svid, X509svidRequest, X509svidResponse, spiffe_workload_api_client::SpiffeWorkloadApiClient,
+    JwtBundlesRequest, JwtBundlesResponse, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest, ValidateJwtsvidResponse,
+    X509BundlesRequest, X509BundlesResponse, X509svidRequest, X509svidResponse, spiffe_workload_api_client::SpiffeWorkloadApiClient,
 };
 
 
@@ -91,17 +91,6 @@ pub const DEFAULT_SVID: usize = 0;
 
 const SPIFFE_HEADER_KEY: &str = "workload.spiffe.io";
 const SPIFFE_HEADER_VALUE: &str = "true";
-
-/// This type represents a client to interact with the Workload API.
-///
-/// Supports one-shot calls for X.509 and JWT SVIDs and bundles.
-///
-/// NOTE: It will support 'watch-for-updates' methods on later versions.
-#[cfg(feature = "grpcio")]
-#[allow(missing_debug_implementations)]
-pub struct WorkloadApiClient {
-    client: workload_grpc::SpiffeWorkloadApiClient,
-}
 
 /// An error that may arise fetching X.509 and JWT materials with the [`WorkloadApiClient`].
 #[derive(Debug, Error)]
@@ -186,12 +175,14 @@ impl tonic::service::Interceptor for MetadataAdder {
 impl WorkloadApiClient {
     /// new returns a new client
     pub async fn new_from_path(path: String) -> Result<Self, ClientError> {
-        // let inner_path = path.clonme
+        validate_socket_path(path.as_str())?;
+        // We need to strip the 'unix:' prefix from the path to use it with tonic
+        // Because the service_fn doesn't have FnMut we need a new String, I think
+        let inner_path = String::from(path.clone()).strip_prefix("unix:").unwrap_or(path.as_str()).to_string();
         let channel = Endpoint::try_from("http://[::]:50051")?
         .connect_with_connector(service_fn(move |_: Uri| {
-
             // Connect to a Uds socket
-            UnixStream::connect(path.clone())
+            UnixStream::connect(inner_path.clone())
         }))
         .await?;
         

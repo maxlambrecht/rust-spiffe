@@ -17,7 +17,7 @@ const UNIX_SCHEME: &str = "unix";
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_default_socket_path() -> Option<String> {
     match env::var(SOCKET_ENV) {
-        Ok(addr) => Some(String::from(addr.strip_prefix("unix:").unwrap())),
+        Ok(addr) => Some(String::from(addr)),
         Err(_) => None,
     }
 }
