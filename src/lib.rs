@@ -20,19 +20,19 @@
 //! use std::convert::TryFrom;
 //! use std::error::Error;
 //!
-//! # fn main() -> Result<(), Box< dyn Error>> {
+//! # async fn some_function() -> Result<(), Box< dyn Error>> {
 //!
 //! // create a new Workload API client connecting to the provided endpoint socket path
-//! let client = WorkloadApiClient::new("unix:/tmp/spire-agent/api/public.sock")?;
+//! let mut client = WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/api/public.sock").await?;
 //!
 //! // fetch the default X.509 SVID
-//! let x509_svid: X509Svid = client.fetch_x509_svid()?;
+//! let x509_svid: X509Svid = client.fetch_x509_svid().await?;
 //!
 //! // fetch a set of X.509 bundles (X.509 public key authorities)
-//! let x509_bundles: X509BundleSet = client.fetch_x509_bundles()?;
+//! let x509_bundles: X509BundleSet = client.fetch_x509_bundles().await?;
 //!
 //! // fetch all the X.509 materials (SVIDs and bundles)
-//! let x509_context: X509Context = client.fetch_x509_context()?;
+//! let x509_context: X509Context = client.fetch_x509_context().await?;
 //!
 //! // get the X.509 chain of certificates from the SVID
 //! let cert_chain: &Vec<Certificate> = x509_svid.cert_chain();
@@ -54,13 +54,13 @@
 //!
 //! let target_audience = &["service1", "service2"];
 //! // fetch a jwt token for the provided SPIFFE-ID and with the target audience `service1.com`
-//! let jwt_token = client.fetch_jwt_token(target_audience, Some(&spiffe_id))?;
+//! let jwt_token = client.fetch_jwt_token(target_audience, Some(&spiffe_id)).await?;
 //!
 //! // fetch the jwt token and parses it as a `JwtSvid`
-//! let jwt_svid = client.fetch_jwt_svid(target_audience, Some(&spiffe_id))?;
+//! let jwt_svid = client.fetch_jwt_svid(target_audience, Some(&spiffe_id)).await?;
 //!
 //! // fetch a set of jwt bundles (public keys for validating jwt token)
-//! let jwt_bundles_set = client.fetch_jwt_bundles()?;
+//! let jwt_bundles_set = client.fetch_jwt_bundles().await?;
 //!
 //! // get the JWT bundle associated to the trust domain
 //! let jwt_bundle: &JwtBundle = jwt_bundles_set.get_bundle(&trust_domain).unwrap();
