@@ -74,4 +74,4 @@ bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.o
 sleep 10  # this value is derived from the default Agent sync interval
 popd
 
-RUST_BACKTRACE=1 cargo test -- --include-ignored
+RUST_BACKTRACE=1 cargo test --features integration-tests
