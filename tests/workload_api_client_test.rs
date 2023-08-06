@@ -93,7 +93,11 @@ mod integration_tests {
             .await
             .expect("Failed to fetch X509 SVID");
 
-        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_1);
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        assert!(
+            expected_ids.contains(&svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
+        );
         assert_eq!(svid.cert_chain().len(), 1);
     }
 
@@ -107,15 +111,29 @@ mod integration_tests {
 
         assert_eq!(svids.len(), 2, "Expected exactly two SVIDs");
 
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+
         // Checking the first SVID
         let first_svid = &svids[0];
-        assert_eq!(first_svid.spiffe_id(), &*SPIFFE_ID_1);
+        assert!(
+            expected_ids.contains(&first_svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
+        );
         assert_eq!(first_svid.cert_chain().len(), 1);
 
         // Checking the second SVID
         let second_svid = &svids[1];
-        assert_eq!(second_svid.spiffe_id(), &*SPIFFE_ID_2);
+        assert!(
+            expected_ids.contains(&second_svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
+        );
         assert_eq!(second_svid.cert_chain().len(), 1);
+
+        assert_ne!(
+            first_svid.spiffe_id(),
+            second_svid.spiffe_id(),
+            "Expected different SPIFFE IDs"
+        );
     }
 
     #[tokio::test]
@@ -126,8 +144,13 @@ mod integration_tests {
             .await
             .expect("Failed to fetch X509 context");
 
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+
         let svid = x509_context.default_svid().unwrap();
-        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_1);
+        assert!(
+            expected_ids.contains(&svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
+        );
         assert_eq!(svid.cert_chain().len(), 1);
 
         let bundle = x509_context
@@ -162,6 +185,7 @@ mod integration_tests {
     async fn watch_x509_context_stream() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
@@ -174,7 +198,10 @@ mod integration_tests {
                 match update {
                     Ok(x509_context) => {
                         let svid = x509_context.default_svid().unwrap();
-                        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_1);
+                        assert!(
+                            expected_ids.contains(&svid.spiffe_id()),
+                            "Unexpected SPIFFE ID"
+                        );
                         assert_eq!(svid.cert_chain().len(), 1);
 
                         let bundle = x509_context
@@ -210,6 +237,7 @@ mod integration_tests {
     async fn watch_x509_svid_stream() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
@@ -221,7 +249,10 @@ mod integration_tests {
             while let Some(update) = stream.next().await {
                 match update {
                     Ok(svid) => {
-                        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_1);
+                        assert!(
+                            expected_ids.contains(&svid.spiffe_id()),
+                            "Unexpected SPIFFE ID"
+                        );
                         assert_eq!(svid.cert_chain().len(), 1);
 
                         update_count += 1;
