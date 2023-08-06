@@ -146,9 +146,12 @@ impl tonic::service::Interceptor for MetadataAdder {
         &mut self,
         mut request: tonic::Request<()>,
     ) -> Result<tonic::Request<()>, tonic::Status> {
+        let parsed_header = SPIFFE_HEADER_VALUE
+            .parse()
+            .map_err(|e| tonic::Status::internal(format!("Failed to parse header: {}", e)))?;
         request
             .metadata_mut()
-            .insert(SPIFFE_HEADER_KEY, SPIFFE_HEADER_VALUE.parse().unwrap());
+            .insert(SPIFFE_HEADER_KEY, parsed_header);
         Ok(request)
     }
 }
