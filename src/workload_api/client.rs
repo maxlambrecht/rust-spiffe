@@ -241,10 +241,14 @@ impl WorkloadApiClient {
     pub async fn fetch_x509_svid(&mut self) -> Result<X509Svid, ClientError> {
         let request = X509svidRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<X509svidResponse>> =
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
-        let initial = response.into_inner().message().await?;
-        WorkloadApiClient::parse_x509_svid_from_grpc_response(initial.unwrap_or_default())
+
+        let response = match grpc_stream_response.into_inner().message().await? {
+            Some(response_value) => response_value,
+            None => return Err(ClientError::EmptyResponse),
+        };
+        WorkloadApiClient::parse_x509_svid_from_grpc_response(response)
     }
 
     /// Fetches all X509 SPIFFE Verifiable Identity Documents (SVIDs) available to the workload.
@@ -264,10 +268,14 @@ impl WorkloadApiClient {
     pub async fn fetch_all_x509_svids(&mut self) -> Result<Vec<X509Svid>, ClientError> {
         let request = X509svidRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<X509svidResponse>> =
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
-        let initial = response.into_inner().message().await?;
-        WorkloadApiClient::parse_x509_svids_from_grpc_response(initial.unwrap_or_default())
+
+        let response = match grpc_stream_response.into_inner().message().await? {
+            Some(value) => value,
+            None => return Err(ClientError::EmptyResponse),
+        };
+        WorkloadApiClient::parse_x509_svids_from_grpc_response(response)
     }
 
     /// Fetches [`X509BundleSet`], that is a set of [`X509Bundle`] keyed by the trust domain to which they belong.
@@ -279,10 +287,14 @@ impl WorkloadApiClient {
     pub async fn fetch_x509_bundles(&mut self) -> Result<X509BundleSet, ClientError> {
         let request = X509BundlesRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
             self.client.fetch_x509_bundles(request).await?;
-        let initial = response.into_inner().message().await?;
-        WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(initial.unwrap_or_default())
+
+        let response = match grpc_stream_response.into_inner().message().await? {
+            Some(value) => value,
+            None => return Err(ClientError::EmptyResponse),
+        };
+        WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(response)
     }
 
     /// Fetches [`JwtBundleSet`] that is a set of [`JwtBundle`] keyed by the trust domain to which they belong.
@@ -294,11 +306,14 @@ impl WorkloadApiClient {
     pub async fn fetch_jwt_bundles(&mut self) -> Result<JwtBundleSet, ClientError> {
         let request = JwtBundlesRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
+        let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
             self.client.fetch_jwt_bundles(request).await?;
-        let initial = response.into_inner().message().await?;
 
-        WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(initial.unwrap_or_default())
+        let response = match grpc_stream_response.into_inner().message().await? {
+            Some(value) => value,
+            None => return Err(ClientError::EmptyResponse),
+        };
+        WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(response)
     }
 
     /// Fetches the [`X509Context`], which contains all the X.509 materials,
@@ -311,10 +326,14 @@ impl WorkloadApiClient {
     pub async fn fetch_x509_context(&mut self) -> Result<X509Context, ClientError> {
         let request = X509svidRequest::default();
 
-        let response: tonic::Response<tonic::Streaming<X509svidResponse>> =
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
-        let initial = response.into_inner().message().await?;
-        WorkloadApiClient::parse_x509_context_from_grpc_response(initial.unwrap_or_default())
+
+        let response = match grpc_stream_response.into_inner().message().await? {
+            Some(value) => value,
+            None => return Err(ClientError::EmptyResponse),
+        };
+        WorkloadApiClient::parse_x509_context_from_grpc_response(response)
     }
 
     /// Fetches a [`JwtSvid`] parsing the JWT token in the Workload API response, for the given audience and spiffe_id.
