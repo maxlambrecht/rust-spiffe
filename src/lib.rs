@@ -23,7 +23,8 @@
 //! # async fn some_function() -> Result<(), Box< dyn Error>> {
 //!
 //! // create a new Workload API client connecting to the provided endpoint socket path
-//! let mut client = WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/api/public.sock").await?;
+//! let mut client =
+//!     WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/api/public.sock").await?;
 //!
 //! // fetch the default X.509 SVID
 //! let x509_svid: X509Svid = client.fetch_x509_svid().await?;
@@ -54,10 +55,14 @@
 //!
 //! let target_audience = &["service1", "service2"];
 //! // fetch a jwt token for the provided SPIFFE-ID and with the target audience `service1.com`
-//! let jwt_token = client.fetch_jwt_token(target_audience, Some(&spiffe_id)).await?;
+//! let jwt_token = client
+//!     .fetch_jwt_token(target_audience, Some(&spiffe_id))
+//!     .await?;
 //!
 //! // fetch the jwt token and parses it as a `JwtSvid`
-//! let jwt_svid = client.fetch_jwt_svid(target_audience, Some(&spiffe_id)).await?;
+//! let jwt_svid = client
+//!     .fetch_jwt_svid(target_audience, Some(&spiffe_id))
+//!     .await?;
 //!
 //! // fetch a set of jwt bundles (public keys for validating jwt token)
 //! let jwt_bundles_set = client.fetch_jwt_bundles().await?;

@@ -42,14 +42,12 @@ pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
 }
 
 // Returns the X.509 extension in the certificate the for the provided OID.
-pub(crate) fn get_x509_extension<'a, 'b>(
+pub(crate) fn get_x509_extension<'a>(
     cert: &'a X509Certificate<'_>,
-    oid: &'b Oid<'a>,
+    oid: Oid<'a>,
 ) -> Result<&'a ParsedExtension<'a>, CertificateError> {
-    let parsed_extension = match &cert.tbs_certificate.get_extension_unique(&oid)? {
-        None => {
-            return Err(CertificateError::MissingX509Extension(oid.to_string()))
-        }
+    let parsed_extension = match cert.tbs_certificate.get_extension_unique(&oid)? {
+        None => return Err(CertificateError::MissingX509Extension(oid.to_string())),
         Some(s) => s.parsed_extension(),
     };
     Ok(parsed_extension)

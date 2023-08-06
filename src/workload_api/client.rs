@@ -174,12 +174,12 @@ impl WorkloadApiClient {
     ///
     /// This function will return an error if the provided socket path is invalid or if there are issues connecting.
     pub async fn new_from_path(path: &str) -> Result<Self, ClientError> {
-        validate_socket_path(&path)?;
+        validate_socket_path(path)?;
 
         // Strip the 'unix:' prefix for tonic compatibility.
         let stripped_path = path
             .strip_prefix(Self::UNIX_PREFIX)
-            .unwrap_or(&path)
+            .unwrap_or(path)
             .to_string();
 
         let channel = Endpoint::try_from(Self::TONIC_DEFAULT_URI)?
@@ -441,7 +441,7 @@ impl WorkloadApiClient {
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(ClientError::from)
-                .and_then(|res| WorkloadApiClient::parse_x509_context_from_grpc_response(res))
+                .and_then(WorkloadApiClient::parse_x509_context_from_grpc_response)
         });
         Ok(stream)
     }
@@ -472,7 +472,7 @@ impl WorkloadApiClient {
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(ClientError::from)
-                .and_then(|res| WorkloadApiClient::parse_x509_svid_from_grpc_response(res))
+                .and_then(WorkloadApiClient::parse_x509_svid_from_grpc_response)
         });
         Ok(stream)
     }
@@ -503,7 +503,7 @@ impl WorkloadApiClient {
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(ClientError::from)
-                .and_then(|res| WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(res))
+                .and_then(WorkloadApiClient::parse_x509_bundle_set_from_grpc_response)
         });
         Ok(stream)
     }
@@ -534,7 +534,7 @@ impl WorkloadApiClient {
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(ClientError::from)
-                .and_then(|res| WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(res))
+                .and_then(WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response)
         });
         Ok(stream)
     }
@@ -547,9 +547,10 @@ impl WorkloadApiClient {
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<JwtsvidResponse, ClientError> {
-        let mut request = JwtsvidRequest::default();
-        request.spiffe_id = spiffe_id.map(ToString::to_string).unwrap_or_default();
-        request.audience = audience.iter().map(|s| s.to_string()).collect();
+        let request = JwtsvidRequest {
+            spiffe_id: spiffe_id.map(ToString::to_string).unwrap_or_default(),
+            audience: audience.iter().map(|s| s.to_string()).collect(),
+        };
 
         Ok(self.client.fetch_jwtsvid(request).await?.into_inner())
     }
