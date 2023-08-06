@@ -29,7 +29,7 @@ let mut client = WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/public/
 Or by using the `SPIFFE_ENDPOINT_SOCKET` environment variable:
 
 ```rust
-let client = WorkloadApiClient::default().await?;
+let mut client = WorkloadApiClient::default().await?;
 ```
 
 ### Fetching X.509 Materials
