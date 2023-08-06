@@ -9,8 +9,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Setup protoc
-        uses: arata-nvm/setup-protoc@v1
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
 
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
