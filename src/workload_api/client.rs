@@ -132,6 +132,7 @@ pub enum ClientError {
 /// The client can be used to fetch the current SVIDs and bundles, as well as to
 /// subscribe for updates whenever the SVIDs or bundles change.
 #[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct WorkloadApiClient {
     client: SpiffeWorkloadApiClient<
         tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>,
@@ -623,7 +624,7 @@ impl WorkloadApiClient {
 
         for (td, bundle_data) in response.bundles.into_iter() {
             let trust_domain = TrustDomain::try_from(td)?;
-            let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
+            let bundle: JwtBundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
                 .map_err(ClientError::from)?;
 
             bundle_set.add_bundle(bundle);

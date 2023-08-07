@@ -10,6 +10,9 @@ use url::{ParseError, Url};
 /// Name of the environment variable that holds the default socket endpoint path.
 pub const SOCKET_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
 
+/// Name of the environment variable that holds the admin socket endpoint path.
+pub const ADMIN_SOCKET_ENV: &str = "SPIFFE_ADMIN_ENDPOINT_SOCKET";
+
 const TCP_SCHEME: &str = "tcp";
 const UNIX_SCHEME: &str = "unix";
 
@@ -17,6 +20,16 @@ const UNIX_SCHEME: &str = "unix";
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_default_socket_path() -> Option<String> {
     match env::var(SOCKET_ENV) {
+        Ok(addr) => Some(addr),
+        Err(_) => None,
+    }
+}
+
+
+/// Gets the endpoint socket endpoint path from the environment variable `SPIFFE_ADMIN_ENDPOINT_SOCKET`,
+/// This endpoint can be used for the delegated identity API, and the debug API.
+pub fn get_admin_socket_path() -> Option<String> {
+    match env::var(ADMIN_SOCKET_ENV) {
         Ok(addr) => Some(addr),
         Err(_) => None,
     }

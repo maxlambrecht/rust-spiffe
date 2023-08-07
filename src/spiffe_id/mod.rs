@@ -1,5 +1,7 @@
 //! SPIFFE-ID and TrustDomain types compliant with the SPIFFE standard.
 
+pub mod selector;
+
 use std::convert::TryFrom;
 use std::fmt;
 use std::fmt::{Display, Formatter};

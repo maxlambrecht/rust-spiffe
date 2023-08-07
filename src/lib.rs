@@ -81,6 +81,7 @@
 //! # }
 //! ```
 
+pub mod api;
 pub mod bundle;
 pub mod cert;
 pub(crate) mod proto;

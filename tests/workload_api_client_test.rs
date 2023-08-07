@@ -1,7 +1,7 @@
 // These tests requires a running SPIRE server and agent with workloads registered (see script `ci.sh`).
 
 #[cfg(feature = "integration-tests")]
-mod integration_tests {
+mod workload_integration_tests {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleRefSource;
     use spiffe::spiffe_id::{SpiffeId, TrustDomain};
