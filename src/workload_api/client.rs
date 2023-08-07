@@ -132,6 +132,7 @@ pub enum ClientError {
 /// The client can be used to fetch the current SVIDs and bundles, as well as to
 /// subscribe for updates whenever the SVIDs or bundles change.
 #[allow(missing_debug_implementations)]
+#[derive(Clone)]
 pub struct WorkloadApiClient {
     client: SpiffeWorkloadApiClient<
         tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>,
