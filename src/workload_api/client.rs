@@ -204,10 +204,8 @@ impl WorkloadApiClient {
     /// The function returns a variant of [`ClientError`] if environment variable is not set or if
     /// the provided socket path is not valid.
     pub async fn default() -> Result<Self, ClientError> {
-        let socket_path = match get_default_socket_path() {
-            None => return Err(ClientError::MissingEndpointSocketPath),
-            Some(s) => s,
-        };
+        let socket_path =
+            get_default_socket_path().ok_or(ClientError::MissingEndpointSocketPath)?;
         Self::new_from_path(socket_path.as_str()).await
     }
 
@@ -244,10 +242,11 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
 
-        let response = match grpc_stream_response.into_inner().message().await? {
-            Some(response_value) => response_value,
-            None => return Err(ClientError::EmptyResponse),
-        };
+        let response = grpc_stream_response
+            .into_inner()
+            .message()
+            .await?
+            .ok_or(ClientError::EmptyResponse)?;
         WorkloadApiClient::parse_x509_svid_from_grpc_response(response)
     }
 
@@ -271,10 +270,11 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
 
-        let response = match grpc_stream_response.into_inner().message().await? {
-            Some(value) => value,
-            None => return Err(ClientError::EmptyResponse),
-        };
+        let response = grpc_stream_response
+            .into_inner()
+            .message()
+            .await?
+            .ok_or(ClientError::EmptyResponse)?;
         WorkloadApiClient::parse_x509_svids_from_grpc_response(response)
     }
 
@@ -290,10 +290,11 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
             self.client.fetch_x509_bundles(request).await?;
 
-        let response = match grpc_stream_response.into_inner().message().await? {
-            Some(value) => value,
-            None => return Err(ClientError::EmptyResponse),
-        };
+        let response = grpc_stream_response
+            .into_inner()
+            .message()
+            .await?
+            .ok_or(ClientError::EmptyResponse)?;
         WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(response)
     }
 
@@ -309,10 +310,11 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
             self.client.fetch_jwt_bundles(request).await?;
 
-        let response = match grpc_stream_response.into_inner().message().await? {
-            Some(value) => value,
-            None => return Err(ClientError::EmptyResponse),
-        };
+        let response = grpc_stream_response
+            .into_inner()
+            .message()
+            .await?
+            .ok_or(ClientError::EmptyResponse)?;
         WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(response)
     }
 
@@ -329,10 +331,11 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             self.client.fetch_x509svid(request).await?;
 
-        let response = match grpc_stream_response.into_inner().message().await? {
-            Some(value) => value,
-            None => return Err(ClientError::EmptyResponse),
-        };
+        let response = grpc_stream_response
+            .into_inner()
+            .message()
+            .await?
+            .ok_or(ClientError::EmptyResponse)?;
         WorkloadApiClient::parse_x509_context_from_grpc_response(response)
     }
 
@@ -357,10 +360,13 @@ impl WorkloadApiClient {
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<JwtSvid, ClientError> {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
-        match response.svids.get(DEFAULT_SVID) {
-            Some(r) => Ok(JwtSvid::from_str(&r.svid)?),
-            None => Err(ClientError::EmptyResponse),
-        }
+        response
+            .svids
+            .get(DEFAULT_SVID)
+            .ok_or(ClientError::EmptyResponse)
+            .and_then(|r| {
+                JwtSvid::from_str(&r.svid).map_err(|err| ClientError::InvalidJwtSvid(err))
+            })
     }
 
     /// Fetches a JWT token for the given audience and [`SpiffeId`].
@@ -384,10 +390,11 @@ impl WorkloadApiClient {
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<String, ClientError> {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
-        match response.svids.get(DEFAULT_SVID) {
-            Some(r) => Ok(r.svid.to_string()),
-            None => Err(ClientError::EmptyResponse),
-        }
+        response
+            .svids
+            .get(DEFAULT_SVID)
+            .map(|r| r.svid.to_string())
+            .ok_or(ClientError::EmptyResponse)
     }
 
     /// Validates a JWT SVID token against the given audience. Returns the [`JwtSvid`] parsed from
