@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0] - 2023-08-08
+
+### Breaking Changes
+- **Workload API Client Update**: Methods' signatures have been transitioned from synchronous to asynchronous. They now require `&mut self` instead of `&self`.
+
+### Added
+- Support for watching and streaming updates for both X.509 and JWT SVIDs and Bundles.
+- New integration tests covering the watch/stream functionalities.
+- New dependencies: `tonic`, `prost`, `prost-types`, `tokio`, `tokio-stream`, and `tower`.
+
+### Changed
+- Code generation migrated from `protobuf` and `grpcio` to `tonic` and `prost`.
+
+### Removed
+- Dependencies: `protobuf`, `grpcio`, and `futures`.
+
+
 ## 0.2.2 (August 5, 2023)
 
   * Add `watch_x509_context_stream` method to `WorkloadApiClient` (#28)
