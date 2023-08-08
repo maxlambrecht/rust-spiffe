@@ -624,7 +624,7 @@ impl WorkloadApiClient {
 
         for (td, bundle_data) in response.bundles.into_iter() {
             let trust_domain = TrustDomain::try_from(td)?;
-            let bundle: JwtBundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
+            let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
                 .map_err(ClientError::from)?;
 
             bundle_set.add_bundle(bundle);
