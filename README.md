@@ -1,51 +1,50 @@
-# Rust SPIFFE library
+# Rust SPIFFE Library
 
-An utility library to interact with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md)
-to fetch X.509 and JWT SVIDs and Bundles. It also provides types that comply with the [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
-See [spiffe.io](https://spiffe.io/).
+This utility library enables interaction with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md). It allows fetching of X.509 and JWT SVIDs, bundles and supports watch/stream updates. The types in the library are in compliance with [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards). More about SPIFFE can be found at [spiffe.io](https://spiffe.io/).
 
 [![crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
 [![docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe)
 ![CI](https://github.com/maxlambrecht/rust-spiffe/workflows/Continuous%20Integration/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
 
-## Usage
+## Getting Started
 
-To use `spiffe`, add this to your `Cargo.toml`:
+Include `spiffe` in your `Cargo.toml` dependencies:
 
 ```toml
 [dependencies]
-spiffe = "0.2.2"
+spiffe = "0.3.0"
 ```
 
-### Examples
+## Examples of Usage
 
-#### Create a `WorkloadApiClient`
+### Creating a `WorkloadApiClient`
 
-Providing the endpoint socket path as parameter:
+Create client using the endpoint socket path:
 
 ```rust
-let client = WorkloadApiClient::new("unix:/tmp/spire-agent/api/public.sock")?;
+let mut client = WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/public/api.sock").await?;
 ```
 
-Providing the endpoint socket path through the environment variable `SPIFFE_ENDPOINT_SOCKET`:
+Or by using the `SPIFFE_ENDPOINT_SOCKET` environment variable:
 
 ```rust
-let client = WorkloadApiClient::default()?;
+let mut client = WorkloadApiClient::default().await?;
 ```
 
-#### Fetching X.509 materials
+### Fetching X.509 Materials
+
+Fetch the default X.509 SVID, a set of X.509 bundles, all X.509 materials, or watch for updates on the X.509 context and bundles.
 
 ```rust
-
 // fetch the default X.509 SVID
-let x509_svid: X509Svid = client.fetch_x509_svid()?;
+let x509_svid: X509Svid = client.fetch_x509_svid().await?;
 
 // fetch a set of X.509 bundles (X.509 public key authorities)
-let x509_bundles: X509BundleSet = client.fetch_x509_bundles()?;
+let x509_bundles: X509BundleSet = client.fetch_x509_bundles().await?;
 
 // fetch all the X.509 materials (SVIDs and bundles)
-let x509_context: X509Context = client.fetch_x509_context()?;
+let x509_context: X509Context = client.fetch_x509_context().await?;
 
 // get the X.509 chain of certificates from the SVID
 let cert_chain: &Vec<Certificate> = x509_svid.cert_chain();
@@ -57,38 +56,79 @@ let private_key: &PrivateKey = x509_svid.private_key();
 let trust_domain = TrustDomain::try_from("example.org")?;
 
 // get the X.509 bundle associated to the trust domain
-let x509_bundle: &X509Bundle = x509_bundles.get_bundle(&trust_domain).unwrap();
+let x509_bundle: &X509Bundle = x509_bundles.get_bundle(&trust_domain)?;
 
 // get the X.509 authorities (public keys) in the bundle
 let x509_authorities: &Vec<Certificate> = x509_bundle.authorities();
+
+// watch for updates on the X.509 context
+let mut x509_context_stream = client.watch_x509_context_stream().await?;
+while let Some(x509_context_update) = x509_context_stream.next().await {
+    match x509_context_update {
+        Ok(update) => {
+            // handle the updated X509Context
+        }
+        Err(e) => {
+            // handle the error
+        }
+    }
+}
+
+// watch for updates on the X.509 bundles 
+let mut x509_bundle_stream = client.watch_x509_bundles_stream().await?;
+while let Some(x509_bundle_update) = x509_bundle_stream.next().await {
+    match x509_bundle_update {
+        Ok(update) => {
+            // handle the updated X509 bundle
+        }
+        Err(e) => {
+            // handle the error
+        }
+    }
+}
 ```
 
+### Fetching and Validating JWT Tokens and Bundles
 
-#### Fetching JWT tokens and bundles and validating tokens
+Fetch JWT tokens, parse and validate them, fetch JWT bundles, or watch for updates on the JWT bundles.
 
 ```rust
-
 // parse a SPIFFE ID to ask a token for
 let spiffe_id = SpiffeId::try_from("spiffe://example.org/my-service")?;
 
 // fetch a jwt token for the provided SPIFFE-ID and with the target audience `service1.com`
-let jwt_token = client.fetch_jwt_token(&["audience1", "audience2"], Some(&spiffe_id))?;
+let jwt_token = client.fetch_jwt_token(&["audience1", "audience2"], Some(&spiffe_id)).await?;
 
 // fetch the jwt token and parses it as a `JwtSvid`
-let jwt_svid = client.fetch_jwt_svid(&["audience1", "audience2"], Some(&spiffe_id))?;
+let jwt_svid = client.fetch_jwt_svid(&["audience1", "audience2"], Some(&spiffe_id)).await?;
 
 // fetch a set of jwt bundles (public keys for validating jwt token)
-let jwt_bundles = client.fetch_jwt_bundles()?;
+let jwt_bundles = client.fetch_jwt_bundles().await?;
 
 // parse a SPIFFE trust domain
 let trust_domain = TrustDomain::try_from("example.org")?;
 
 // get the JWT bundle associated to the trust domain
-let jwt_bundle: &JwtBundle = jwt_bundles.get_bundle(&trust_domain).unwrap();
+let jwt_bundle: &JwtBundle = jwt_bundles.get_bundle(&trust_domain)?;
 
 // get the JWT authorities (public keys) in the bundle
-let jwt_authority: &JwtAuthority = jwt_bundle.find_jwt_authority("a_key_id").unwrap();
+let jwt_authority: &JwtAuthority = jwt_bundle.find_jwt_authority("a_key_id")?;
 
 // parse a `JwtSvid` validating the token signature with a JWT bundle source.
-let validated_jwt_svid = JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles_set, &["service1.com"])?; 
+let validated_jwt_svid = JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles_set, &["service1.com"])?;
+
+// watch for updates on the JWT bundles 
+let mut jwt_bundle_stream = client.watch_jwt_bundles_stream().await?;
+while let Some(jwt_bundle_update) = jwt_bundle_stream.next().await {
+    match jwt_bundle_update {
+        Ok(update) => {
+            // handle the updated JWT bundle
+        }
+        Err(e) => {
+            // handle the error
+        }
+    }
+}
 ```
+
+For more detailed examples and additional features, refer to the [documentation](https://docs.rs/spiffe).

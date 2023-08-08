@@ -29,8 +29,7 @@ pub(crate) fn validate_signing_certificates(certs: &[Certificate]) -> Result<(),
 fn validate_x509_leaf_certificate(cert: &X509Certificate<'_>) -> Result<(), X509SvidError> {
     validate_leaf_certificate_key_usage(cert)?;
 
-    let basic_constraints =
-        get_x509_extension(cert, &oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
+    let basic_constraints = get_x509_extension(cert, oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
     match basic_constraints {
         ParsedExtension::BasicConstraints(b) if b.ca => {
             Err(X509SvidError::LeafCertificateHasCaFlag)
@@ -40,8 +39,7 @@ fn validate_x509_leaf_certificate(cert: &X509Certificate<'_>) -> Result<(), X509
 }
 
 fn validate_signing_certificate(cert: &X509Certificate<'_>) -> Result<(), X509SvidError> {
-    let basic_constraints =
-        get_x509_extension(cert, &oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
+    let basic_constraints = get_x509_extension(cert, oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
     match basic_constraints {
         ParsedExtension::BasicConstraints(b) if !b.ca => {
             return Err(X509SvidError::SigningCertificatedNoCa)
@@ -49,7 +47,7 @@ fn validate_signing_certificate(cert: &X509Certificate<'_>) -> Result<(), X509Sv
         _ => {}
     };
 
-    let key_usage = get_x509_extension(cert, &oid_registry::OID_X509_EXT_KEY_USAGE)?;
+    let key_usage = get_x509_extension(cert, oid_registry::OID_X509_EXT_KEY_USAGE)?;
     match key_usage {
         ParsedExtension::KeyUsage(k) if !k.key_cert_sign() => {
             Err(X509SvidError::SigningCertificatedNoKeyCertSign)
@@ -59,7 +57,7 @@ fn validate_signing_certificate(cert: &X509Certificate<'_>) -> Result<(), X509Sv
 }
 
 fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(), X509SvidError> {
-    let key_usage = get_x509_extension(cert, &oid_registry::OID_X509_EXT_KEY_USAGE)?;
+    let key_usage = get_x509_extension(cert, oid_registry::OID_X509_EXT_KEY_USAGE)?;
     match key_usage {
         ParsedExtension::KeyUsage(k) if !k.digital_signature() => {
             Err(X509SvidError::LeafCertificatedNoDigitalSignature)
@@ -76,7 +74,7 @@ fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(),
 }
 
 fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError> {
-    let san_ext = get_x509_extension(cert, &oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?;
+    let san_ext = get_x509_extension(cert, oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?;
 
     return match san_ext {
         ParsedExtension::SubjectAlternativeName(s) => {

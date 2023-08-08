@@ -8,13 +8,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
           components: rustfmt, clippy
+
       - name: Execute rustfmt
         run: cargo +nightly fmt
+
       - name: Execute clippy
         run: cargo +nightly clippy
 
@@ -23,9 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+
       - name: Setup Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
+
       - name: Run the script
         run: ./ci.sh
