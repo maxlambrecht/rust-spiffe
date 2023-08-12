@@ -13,7 +13,7 @@ Include `spiffe` in your `Cargo.toml` dependencies:
 
 ```toml
 [dependencies]
-spiffe = "0.3.0"
+spiffe = "0.3.1"
 ```
 
 ## Examples of Usage
