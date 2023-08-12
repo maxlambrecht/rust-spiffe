@@ -7,7 +7,7 @@ jobs:
     name: Execute rustfmt and clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
@@ -28,7 +28,7 @@ jobs:
     name: Execute the test script
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
