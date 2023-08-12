@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1] - 2023-08-12
+
+### Fixed
+
+- Integrated `google/protobuf/Struct.proto` into the library, eliminating the need for other projects to rely on system
+  versions of that file. This enhances compatibility across different build environments. (#36)
+
 ## [0.3.0] - 2023-08-08
 
 ### Breaking Changes
