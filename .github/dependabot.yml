@@ -1,0 +1,10 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/" # Location of package manifests
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/" # Location of the Cargo.toml file
+    schedule:
+      interval: "daily"
