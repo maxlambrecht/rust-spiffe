@@ -1,0 +1,24 @@
+name: 'Setup Environment'
+description: 'Install Protoc and Rust toolchain, and set up Rust dependencies cache'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Protoc
+      uses: arduino/setup-protoc@v2
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v2
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
+    - name: Setup Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: nightly
+        components: rustfmt, clippy
