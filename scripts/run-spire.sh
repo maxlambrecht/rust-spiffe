@@ -27,7 +27,6 @@ function wait_for_service() {
 
 # Main script starts here
 set -euf -o pipefail
-trap cleanup EXIT
 
 # Install and run a SPIRE server
 curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-glibc.tar.gz | tar xz
