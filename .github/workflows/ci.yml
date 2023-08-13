@@ -33,7 +33,7 @@ jobs:
         run: cargo build
 
   test:
-    name: Run SPIFFE and SPIRE-API Integration Tests
+    name: Run spiffe and spire-api Integration Tests
     runs-on: ubuntu-latest
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
