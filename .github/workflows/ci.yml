@@ -38,5 +38,9 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Run the script
-        run: ./ci.sh
+      - name: Run SPIRE
+        run: ./scripts/run-spire.sh
+
+      - name: Test spiffe
+        run: |
+          RUST_BACKTRACE=1 cargo test --features integration-tests

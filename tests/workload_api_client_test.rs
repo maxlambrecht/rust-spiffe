@@ -1,4 +1,4 @@
-// These tests requires a running SPIRE server and agent with workloads registered (see script `ci.sh`).
+// These tests requires a running SPIRE server and agent with workloads registered (see `scripts/run-spire.sh`).
 
 #[cfg(feature = "integration-tests")]
 mod integration_tests {
