@@ -41,6 +41,6 @@ jobs:
       - name: Run SPIRE
         run: ./scripts/run-spire.sh
 
-      - name: Test spiffe
+      - name: Run spiffe Integration Tests
         run: |
           RUST_BACKTRACE=1 cargo test --features integration-tests
