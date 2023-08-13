@@ -9,6 +9,8 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - name: Install dependencies and common setup
         uses: ./.github/actions/setup-env
       - name: Lint Rust code with rustfmt and clippy
@@ -23,13 +25,15 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+        with:
+          submodules: recursive
       - name: Install dependencies and common setup
         uses: ./.github/actions/setup-env
       - name: Build Rust project
         run: cargo build
 
   test:
-    name: Run SPIFFE Integration Tests
+    name: Run SPIFFE and SPIRE-API Integration Tests
     runs-on: ubuntu-latest
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
@@ -37,11 +41,22 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
       - name: Install dependencies and common setup
         uses: ./.github/actions/setup-env
+
       - name: Start SPIRE
         run: ./scripts/run-spire.sh &
+
       - name: Execute spiffe Integration Tests
         run: RUST_BACKTRACE=1 cargo test --features integration-tests
+        working-directory: spiffe
+
+      - name: Execute spire-api Integration Tests
+        run: RUST_BACKTRACE=1 cargo test --features integration-tests
+        working-directory: spire-api
+
       - name: Clean up SPIRE
         run: ./scripts/cleanup-spire.sh
