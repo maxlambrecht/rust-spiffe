@@ -6,7 +6,6 @@ spire_folder="spire-${spire_version}"
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_agent_log_file="/tmp/spire-agent/agent.log"
 agent_id="spiffe://example.org/myagent"
-SPIFFE_ENDPOINT_SOCKET="unix:/tmp/spire-agent/public/api.sock"
 
 # Helper function to wait for a service to be available
 function wait_for_service() {
@@ -38,8 +37,6 @@ function cleanup() {
 # Main script starts here
 set -euf -o pipefail
 trap cleanup EXIT
-
-export SPIFFE_ENDPOINT_SOCKET
 
 # Install and run a SPIRE server
 curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-glibc.tar.gz | tar xz

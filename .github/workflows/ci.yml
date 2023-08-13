@@ -27,6 +27,8 @@ jobs:
   test:
     name: Execute the test script
     runs-on: ubuntu-latest
+    env:
+      SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
     steps:
       - uses: actions/checkout@v3
 
