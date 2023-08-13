@@ -25,15 +25,6 @@ function wait_for_service() {
   exit 1
 }
 
-# Cleanup function
-function cleanup() {
-  killall -9 spire-agent || true
-  killall -9 spire-server || true
-  rm -f /tmp/spire-server/private/api.sock
-  rm -f /tmp/spire-agent/public/api.sock
-  rm -rf ${spire_folder}
-}
-
 # Main script starts here
 set -euf -o pipefail
 trap cleanup EXIT
