@@ -4,38 +4,44 @@ on: [push, pull_request]
 
 jobs:
   lint-and-setup:
-    name: Linting and Setup
+    name: Setup and Lint Rust Code
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup-env
-      - name: Lint with rustfmt and clippy
+      - name: Check out code
+        uses: actions/checkout@v3
+      - name: Install dependencies and common setup
+        uses: ./.github/actions/setup-env
+      - name: Lint Rust code with rustfmt and clippy
         run: |
           cargo +nightly fmt
           cargo +nightly clippy
 
   build:
-    name: Build Project
+    name: Build Rust Project
     runs-on: ubuntu-latest
     needs: lint-and-setup
     steps:
-      - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup-env
-      - name: Build
+      - name: Check out code
+        uses: actions/checkout@v3
+      - name: Install dependencies and common setup
+        uses: ./.github/actions/setup-env
+      - name: Build Rust project
         run: cargo build
 
   test:
-    name: Execute the test script
+    name: Run SPIFFE Integration Tests
     runs-on: ubuntu-latest
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
     needs: build
     steps:
-      - uses: actions/checkout@v3
-      - uses: ./.github/actions/setup-env
-      - name: Run SPIRE
+      - name: Check out code
+        uses: actions/checkout@v3
+      - name: Install dependencies and common setup
+        uses: ./.github/actions/setup-env
+      - name: Start SPIRE
         run: ./scripts/run-spire.sh &
-      - name: Run spiffe Integration Tests
+      - name: Execute spiffe Integration Tests
         run: RUST_BACKTRACE=1 cargo test --features integration-tests
-      - name: Cleanup SPIRE
+      - name: Clean up SPIRE
         run: ./scripts/cleanup-spire.sh
