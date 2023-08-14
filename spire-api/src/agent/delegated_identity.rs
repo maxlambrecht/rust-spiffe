@@ -8,11 +8,15 @@
 
 use crate::proto::spire::api::agent::delegatedidentity::v1::{
     delegated_identity_client::DelegatedIdentityClient as DelegatedIdentityApiClient,
-    SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse, SubscribeToX509sviDsRequest,
-    SubscribeToX509sviDsResponse,
+    FetchJwtsviDsRequest, SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse,
+    SubscribeToX509sviDsRequest, SubscribeToX509sviDsResponse, SubscribeToJwtBundlesRequest,
+    SubscribeToJwtBundlesResponse,
 };
+use crate::proto::spire::api::types::Jwtsvid as ProtoJwtSvid;
 use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
+use spiffe::bundle::jwt::{JwtBundleSet, JwtBundle};
 use spiffe::spiffe_id::TrustDomain;
+use spiffe::svid::jwt::JwtSvid;
 use spiffe::svid::x509::X509Svid;
 use spiffe::workload_api::address::validate_socket_path;
 use tokio_stream::{Stream, StreamExt};
@@ -20,14 +24,15 @@ use tokio_stream::{Stream, StreamExt};
 use crate::selectors::Selector;
 use spiffe::workload_api::client::{ClientError, DEFAULT_SVID};
 use std::convert::{Into, TryFrom};
+use std::str::FromStr;
 use tokio::net::UnixStream;
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 
 /// Name of the environment variable that holds the default socket endpoint path.
-pub const ADMIN_SOCKET_ENV: &str = "SPIFFE_ADMIN_ENDPOINT_SOCKET";
+pub const ADMIN_SOCKET_ENV: &str = "SPIRE_ADMIN_ENDPOINT_SOCKET";
 
-/// Gets the endpoint socket endpoint path from the environment variable `SPIFFE_ENDPOINT_SOCKET`,
+/// Gets the endpoint socket endpoint path from the environment variable `ADMIN_SOCKET_ENV`,
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_admin_socket_path() -> Option<String> {
     match std::env::var(ADMIN_SOCKET_ENV) {
@@ -132,7 +137,7 @@ impl DelegatedIdentityClient {
     ///
     /// Returns [`ClientError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
     pub async fn fetch_x509_svid(
-        mut self,
+        &mut self,
         selectors: Vec<Selector>,
     ) -> Result<X509Svid, ClientError> {
         let request = SubscribeToX509sviDsRequest {
@@ -172,7 +177,7 @@ impl DelegatedIdentityClient {
     ///
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_x509_svids(
-        mut self,
+        &mut self,
         selectors: Vec<Selector>,
     ) -> Result<impl Stream<Item = Result<X509Svid, ClientError>>, ClientError> {
         let request = SubscribeToX509sviDsRequest {
@@ -197,7 +202,7 @@ impl DelegatedIdentityClient {
     ///
     /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_x509_bundles(mut self) -> Result<X509BundleSet, ClientError> {
+    pub async fn fetch_x509_bundles(&mut self) -> Result<X509BundleSet, ClientError> {
         let request = SubscribeToX509BundlesRequest::default();
 
         let response: tonic::Response<tonic::Streaming<SubscribeToX509BundlesResponse>> =
@@ -227,7 +232,7 @@ impl DelegatedIdentityClient {
     ///
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_x509_bundles(
-        mut self,
+        &mut self,
     ) -> Result<impl Stream<Item = Result<X509BundleSet, ClientError>>, ClientError> {
         let request = SubscribeToX509BundlesRequest::default();
 
@@ -242,35 +247,131 @@ impl DelegatedIdentityClient {
 
         Ok(stream)
     }
+
+    /// Fetches a list of [`JwtSvid`] parsing the JWT token in the Workload API response, for the given audience and selectors.
+    ///
+    /// # Arguments
+    ///
+    /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
+    /// * `selectors` - A list of selectors to filter the list of [`JwtSvid`].
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn fetch_jwt_svids<T: AsRef<str> + ToString>(
+        &mut self,
+        audience: &[T],
+        selectors: Vec<Selector>,
+    ) -> Result<Vec<JwtSvid>, ClientError> {
+        let request = FetchJwtsviDsRequest {
+            audience: audience.iter().map(|s| s.to_string()).collect(),
+            selectors: selectors.into_iter().map(|s| s.into()).collect(),
+        };
+
+        DelegatedIdentityClient::parse_jwt_svid_from_grpc_response(
+            self.client
+                .fetch_jwtsvi_ds(request)
+                .await?
+                .into_inner()
+                .svids,
+        )
+    }
+
+
+
+    /// Watches the stream of [`JwtBundleSet`] updates.
+    ///
+    /// This function establishes a stream with the Workload API to continuously receive updates for the [`JwtBundleSet`].
+    /// The returned stream can be used to asynchronously yield new `JwtBundleSet` updates as they become available.
+    ///
+    /// # Returns
+    ///
+    /// Returns a stream of `Result<JwtBundleSet, ClientError>`. Each item represents an updated [`JwtBundleSet`] or an error if
+    /// there was a problem processing an update from the stream.
+    ///
+    /// # Errors
+    ///
+    /// The function can return an error variant of [`ClientError`] in the following scenarios:
+    ///
+    /// * There's an issue connecting to the Workload API.
+    /// * An error occurs while setting up the stream.
+    ///
+    /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
+    pub async fn stream_jwt_bundles(
+        &mut self,
+    ) -> Result<impl Stream<Item = Result<JwtBundleSet, ClientError>>, ClientError> {
+        let request = SubscribeToJwtBundlesRequest::default();
+        let response = self.client.subscribe_to_jwt_bundles(request).await?;
+        Ok(response.into_inner().map(|message| {
+            message
+                .map_err(ClientError::from)
+                .and_then(DelegatedIdentityClient::parse_jwt_bundle_set_from_grpc_response)
+        }))
+    }
+
+    /// Fetches [`JwtBundleSet`] that is a set of [`JwtBundle`] keyed by the trust domain to which they belong.
+    ///
+    /// # Errors
+    ///
+    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// there is a problem processing the response.
+    pub async fn fetch_jwt_bundles(
+        &mut self,
+    ) -> Result<JwtBundleSet, ClientError> {
+        let request = SubscribeToJwtBundlesRequest::default();
+        let response = self.client.subscribe_to_jwt_bundles(request).await?;
+        let initial = response.into_inner().message().await?;
+        DelegatedIdentityClient::parse_jwt_bundle_set_from_grpc_response(initial.ok_or(ClientError::EmptyResponse)?)
+    }
 }
 
 impl DelegatedIdentityClient {
     fn parse_x509_svid_from_grpc_response(
         response: SubscribeToX509sviDsResponse,
     ) -> Result<X509Svid, ClientError> {
-        let svid = match response.x509_svids.get(DEFAULT_SVID) {
-            None => return Err(ClientError::EmptyResponse),
-            Some(s) => s,
-        };
+        let svid = response
+            .x509_svids
+            .get(DEFAULT_SVID)
+            .ok_or(ClientError::EmptyResponse)?;
 
-        // OPTIMIZE THIS
-        let mut total_length = 0;
-        svid.x509_svid
-            .as_ref()
-            .ok_or(ClientError::EmptyResponse)?
-            .cert_chain
-            .iter()
-            .for_each(|c| total_length += c.len());
-        let mut cert_chain = bytes::BytesMut::with_capacity(total_length);
-        svid.x509_svid
-            .as_ref()
-            .ok_or(ClientError::EmptyResponse)?
-            .cert_chain
-            .iter()
-            .for_each(|c| cert_chain.extend(c));
+        let x509_svid = svid.x509_svid.as_ref().ok_or(ClientError::EmptyResponse)?;
 
-        X509Svid::parse_from_der(cert_chain.as_ref(), svid.x509_svid_key.as_ref())
+        let total_length = x509_svid.cert_chain.iter().map(|c| c.len()).sum();
+        let mut cert_chain_bytes = Vec::with_capacity(total_length);
+
+        for c in &x509_svid.cert_chain {
+            cert_chain_bytes.extend_from_slice(c);
+        }
+
+        X509Svid::parse_from_der(&cert_chain_bytes, svid.x509_svid_key.as_ref())
             .map_err(|e| e.into())
+    }
+
+    fn parse_jwt_svid_from_grpc_response(
+        svids: Vec<ProtoJwtSvid>,
+    ) -> Result<Vec<JwtSvid>, ClientError> {
+        let result: Result<Vec<JwtSvid>, ClientError> = svids
+            .iter()
+            .map(|r| JwtSvid::from_str(&r.token).map_err(ClientError::InvalidJwtSvid))
+            .collect();
+        result
+    }
+
+    fn parse_jwt_bundle_set_from_grpc_response(
+        response: SubscribeToJwtBundlesResponse,
+    ) -> Result<JwtBundleSet, ClientError> {
+        let mut bundle_set = JwtBundleSet::new();
+
+        for (td, bundle_data) in response.bundles.into_iter() {
+            let trust_domain = TrustDomain::try_from(td)?;
+            let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
+                .map_err(ClientError::from)?;
+
+            bundle_set.add_bundle(bundle);
+        }
+
+        Ok(bundle_set)
     }
 
     fn parse_x509_bundle_set_from_grpc_response(

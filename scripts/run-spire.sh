@@ -37,7 +37,7 @@ mkdir -p /tmp/spire-server
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
 wait_for_service "bin/spire-server healthcheck" "SPIRE Server" "${spire_server_log_file}"
 
-export STRIPPED_SPIFFE_ADMIN_ENDPOINT_SOCKET=$(echo $SPIFFE_ADMIN_ENDPOINT_SOCKET| cut -c6-)
+export STRIPPED_SPIRE_ADMIN_ENDPOINT_SOCKET=$(echo $SPIRE_ADMIN_ENDPOINT_SOCKET| cut -c6-)
 cat $SCRIPT_DIR/agent.conf | envsubst > "conf/agent/agent.conf"
 
 # Run the SPIRE agent with the joint token

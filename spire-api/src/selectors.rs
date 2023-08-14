@@ -1,11 +1,10 @@
-//! Selectors which conform to SPIRE standards.
-//!
+//! Selectors conforming to SPIRE standards.
 use crate::proto::spire::api::types::Selector as SpiffeSelector;
 
 const K8S_TYPE: &str = "k8s";
 const UNIX_TYPE: &str = "unix";
 
-/// User-facing version of underlying proto selector type
+/// Converts user-defined selectors into SPIFFE selectors.
 impl From<Selector> for SpiffeSelector {
     fn from(s: Selector) -> SpiffeSelector {
         match s {
@@ -26,19 +25,20 @@ impl From<Selector> for SpiffeSelector {
 }
 
 #[derive(Debug, Clone)]
-/// Selector represents a SPIFFE ID selector.
+/// Represents various types of SPIFFE identity selectors.
 pub enum Selector {
-    /// K8s represents a SPIFFE ID selector.
+    /// Represents a SPIFFE identity selector based on Kubernetes constructs.
     K8s(K8s),
-    /// Selector represents a SPIFFE ID selector.
+    /// Represents a SPIFFE identity selector based on Unix system constructs such as PID, GID, and UID.
     Unix(Unix),
-    /// Selector represents a SPIFFE ID selector.
+    /// Represents a generic SPIFFE identity selector defined by a key-value pair.
     Generic((String, String)),
 }
 
 const K8S_SA_TYPE: &str = "sa";
 const K8S_NS_TYPE: &str = "ns";
 
+/// Converts Kubernetes selectors to their string representation.
 impl From<K8s> for String {
     fn from(k: K8s) -> String {
         match k {
@@ -49,11 +49,11 @@ impl From<K8s> for String {
 }
 
 #[derive(Debug, Clone)]
-/// K8s is a helper type to create a SPIFFE ID selector for Kubernetes.
+/// Represents a SPIFFE identity selector for Kubernetes.
 pub enum K8s {
-    /// ServiceAccount represents the SPIFFE ID selector for a Kubernetes service account.
+    /// SPIFFE identity selector for a Kubernetes service account.
     ServiceAccount(String),
-    /// Namespace represents the SPIFFE ID selector for a Kubernetes namespace.
+    /// SPIFFE identity selector for a Kubernetes namespace.
     Namespace(String),
 }
 
@@ -61,6 +61,7 @@ const UNIX_PID_TYPE: &str = "pid";
 const UNIX_GID_TYPE: &str = "gid";
 const UNIX_UID_TYPE: &str = "uid";
 
+/// Converts a Unix selector into a formatted string representation.
 impl From<Unix> for String {
     fn from(value: Unix) -> Self {
         match value {
@@ -72,13 +73,13 @@ impl From<Unix> for String {
 }
 
 #[derive(Debug, Clone)]
-/// K8s is a helper type to create a SPIFFE ID unix process constructs.
+/// Represents SPIFFE identity selectors based on Unix process-related attributes.
 pub enum Unix {
-    /// PID represents the SPIFFE ID selector for a process ID.
+    /// Specifies a selector for a Unix process ID (PID).
     Pid(u16),
-    /// GID represents the SPIFFE ID selector for a group ID.
+    /// Specifies a selector for a Unix group ID (GID).
     Gid(u16),
-    /// UID represents the SPIFFE ID selector for a User ID.
+    /// Specifies a selector for a Unix user ID (UID).
     Uid(u16),
 }
 

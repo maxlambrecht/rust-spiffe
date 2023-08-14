@@ -1,13 +1,10 @@
 //! Agent API
 //!
-//! The agent API consists of APIs:
-//! - delegated_identity
-//! - debug (not implemented)
+//! Consists of the following APIs:
+//! - `delegated_identity`: For managing delegated identities.
+//! - `debug`: (Not yet implemented).
 //!
 //! # Note
-//! Both of these APIs must be accesed via the admin_socket_path which can be set
-//! in the [agent configuration file](https://spiffe.io/docs/latest/deploying/spire_agent/#agent-configuration-file).
+//! Access these APIs via the `admin_socket_path` in the [agent configuration file](https://spiffe.io/docs/latest/deploying/spire_agent/#agent-configuration-file).
 //!
-//!
-
 pub mod delegated_identity;
