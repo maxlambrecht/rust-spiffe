@@ -2,16 +2,16 @@
 //! The protobuf definition can be found [here](https://github.com/spiffe/spire-api-sdk/blob/main/proto/spire/api/agent/delegatedidentity/v1/delegatedidentity.proto)
 //!
 //! More information on it's usage can be found in the [SPIFFE docs](https://spiffe.io/docs/latest/deploying/spire_agent/#delegated-identity-api)
-//! 
+//!
 //! Most importantly, this API cannot be used over the standard endpoint, it must be used over the admin socket.
 //! The admin socket can be configured in the SPIRE agent configuration document.
 
-use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
 use crate::proto::spire::api::agent::delegatedidentity::v1::{
     delegated_identity_client::DelegatedIdentityClient as DelegatedIdentityApiClient,
     SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse, SubscribeToX509sviDsRequest,
     SubscribeToX509sviDsResponse,
 };
+use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
 use spiffe::spiffe_id::TrustDomain;
 use spiffe::svid::x509::X509Svid;
 use spiffe::workload_api::address::validate_socket_path;
@@ -24,17 +24,16 @@ use tokio::net::UnixStream;
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
 
-
 /// Name of the environment variable that holds the default socket endpoint path.
 pub const ADMIN_SOCKET_ENV: &str = "SPIFFE_ADMIN_ENDPOINT_SOCKET";
 
 /// Gets the endpoint socket endpoint path from the environment variable `SPIFFE_ENDPOINT_SOCKET`,
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_admin_socket_path() -> Option<String> {
-  match std::env::var(ADMIN_SOCKET_ENV) {
-      Ok(addr) => Some(addr),
-      Err(_) => None,
-  }
+    match std::env::var(ADMIN_SOCKET_ENV) {
+        Ok(addr) => Some(addr),
+        Err(_) => None,
+    }
 }
 
 /// Impl for DelegatedIdentity API
@@ -116,13 +115,12 @@ impl DelegatedIdentityClient {
 }
 
 impl DelegatedIdentityClient {
-
     /// Fetches a single X509 SPIFFE Verifiable Identity Document (SVID).
     ///
     /// This method connects to the SPIFFE Workload API and returns the first X509 SVID in the response.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `selectors` - A list of selectors to filter the stream of [`X509Svid`] updates.
     ///
     /// # Returns
@@ -157,7 +155,7 @@ impl DelegatedIdentityClient {
     /// The returned stream can be used to asynchronously yield new `X509Svid` updates as they become available.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `selectors` - A list of selectors to filter the stream of [`X509Svid`] updates.
     ///
     /// # Returns

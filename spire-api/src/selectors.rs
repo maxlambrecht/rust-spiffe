@@ -1,5 +1,5 @@
 //! Selectors which conform to SPIRE standards.
-//! 
+//!
 use crate::proto::spire::api::types::Selector as SpiffeSelector;
 
 const K8S_TYPE: &str = "k8s";
@@ -7,22 +7,22 @@ const UNIX_TYPE: &str = "unix";
 
 /// User-facing version of underlying proto selector type
 impl From<Selector> for SpiffeSelector {
-  fn from(s: Selector) -> SpiffeSelector {
-    match s {
-      Selector::K8s(k8s_selector) => SpiffeSelector {
-          r#type: K8S_TYPE.to_string(),
-          value: k8s_selector.into(),
-      },
-      Selector::Unix(unix_selector) => SpiffeSelector {
-          r#type: UNIX_TYPE.to_string(),
-          value: unix_selector.into(),
-      },
-      Selector::Generic((k, v)) => SpiffeSelector {
-          r#type: k,
-          value: v,
-      },
-  }
-  }
+    fn from(s: Selector) -> SpiffeSelector {
+        match s {
+            Selector::K8s(k8s_selector) => SpiffeSelector {
+                r#type: K8S_TYPE.to_string(),
+                value: k8s_selector.into(),
+            },
+            Selector::Unix(unix_selector) => SpiffeSelector {
+                r#type: UNIX_TYPE.to_string(),
+                value: unix_selector.into(),
+            },
+            Selector::Generic((k, v)) => SpiffeSelector {
+                r#type: k,
+                value: v,
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -41,10 +41,10 @@ const K8S_NS_TYPE: &str = "ns";
 
 impl From<K8s> for String {
     fn from(k: K8s) -> String {
-      match k {
-        K8s::ServiceAccount(s) => format!("{}:{}", K8S_SA_TYPE, s),
-        K8s::Namespace(s) => format!("{}:{}", K8S_NS_TYPE, s),
-    }
+        match k {
+            K8s::ServiceAccount(s) => format!("{}:{}", K8S_SA_TYPE, s),
+            K8s::Namespace(s) => format!("{}:{}", K8S_NS_TYPE, s),
+        }
     }
 }
 
@@ -62,13 +62,13 @@ const UNIX_GID_TYPE: &str = "gid";
 const UNIX_UID_TYPE: &str = "uid";
 
 impl From<Unix> for String {
-  fn from(value: Unix) -> Self {
-    match value {
-      Unix::Pid(s) => format!("{}:{}", UNIX_PID_TYPE, s),
-      Unix::Gid(s) => format!("{}:{}", UNIX_GID_TYPE, s),
-      Unix::Uid(s) => format!("{}:{}", UNIX_UID_TYPE, s),
-  }
-  }
+    fn from(value: Unix) -> Self {
+        match value {
+            Unix::Pid(s) => format!("{}:{}", UNIX_PID_TYPE, s),
+            Unix::Gid(s) => format!("{}:{}", UNIX_GID_TYPE, s),
+            Unix::Uid(s) => format!("{}:{}", UNIX_UID_TYPE, s),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -84,45 +84,45 @@ pub enum Unix {
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
-  #[test]
-  fn test_k8s_sa_selector() {
-    let selector = Selector::K8s(K8s::ServiceAccount("foo".to_string()));
-    let spiffe_selector: SpiffeSelector = selector.into();
-    assert_eq!(spiffe_selector.r#type, K8S_TYPE);
-    assert_eq!(spiffe_selector.value, "sa:foo");
-  }
+    #[test]
+    fn test_k8s_sa_selector() {
+        let selector = Selector::K8s(K8s::ServiceAccount("foo".to_string()));
+        let spiffe_selector: SpiffeSelector = selector.into();
+        assert_eq!(spiffe_selector.r#type, K8S_TYPE);
+        assert_eq!(spiffe_selector.value, "sa:foo");
+    }
 
-  #[test]
-  fn test_k8s_ns_selector() {
-    let selector = Selector::K8s(K8s::Namespace("foo".to_string()));
-    let spiffe_selector: SpiffeSelector = selector.into();
-    assert_eq!(spiffe_selector.r#type, K8S_TYPE);
-    assert_eq!(spiffe_selector.value, "ns:foo");
-  }
+    #[test]
+    fn test_k8s_ns_selector() {
+        let selector = Selector::K8s(K8s::Namespace("foo".to_string()));
+        let spiffe_selector: SpiffeSelector = selector.into();
+        assert_eq!(spiffe_selector.r#type, K8S_TYPE);
+        assert_eq!(spiffe_selector.value, "ns:foo");
+    }
 
-  #[test]
-  fn test_unix_pid_selector() {
-    let selector = Selector::Unix(Unix::Pid(500));
-    let spiffe_selector: SpiffeSelector = selector.into();
-    assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
-    assert_eq!(spiffe_selector.value, "pid:500");
-  }
+    #[test]
+    fn test_unix_pid_selector() {
+        let selector = Selector::Unix(Unix::Pid(500));
+        let spiffe_selector: SpiffeSelector = selector.into();
+        assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
+        assert_eq!(spiffe_selector.value, "pid:500");
+    }
 
-  #[test]
-  fn test_unix_gid_selector() {
-    let selector = Selector::Unix(Unix::Gid(500));
-    let spiffe_selector: SpiffeSelector = selector.into();
-    assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
-    assert_eq!(spiffe_selector.value, "gid:500");
-  }
+    #[test]
+    fn test_unix_gid_selector() {
+        let selector = Selector::Unix(Unix::Gid(500));
+        let spiffe_selector: SpiffeSelector = selector.into();
+        assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
+        assert_eq!(spiffe_selector.value, "gid:500");
+    }
 
-  #[test]
-  fn test_unix_uid_selector() {
-    let selector = Selector::Unix(Unix::Uid(500));
-    let spiffe_selector: SpiffeSelector = selector.into();
-    assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
-    assert_eq!(spiffe_selector.value, "uid:500");
-  }
+    #[test]
+    fn test_unix_uid_selector() {
+        let selector = Selector::Unix(Unix::Uid(500));
+        let spiffe_selector: SpiffeSelector = selector.into();
+        assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
+        assert_eq!(spiffe_selector.value, "uid:500");
+    }
 }
