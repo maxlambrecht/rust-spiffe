@@ -5,6 +5,10 @@ updates:
     schedule:
       interval: "daily"
   - package-ecosystem: "cargo"
-    directory: "/" # Location of the Cargo.toml file
+    directory: "/spiffe" # Location of the Cargo.toml file for spiffe crate
+    schedule:
+      interval: "daily"
+  - package-ecosystem: "cargo"
+    directory: "/spire-api" # Location of the Cargo.toml file for spire-api crate
     schedule:
       interval: "daily"
