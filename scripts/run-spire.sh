@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
 # Constants
 spire_version="1.7.1"
 spire_folder="spire-${spire_version}"
@@ -35,6 +37,9 @@ mkdir -p /tmp/spire-server
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
 wait_for_service "bin/spire-server healthcheck" "SPIRE Server" "${spire_server_log_file}"
 
+export STRIPPED_SPIFFE_ADMIN_ENDPOINT_SOCKET=$(echo $SPIFFE_ADMIN_ENDPOINT_SOCKET| cut -c6-)
+cat $SCRIPT_DIR/agent.conf | envsubst > "conf/agent/agent.conf"
+
 # Run the SPIRE agent with the joint token
 bin/spire-server token generate -spiffeID ${agent_id} > token
 cut -d ' ' -f 2 token > token_stripped
@@ -47,5 +52,14 @@ for service in "myservice" "myservice2"; do
   bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u) -ttl 5
   sleep 10  # Derived from the default Agent sync interval
 done
+
+
+uid=$(id -u)
+# The UID in the test has to match this, so take the current UID and add 1
+uid_plus_one=$((uid + 1))
+# Register a different UID with the SPIFFE ID "spiffe://example.org/different-process" with a TTL of 5 seconds
+bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/different-process -selector unix:uid:${uid_plus_one} -ttl 5
+sleep 10
+
 
 popd

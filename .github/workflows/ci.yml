@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
+      SPIFFE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
     needs: build
     steps:
       - name: Check out code
