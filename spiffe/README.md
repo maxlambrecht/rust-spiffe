@@ -9,7 +9,8 @@ This utility library enables interaction with the [SPIFFE Workload API](https://
 
 ## Getting Started
 
-Include `spiffe` in your `Cargo.toml` dependencies:
+Include `spiffe` in your `Cargo.toml` dependencies to get both the SPIFFE types (`spiffe-types`) and the Workload API
+client (`workload-api`) by default:
 
 ```toml
 [dependencies]
@@ -62,7 +63,7 @@ let x509_bundle: &X509Bundle = x509_bundles.get_bundle(&trust_domain)?;
 let x509_authorities: &Vec<Certificate> = x509_bundle.authorities();
 
 // watch for updates on the X.509 context
-let mut x509_context_stream = client.watch_x509_context_stream().await?;
+let mut x509_context_stream = client.x509_context_stream().await?;
 while let Some(x509_context_update) = x509_context_stream.next().await {
     match x509_context_update {
         Ok(update) => {
@@ -75,7 +76,7 @@ while let Some(x509_context_update) = x509_context_stream.next().await {
 }
 
 // watch for updates on the X.509 bundles 
-let mut x509_bundle_stream = client.watch_x509_bundles_stream().await?;
+let mut x509_bundle_stream = client.stream_x509_bundles().await?;
 while let Some(x509_bundle_update) = x509_bundle_stream.next().await {
     match x509_bundle_update {
         Ok(update) => {
@@ -118,7 +119,7 @@ let jwt_authority: &JwtAuthority = jwt_bundle.find_jwt_authority("a_key_id")?;
 let validated_jwt_svid = JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles_set, &["service1.com"])?;
 
 // watch for updates on the JWT bundles 
-let mut jwt_bundle_stream = client.watch_jwt_bundles_stream().await?;
+let mut jwt_bundle_stream = client.stream_jwt_bundles().await?;
 while let Some(jwt_bundle_update) = jwt_bundle_stream.next().await {
     match jwt_bundle_update {
         Ok(update) => {

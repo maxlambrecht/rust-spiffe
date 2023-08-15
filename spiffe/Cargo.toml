@@ -15,12 +15,7 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "X509", "JWT"]
 
 [dependencies]
-tonic = { version = "0.9", default-features = false, features = ["prost", "codegen", "transport"]}
-prost = { version = "0.11"}
-prost-types = {version = "0.11"}
-tokio = { "version" = "1", features = ["net", "test-util"]}
-tokio-stream = "0.1"
-tower = { version = "0.4", features = ["util"] }
+# spiffe-types dependencies:
 thiserror = "1.0"
 url = "2.2"
 asn1 = { package = "simple_asn1", version = "0.6" }
@@ -32,7 +27,14 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 zeroize = { version = "1.6", features = ["zeroize_derive"] }
 time = "0.3"
+tonic = { version = "0.9"}
 
+# workload-api dependencies:
+prost = { version = "0.11", optional = true }
+prost-types = { version = "0.11", optional = true }
+tokio = { version = "1", features = ["net", "test-util"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+tower = { version = "0.4", features = ["util"], optional = true }
 
 [dev-dependencies]
 jsonwebkey = { version = "0.3", features = ["generate"] }
@@ -49,4 +51,7 @@ prost-build = "0.11"
 anyhow = "1.0.65"
 
 [features]
+default = ["spiffe-types", "workload-api"]
+spiffe-types = []
+workload-api = ["prost", "prost-types", "tokio", "tokio-stream", "tower"]
 integration-tests = []

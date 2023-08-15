@@ -8,21 +8,22 @@
 
 use crate::proto::spire::api::agent::delegatedidentity::v1::{
     delegated_identity_client::DelegatedIdentityClient as DelegatedIdentityApiClient,
-    FetchJwtsviDsRequest, SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse,
-    SubscribeToX509sviDsRequest, SubscribeToX509sviDsResponse, SubscribeToJwtBundlesRequest,
-    SubscribeToJwtBundlesResponse,
+    FetchJwtsviDsRequest, SubscribeToJwtBundlesRequest, SubscribeToJwtBundlesResponse,
+    SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse, SubscribeToX509sviDsRequest,
+    SubscribeToX509sviDsResponse,
 };
 use crate::proto::spire::api::types::Jwtsvid as ProtoJwtSvid;
+use spiffe::bundle::jwt::{JwtBundle, JwtBundleSet};
 use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
-use spiffe::bundle::jwt::{JwtBundleSet, JwtBundle};
+use spiffe::endpoint::validate_socket_path;
 use spiffe::spiffe_id::TrustDomain;
 use spiffe::svid::jwt::JwtSvid;
 use spiffe::svid::x509::X509Svid;
-use spiffe::workload_api::address::validate_socket_path;
 use tokio_stream::{Stream, StreamExt};
 
 use crate::selectors::Selector;
-use spiffe::workload_api::client::{ClientError, DEFAULT_SVID};
+use spiffe::constants::DEFAULT_SVID;
+use spiffe::error::GrpcClientError;
 use std::convert::{Into, TryFrom};
 use std::str::FromStr;
 use tokio::net::UnixStream;
@@ -65,7 +66,7 @@ impl DelegatedIdentityClient {
     /// # Errors
     ///
     /// This function will return an error if the provided socket path is invalid or if there are issues connecting.
-    pub async fn new_from_path(path: &str) -> Result<Self, ClientError> {
+    pub async fn new_from_path(path: &str) -> Result<Self, GrpcClientError> {
         validate_socket_path(path)?;
 
         // Strip the 'unix:' prefix for tonic compatibility.
@@ -93,11 +94,11 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`ClientError`] if environment variable is not set or if
+    /// The function returns a variant of [`GrpcClientError`] if environment variable is not set or if
     /// the provided socket path is not valid.
-    pub async fn default() -> Result<Self, ClientError> {
+    pub async fn default() -> Result<Self, GrpcClientError> {
         let socket_path = match get_admin_socket_path() {
-            None => return Err(ClientError::MissingEndpointSocketPath),
+            None => return Err(GrpcClientError::MissingEndpointSocketPath),
             Some(s) => s,
         };
         Self::new_from_path(socket_path.as_str()).await
@@ -112,7 +113,7 @@ impl DelegatedIdentityClient {
     /// # Returns
     ///
     /// A `Result` containing a `DelegatedIdentityClient` if successful, or a `ClientError` if an error occurs.
-    pub fn new(conn: tonic::transport::Channel) -> Result<Self, ClientError> {
+    pub fn new(conn: tonic::transport::Channel) -> Result<Self, GrpcClientError> {
         Ok(DelegatedIdentityClient {
             client: DelegatedIdentityApiClient::new(conn),
         })
@@ -131,15 +132,15 @@ impl DelegatedIdentityClient {
     /// # Returns
     ///
     /// On success, it returns a valid [`X509Svid`] which represents the parsed SVID.
-    /// If the fetch operation or the parsing fails, it returns a [`ClientError`].
+    /// If the fetch operation or the parsing fails, it returns a [`GrpcClientError`].
     ///
     /// # Errors
     ///
-    /// Returns [`ClientError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
+    /// Returns [`GrpcClientError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
     pub async fn fetch_x509_svid(
         &mut self,
         selectors: Vec<Selector>,
-    ) -> Result<X509Svid, ClientError> {
+    ) -> Result<X509Svid, GrpcClientError> {
         let request = SubscribeToX509sviDsRequest {
             selectors: selectors.into_iter().map(|s| s.into()).collect(),
         };
@@ -150,7 +151,7 @@ impl DelegatedIdentityClient {
             .into_inner()
             .message()
             .await?
-            .ok_or(ClientError::EmptyResponse)
+            .ok_or(GrpcClientError::EmptyResponse)
             .and_then(DelegatedIdentityClient::parse_x509_svid_from_grpc_response)
     }
 
@@ -170,7 +171,7 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`ClientError`] in the following scenarios:
+    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Workload API.
     /// * An error occurs while setting up the stream.
@@ -179,7 +180,7 @@ impl DelegatedIdentityClient {
     pub async fn stream_x509_svids(
         &mut self,
         selectors: Vec<Selector>,
-    ) -> Result<impl Stream<Item = Result<X509Svid, ClientError>>, ClientError> {
+    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>>, GrpcClientError> {
         let request = SubscribeToX509sviDsRequest {
             selectors: selectors.into_iter().map(|s| s.into()).collect(),
         };
@@ -189,7 +190,7 @@ impl DelegatedIdentityClient {
 
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(ClientError::from)
+                .map_err(GrpcClientError::from)
                 .and_then(DelegatedIdentityClient::parse_x509_svid_from_grpc_response)
         });
 
@@ -200,9 +201,9 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_x509_bundles(&mut self) -> Result<X509BundleSet, ClientError> {
+    pub async fn fetch_x509_bundles(&mut self) -> Result<X509BundleSet, GrpcClientError> {
         let request = SubscribeToX509BundlesRequest::default();
 
         let response: tonic::Response<tonic::Streaming<SubscribeToX509BundlesResponse>> =
@@ -225,7 +226,7 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`ClientError`] in the following scenarios:
+    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Admin API.
     /// * An error occurs while setting up the stream.
@@ -233,7 +234,7 @@ impl DelegatedIdentityClient {
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_x509_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<X509BundleSet, ClientError>>, ClientError> {
+    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>>, GrpcClientError> {
         let request = SubscribeToX509BundlesRequest::default();
 
         let response: tonic::Response<tonic::Streaming<SubscribeToX509BundlesResponse>> =
@@ -241,7 +242,7 @@ impl DelegatedIdentityClient {
 
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(ClientError::from)
+                .map_err(GrpcClientError::from)
                 .and_then(DelegatedIdentityClient::parse_x509_bundle_set_from_grpc_response)
         });
 
@@ -257,13 +258,13 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
     /// there is a problem processing the response.
     pub async fn fetch_jwt_svids<T: AsRef<str> + ToString>(
         &mut self,
         audience: &[T],
         selectors: Vec<Selector>,
-    ) -> Result<Vec<JwtSvid>, ClientError> {
+    ) -> Result<Vec<JwtSvid>, GrpcClientError> {
         let request = FetchJwtsviDsRequest {
             audience: audience.iter().map(|s| s.to_string()).collect(),
             selectors: selectors.into_iter().map(|s| s.into()).collect(),
@@ -278,8 +279,6 @@ impl DelegatedIdentityClient {
         )
     }
 
-
-
     /// Watches the stream of [`JwtBundleSet`] updates.
     ///
     /// This function establishes a stream with the Workload API to continuously receive updates for the [`JwtBundleSet`].
@@ -292,7 +291,7 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`ClientError`] in the following scenarios:
+    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Workload API.
     /// * An error occurs while setting up the stream.
@@ -300,12 +299,12 @@ impl DelegatedIdentityClient {
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_jwt_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<JwtBundleSet, ClientError>>, ClientError> {
+    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>>, GrpcClientError> {
         let request = SubscribeToJwtBundlesRequest::default();
         let response = self.client.subscribe_to_jwt_bundles(request).await?;
         Ok(response.into_inner().map(|message| {
             message
-                .map_err(ClientError::from)
+                .map_err(GrpcClientError::from)
                 .and_then(DelegatedIdentityClient::parse_jwt_bundle_set_from_grpc_response)
         }))
     }
@@ -314,28 +313,31 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`ClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_jwt_bundles(
-        &mut self,
-    ) -> Result<JwtBundleSet, ClientError> {
+    pub async fn fetch_jwt_bundles(&mut self) -> Result<JwtBundleSet, GrpcClientError> {
         let request = SubscribeToJwtBundlesRequest::default();
         let response = self.client.subscribe_to_jwt_bundles(request).await?;
         let initial = response.into_inner().message().await?;
-        DelegatedIdentityClient::parse_jwt_bundle_set_from_grpc_response(initial.ok_or(ClientError::EmptyResponse)?)
+        DelegatedIdentityClient::parse_jwt_bundle_set_from_grpc_response(
+            initial.ok_or(GrpcClientError::EmptyResponse)?,
+        )
     }
 }
 
 impl DelegatedIdentityClient {
     fn parse_x509_svid_from_grpc_response(
         response: SubscribeToX509sviDsResponse,
-    ) -> Result<X509Svid, ClientError> {
+    ) -> Result<X509Svid, GrpcClientError> {
         let svid = response
             .x509_svids
             .get(DEFAULT_SVID)
-            .ok_or(ClientError::EmptyResponse)?;
+            .ok_or(GrpcClientError::EmptyResponse)?;
 
-        let x509_svid = svid.x509_svid.as_ref().ok_or(ClientError::EmptyResponse)?;
+        let x509_svid = svid
+            .x509_svid
+            .as_ref()
+            .ok_or(GrpcClientError::EmptyResponse)?;
 
         let total_length = x509_svid.cert_chain.iter().map(|c| c.len()).sum();
         let mut cert_chain_bytes = Vec::with_capacity(total_length);
@@ -350,23 +352,23 @@ impl DelegatedIdentityClient {
 
     fn parse_jwt_svid_from_grpc_response(
         svids: Vec<ProtoJwtSvid>,
-    ) -> Result<Vec<JwtSvid>, ClientError> {
-        let result: Result<Vec<JwtSvid>, ClientError> = svids
+    ) -> Result<Vec<JwtSvid>, GrpcClientError> {
+        let result: Result<Vec<JwtSvid>, GrpcClientError> = svids
             .iter()
-            .map(|r| JwtSvid::from_str(&r.token).map_err(ClientError::InvalidJwtSvid))
+            .map(|r| JwtSvid::from_str(&r.token).map_err(GrpcClientError::InvalidJwtSvid))
             .collect();
         result
     }
 
     fn parse_jwt_bundle_set_from_grpc_response(
         response: SubscribeToJwtBundlesResponse,
-    ) -> Result<JwtBundleSet, ClientError> {
+    ) -> Result<JwtBundleSet, GrpcClientError> {
         let mut bundle_set = JwtBundleSet::new();
 
         for (td, bundle_data) in response.bundles.into_iter() {
             let trust_domain = TrustDomain::try_from(td)?;
             let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
-                .map_err(ClientError::from)?;
+                .map_err(GrpcClientError::from)?;
 
             bundle_set.add_bundle(bundle);
         }
@@ -376,7 +378,7 @@ impl DelegatedIdentityClient {
 
     fn parse_x509_bundle_set_from_grpc_response(
         response: SubscribeToX509BundlesResponse,
-    ) -> Result<X509BundleSet, ClientError> {
+    ) -> Result<X509BundleSet, GrpcClientError> {
         let mut bundle_set = X509BundleSet::new();
 
         for (td, bundle) in response.ca_certificates.into_iter() {
@@ -384,7 +386,7 @@ impl DelegatedIdentityClient {
 
             bundle_set.add_bundle(
                 X509Bundle::parse_from_der(trust_domain, &bundle)
-                    .map_err(ClientError::InvalidX509Bundle)?,
+                    .map_err(GrpcClientError::InvalidX509Bundle)?,
             );
         }
         Ok(bundle_set)

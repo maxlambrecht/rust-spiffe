@@ -39,6 +39,5 @@
 //! # Ok(())
 //! # }
 //! ```
-pub mod address;
 pub mod client;
 pub mod x509_context;

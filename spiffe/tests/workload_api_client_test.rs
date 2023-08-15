@@ -182,7 +182,7 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn watch_x509_context_stream() {
+    async fn stream_x509_contexts() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
@@ -190,7 +190,7 @@ mod integration_tests {
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
             let mut stream = client
-                .watch_x509_context_stream()
+                .stream_x509_contexts()
                 .await
                 .expect("Failed to get stream");
 
@@ -234,7 +234,7 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn watch_x509_svid_stream() {
+    async fn stream_x509_svids() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
@@ -242,7 +242,7 @@ mod integration_tests {
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
             let mut stream = client
-                .watch_x509_svid_stream()
+                .stream_x509_svids()
                 .await
                 .expect("Failed to get stream");
 
@@ -275,13 +275,13 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn watch_x509_bundles_stream() {
+    async fn stream_x509_bundles() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
 
         let result = tokio::time::timeout(test_duration, async {
             let mut stream = client
-                .watch_x509_bundles_stream()
+                .stream_x509_bundles()
                 .await
                 .expect("Failed to get stream");
             if let Some(update) = stream.next().await {
@@ -308,13 +308,13 @@ mod integration_tests {
     }
 
     #[tokio::test]
-    async fn watch_jwt_bundles_stream() {
+    async fn stream_jwt_bundles() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
 
         let result = tokio::time::timeout(test_duration, async {
             let mut stream = client
-                .watch_jwt_bundles_stream()
+                .stream_jwt_bundles()
                 .await
                 .expect("Failed to get stream");
             if let Some(update) = stream.next().await {
