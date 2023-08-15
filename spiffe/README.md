@@ -63,7 +63,7 @@ let x509_bundle: &X509Bundle = x509_bundles.get_bundle(&trust_domain)?;
 let x509_authorities: &Vec<Certificate> = x509_bundle.authorities();
 
 // watch for updates on the X.509 context
-let mut x509_context_stream = client.x509_context_stream().await?;
+let mut x509_context_stream = client.stream_x509_contexts().await?;
 while let Some(x509_context_update) = x509_context_stream.next().await {
     match x509_context_update {
         Ok(update) => {
