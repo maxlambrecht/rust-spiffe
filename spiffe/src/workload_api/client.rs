@@ -366,7 +366,7 @@ impl WorkloadApiClient {
             .get(DEFAULT_SVID)
             .ok_or(ClientError::EmptyResponse)
             .and_then(|r| {
-                JwtSvid::from_str(&r.svid).map_err(|err| ClientError::InvalidJwtSvid(err))
+                JwtSvid::from_str(&r.svid).map_err(ClientError::InvalidJwtSvid)
             })
     }
 
