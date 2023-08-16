@@ -26,7 +26,6 @@ Follow these steps to create a new release for a specific crate in the repositor
 - Create a new branch for the release, named with the pattern `release/CRATE-NAME-VERSION`.
 
 For example:
-
 ```sh
 git checkout -b release/spiffe-v0.3.2
 ```
@@ -35,6 +34,7 @@ git checkout -b release/spiffe-v0.3.2
 
 - Create a Git tag for the new release, using the same pattern `CRATE-NAME-VERSION`.
 
+For example:
 ```sh
 git tag spiffe-v0.3.2
 ```
@@ -43,6 +43,13 @@ git tag spiffe-v0.3.2
 
 ## 6. Publish the Crate
 
+For example:
 ```sh
-cargo publish --manifest-path CRATE-PATH/Cargo.toml
+cargo publish --manifest-path spiffe/Cargo.toml
 ```
+
+## 7 Create a GitHub Release
+
+Navigate to the "Releases" section in the repository on GitHub.
+Draft a new release using the tag created earlier, and include the notes from the CHANGELOG.md.
+Publish the release.
