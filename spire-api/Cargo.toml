@@ -15,8 +15,8 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "SPIRE"]
 
 [dependencies]
+spiffe = { path = "../spiffe", default-features = false, features = ["spiffe-types"] }
 bytes = { version = "1", features = ["serde"] }
-spiffe = { path = "../spiffe" }
 tonic = { version = "0.9", default-features = false, features = ["prost", "codegen", "transport"]}
 prost = { version = "0.11"}
 prost-types = {version = "0.11"}

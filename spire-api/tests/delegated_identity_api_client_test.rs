@@ -1,17 +1,17 @@
-// These tests requires a running SPIRE server and agent with workloads registered (see script `ci.sh`).
+// These tests requires a running SPIRE server and agent with workloads registered (see script `scripts/run-spire.sh`).
 // In addition it requires the admin endpoint to be exposed, and the running user to registered
 // as an authorized_delegate.
 
 #[cfg(feature = "integration-tests")]
 mod integration_tests {
     use once_cell::sync::Lazy;
-    use spiffe::bundle::BundleRefSource;
     use spiffe::bundle::jwt::JwtBundleSet;
+    use spiffe::bundle::BundleRefSource;
     use spiffe::spiffe_id::TrustDomain;
+    use spire_api::agent::delegated_identity::DelegatedIdentityClient;
     use spire_api::selectors;
     use std::process::Command;
     use tokio_stream::StreamExt;
-    use spire_api::agent::delegated_identity::DelegatedIdentityClient;
 
     static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
 
@@ -122,10 +122,7 @@ mod integration_tests {
             .expect("Failed to get bundle");
     }
 
-    async fn verify_jwt(
-        client: &mut DelegatedIdentityClient,
-        bundles: JwtBundleSet,
-    ) {
+    async fn verify_jwt(client: &mut DelegatedIdentityClient, bundles: JwtBundleSet) {
         let svids = client
             .fetch_jwt_svids(
                 &["my_audience"],
@@ -157,7 +154,6 @@ mod integration_tests {
             .await
             .expect("Failed to fetch trust bundles");
 
-
         verify_jwt(&mut client, response).await;
     }
 
@@ -174,6 +170,10 @@ mod integration_tests {
             .await
             .expect("Test did not complete in the expected duration");
 
-        verify_jwt(&mut client, result.expect("empty result").expect("error in stream")).await;
+        verify_jwt(
+            &mut client,
+            result.expect("empty result").expect("error in stream"),
+        )
+        .await;
     }
 }

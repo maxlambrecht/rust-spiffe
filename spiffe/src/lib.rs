@@ -81,9 +81,29 @@
 //! # }
 //! ```
 
+#[cfg(feature = "spiffe-types")]
+pub mod constants;
+
+#[cfg(feature = "spiffe-types")]
 pub mod bundle;
+
+#[cfg(feature = "spiffe-types")]
 pub mod cert;
-pub(crate) mod proto;
+
+#[cfg(feature = "spiffe-types")]
 pub mod spiffe_id;
+
+#[cfg(feature = "spiffe-types")]
 pub mod svid;
+
+#[cfg(feature = "spiffe-types")]
+pub mod error;
+
+#[cfg(feature = "spiffe-types")]
+pub mod endpoint;
+
+#[cfg(feature = "workload-api")]
+pub(crate) mod proto;
+
+#[cfg(feature = "workload-api")]
 pub mod workload_api;

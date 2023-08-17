@@ -1,8 +1,8 @@
 //! Defines a type that holds all the X.509 materials for a workload (i.e. X.509 SVIDs and bundles)
 
 use crate::bundle::x509::X509BundleSet;
+use crate::constants::DEFAULT_SVID;
 use crate::svid::x509::X509Svid;
-use crate::workload_api::client::DEFAULT_SVID;
 
 /// Represents all X.509 materials fetched from the Workload API.
 #[derive(Debug, Clone, Eq, PartialEq)]
