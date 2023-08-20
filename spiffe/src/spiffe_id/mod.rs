@@ -10,6 +10,10 @@ use thiserror::Error;
 const SPIFFE_SCHEME: &str = "spiffe";
 const SCHEME_PREFIX: &str = "spiffe://";
 
+const VALID_TRUST_DOMAIN_CHARS: &str = "abcdefghijklmnopqrstuvwxyz0123456789-._";
+const VALID_PATH_SEGMENT_CHARS: &str =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._";
+
 /// Represents a [SPIFFE ID](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#2-spiffe-identity).
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct SpiffeId {
@@ -90,30 +94,22 @@ impl SpiffeId {
             return Err(SpiffeIdError::Empty);
         }
 
-        if &id[..SCHEME_PREFIX.len()] != SCHEME_PREFIX {
+        if !id.starts_with(SCHEME_PREFIX) {
             return Err(SpiffeIdError::WrongScheme);
         }
 
         let rest = &id[SCHEME_PREFIX.len()..];
-
-        let mut i = 0;
-
-        for c in rest.chars() {
-            if c == '/' {
-                break;
-            }
-
-            if !is_valid_trust_domain_char(c) {
-                return Err(SpiffeIdError::BadTrustDomainChar);
-            }
-            i += 1;
-        }
+        let i = rest.find('/').unwrap_or_else(|| rest.len());
 
         if i == 0 {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        let td = &rest[0..i];
+        let td = &rest[..i];
+        if td.chars().any(|c| !is_valid_trust_domain_char(c)) {
+            return Err(SpiffeIdError::BadTrustDomainChar);
+        }
+
         let path = &rest[i..];
 
         if !path.is_empty() {
@@ -160,7 +156,8 @@ impl SpiffeId {
         let mut path = String::new();
         for p in segments {
             validate_path(p)?;
-            path = format!("{}/{}", path, p);
+            path.push('/');
+            path.push_str(p);
         }
 
         Ok(SpiffeId { trust_domain, path })
@@ -217,32 +214,26 @@ pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
         return Err(SpiffeIdError::Empty);
     }
 
+    let mut chars = path.char_indices().peekable();
     let mut segment_start = 0;
-    let mut segment_end = 0;
 
-    while segment_end < path.len() {
-        let c = match path.chars().nth(segment_end) {
-            None => break,
-            Some(c) => c,
-        };
+    while let Some((idx, c)) = chars.next() {
         if c == '/' {
-            match &path[segment_start..segment_end] {
+            match &path[segment_start..idx] {
                 "/" => return Err(SpiffeIdError::EmptySegment),
                 "/." | "/.." => return Err(SpiffeIdError::DotSegment),
                 _ => {}
             }
-            segment_start = segment_end;
-            segment_end += 1;
+            segment_start = idx;
             continue;
         }
 
         if !is_valid_path_segment_char(c) {
             return Err(SpiffeIdError::BadPathSegmentChar);
         }
-        segment_end += 1;
     }
 
-    match &path[segment_start..segment_end] {
+    match &path[segment_start..] {
         "/" => return Err(SpiffeIdError::TrailingSlash),
         "/." | "/.." => return Err(SpiffeIdError::DotSegment),
         _ => {}
@@ -252,7 +243,7 @@ pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
 }
 
 fn is_valid_path_segment_char(c: char) -> bool {
-    matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '.' | '_')
+    VALID_PATH_SEGMENT_CHARS.contains(c)
 }
 
 impl TrustDomain {
@@ -285,18 +276,18 @@ impl TrustDomain {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        // Something looks kinda like a scheme separator, let's try to parse as
-        // an ID. We use :/ instead of :// since the diagnostics are better for
-        // a bad input like spiffe:/trustdomain.
-        if id_or_name.contains(":/") {
-            let spiffe_id = SpiffeId::try_from(id_or_name)?;
-            return Ok(spiffe_id.trust_domain);
+        match id_or_name.find(":/") {
+            Some(_) => {
+                let spiffe_id = SpiffeId::try_from(id_or_name)?;
+                Ok(spiffe_id.trust_domain)
+            }
+            None => {
+                validate_trust_domain_name(id_or_name)?;
+                Ok(TrustDomain {
+                    name: id_or_name.to_string(),
+                })
+            }
         }
-
-        validate_trust_domain_name(id_or_name)?;
-        Ok(TrustDomain {
-            name: id_or_name.to_string(),
-        })
     }
 
     /// Returns a string representation of the SPIFFE ID of the trust domain,
@@ -343,16 +334,15 @@ impl TryFrom<String> for TrustDomain {
 }
 
 fn validate_trust_domain_name(name: &str) -> Result<(), SpiffeIdError> {
-    for c in name.chars() {
-        if !is_valid_trust_domain_char(c) {
-            return Err(SpiffeIdError::BadTrustDomainChar);
-        }
+    if name.chars().all(is_valid_trust_domain_char) {
+        Ok(())
+    } else {
+        Err(SpiffeIdError::BadTrustDomainChar)
     }
-    Ok(())
 }
 
 fn is_valid_trust_domain_char(c: char) -> bool {
-    matches!(c, 'a'..='z' | '0'..='9' | '-' | '.' | '_')
+    VALID_TRUST_DOMAIN_CHARS.contains(c)
 }
 
 #[cfg(test)]
@@ -360,19 +350,6 @@ mod spiffe_id_tests {
     use std::str::FromStr;
 
     use super::*;
-
-    pub(crate) const TD_CHARS: &[char] = &[
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
-        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-        '.', '-', '_',
-    ];
-
-    const PATH_CHARS: &[char] = &[
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r',
-        's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J',
-        'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '0', '1',
-        '2', '3', '4', '5', '6', '7', '8', '9', '.', '-', '_',
-    ];
 
     macro_rules! spiffe_id_success_tests {
         ($($name:ident: $value:expr,)*) => {
@@ -540,7 +517,7 @@ mod spiffe_id_tests {
             let path = format!("/path{}", c);
             let id = format!("spiffe://trustdomain{}", path);
 
-            if PATH_CHARS.contains(&c) {
+            if VALID_PATH_SEGMENT_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::new(&id).unwrap();
                 assert_eq!(spiffe_id.to_string(), id)
             } else {
@@ -552,7 +529,7 @@ mod spiffe_id_tests {
 
             let td = format!("spiffe://trustdomain{}", c);
 
-            if TD_CHARS.contains(&c) {
+            if VALID_TRUST_DOMAIN_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::new(&td).unwrap();
                 assert_eq!(spiffe_id.to_string(), td)
             } else {
@@ -573,7 +550,7 @@ mod spiffe_id_tests {
             let path = format!("path{}", c);
             let trust_domain = TrustDomain::new("trustdomain").unwrap();
 
-            if PATH_CHARS.contains(&c) {
+            if VALID_PATH_SEGMENT_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap();
                 assert_eq!(
                     spiffe_id.to_string(),
@@ -599,8 +576,6 @@ mod trust_domain_tests {
 
     use super::*;
     use std::str::FromStr;
-
-    use super::spiffe_id_tests::TD_CHARS;
 
     macro_rules! trust_domain_success_tests {
         ($($name:ident: $value:expr,)*) => {
@@ -690,7 +665,7 @@ mod trust_domain_tests {
             let c = i as char;
             let td = format!("trustdomain{}", c);
 
-            if TD_CHARS.contains(&c) {
+            if VALID_TRUST_DOMAIN_CHARS.contains(c) {
                 let trust_domain = TrustDomain::new(&td).unwrap();
                 assert_eq!(trust_domain.to_string(), td)
             } else {
