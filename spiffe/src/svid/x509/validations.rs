@@ -1,3 +1,4 @@
+use crate::cert::errors::CertificateError;
 use crate::cert::parsing::{get_x509_extension, parse_der_encoded_bytes_as_x509_certificate};
 use crate::cert::Certificate;
 use crate::spiffe_id::SpiffeId;
@@ -76,16 +77,16 @@ fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(),
 fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError> {
     let san_ext = get_x509_extension(cert, oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?;
 
-    return match san_ext {
+    match san_ext {
         ParsedExtension::SubjectAlternativeName(s) => {
             let uri_san = s
                 .general_names
                 .iter()
-                .filter_map(|n| match n {
+                .find(|n| matches!(n, URI(_)))
+                .and_then(|n| match n {
                     URI(n) => Some(*n),
                     _ => None,
-                })
-                .next();
+                });
 
             let uri_str = match uri_san {
                 None => return Err(X509SvidError::MissingSpiffeId),
@@ -94,6 +95,8 @@ fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError>
 
             Ok(SpiffeId::try_from(uri_str)?)
         }
-        _ => unreachable!(),
-    };
+        other => Err(X509SvidError::Certificate(
+            CertificateError::UnexpectedExtension(format!("{:?}", other)),
+        )),
+    }
 }

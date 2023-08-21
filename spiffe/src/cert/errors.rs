@@ -11,6 +11,10 @@ pub enum CertificateError {
     #[error("X.509 extension is missing: {0}")]
     MissingX509Extension(String),
 
+    /// Unexpected X.509 extension encountered.
+    #[error("unexpected X.509 extension: {0}")]
+    UnexpectedExtension(String),
+
     /// Error returned by the ASN.1/DER processing library.
     #[error("failed decoding chain of DER certificates")]
     ChainDecode(#[from] ASN1DecodeErr),
