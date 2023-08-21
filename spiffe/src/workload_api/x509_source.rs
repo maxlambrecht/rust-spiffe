@@ -104,13 +104,9 @@ pub enum X509SourceError {
     #[error("No suitable SVID found by picker")]
     NoSuitableSvid,
 
-    /// Error when a lock gets poisoned.
-    #[error("Lock poisoned: {0}")]
-    LockPoisoned(String),
-
-    /// Error when failing to acquire a write lock.
-    #[error("Failed to acquire write lock for {0}: {1}")]
-    WriteLockAcquisitionFailed(String, String),
+    /// Error related to internal operations.
+    #[error("Internal error while {0}: {1}")]
+    InternalError(String, String),
 
     /// Other non-specific error.
     #[error("{0}")]
@@ -118,8 +114,8 @@ pub enum X509SourceError {
 }
 
 impl X509SourceError {
-    fn from_lock_err<T>(err: PoisonError<T>) -> Self {
-        X509SourceError::LockPoisoned(err.to_string())
+    fn from_lock_err<T>(err: PoisonError<T>, action: &str) -> Self {
+        X509SourceError::InternalError(action.to_string(), err.to_string())
     }
 }
 
@@ -230,10 +226,10 @@ impl SvidSource for X509Source {
     fn get_svid(&self) -> Result<Option<Self::Item>, Box<dyn Error + Send + Sync + 'static>> {
         self.assert_not_closed().map_err(Box::new)?;
 
-        let svid_option = self.svid.read().map_err(|e| {
-            Box::new(X509SourceError::LockPoisoned(e.to_string()))
-                as Box<dyn Error + Send + Sync + 'static>
-        })?;
+        let svid_option = self
+            .svid
+            .read()
+            .map_err(|e| X509SourceError::from_lock_err(e, "reading SVIDs from source"))?;
 
         Ok(svid_option.clone())
     }
@@ -262,7 +258,7 @@ impl BundleSource for X509Source {
         let bundles_option = self
             .bundles
             .read()
-            .map_err(|e| Box::new(X509SourceError::from_lock_err(e)))?;
+            .map_err(|e| X509SourceError::from_lock_err(e, "reading bundles from source"))?;
         let bundle_set = match bundles_option.as_ref() {
             Some(set) => set,
             None => return Ok(None),
@@ -319,7 +315,7 @@ impl X509Source {
         let mut closed = self
             .closed
             .write()
-            .map_err(X509SourceError::from_lock_err)?;
+            .map_err(|e| X509SourceError::from_lock_err(e, "closing source"))?;
         *closed = true;
 
         self.cancellation_token.cancel();
@@ -417,7 +413,10 @@ impl X509Source {
         self.bundles
             .write()
             .map_err(|e| {
-                X509SourceError::WriteLockAcquisitionFailed("bundles".to_string(), e.to_string())
+                X509SourceError::InternalError(
+                    "writing bundles to source".to_string(),
+                    e.to_string(),
+                )
             })?
             .replace(x509_context.bundle_set().clone());
 
@@ -429,7 +428,7 @@ impl X509Source {
         self.svid
             .write()
             .map_err(|e| {
-                X509SourceError::WriteLockAcquisitionFailed("svids".to_string(), e.to_string())
+                X509SourceError::InternalError("writing SVID to source".to_string(), e.to_string())
             })?
             .replace(svid.clone());
         Ok(())
@@ -440,7 +439,12 @@ impl X509Source {
     }
 
     fn assert_not_closed(&self) -> Result<(), X509SourceError> {
-        let closed = self.closed.read().map_err(X509SourceError::from_lock_err)?;
+        let closed = self.closed.read().map_err(|e| {
+            X509SourceError::InternalError(
+                "reading closed state from source".to_string(),
+                e.to_string(),
+            )
+        })?;
         if *closed {
             return Err(X509SourceError::Other("X509Source is closed".into()));
         }
