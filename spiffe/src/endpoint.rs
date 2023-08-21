@@ -14,10 +14,7 @@ const UNIX_SCHEME: &str = "unix";
 /// Gets the endpoint socket endpoint path from the environment variable `SPIFFE_ENDPOINT_SOCKET`,
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_default_socket_path() -> Option<String> {
-    match env::var(SPIFFE_SOCKET_ENV) {
-        Ok(addr) => Some(addr),
-        Err(_) => None,
-    }
+    env::var(SPIFFE_SOCKET_ENV).ok()
 }
 
 /// Validates that the `socket_path` complies with [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
@@ -43,15 +40,9 @@ pub fn validate_socket_path(socket_path: &str) -> Result<(), SocketPathError> {
             }
         }
         TCP_SCHEME => {
-            let host = match url.host_str() {
-                None => return Err(SocketPathError::TcpEmptyHost),
-                Some(h) => h,
-            };
+            let host = url.host_str().ok_or(SocketPathError::TcpEmptyHost)?;
 
-            let ip_address = IpAddr::from_str(host);
-            if ip_address.is_err() {
-                return Err(SocketPathError::TcpAddressNoIpPort);
-            }
+            IpAddr::from_str(host).map_err(|_| SocketPathError::TcpAddressNoIpPort)?;
 
             if !url.path().is_empty() && url.path() != "/" {
                 return Err(SocketPathError::TcpAddressNonEmptyPath);
