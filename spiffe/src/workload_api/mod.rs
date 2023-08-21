@@ -3,7 +3,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! 
+//!
 //! use std::error::Error;
 //! use spiffe::workload_api::client::WorkloadApiClient;
 //!
@@ -39,6 +39,5 @@
 //! # Ok(())
 //! # }
 //! ```
-pub mod address;
 pub mod client;
 pub mod x509_context;

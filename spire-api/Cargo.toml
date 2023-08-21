@@ -1,0 +1,36 @@
+[package]
+edition = "2018"
+name = "spire-api"
+# When releasing to crates.io:
+# - Update CHANGELOG.md.
+# - Create a new tag
+version = "0.1.0"
+authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
+description = "Rust library for the SPIRE APIs"
+license = "Apache-2.0"
+repository = "https://github.com/maxlambrecht/rust-spiffe"
+documentation = "https://docs.rs/spire-api"
+readme = "README.md"
+categories = ["cryptography"]
+keywords = ["SPIFFE", "SPIRE"]
+
+[dependencies]
+spiffe = { path = "../spiffe", default-features = false, features = ["spiffe-types"] }
+bytes = { version = "1", features = ["serde"] }
+tonic = { version = "0.9", default-features = false, features = ["prost", "codegen", "transport"]}
+prost = { version = "0.11"}
+prost-types = {version = "0.11"}
+tokio = { "version" = "1", features = ["net", "test-util"]}
+tokio-stream = "0.1"
+tower = { version = "0.4", features = ["util"] }
+
+[dev-dependencies]
+once_cell = "1.18"
+
+[build-dependencies]
+tonic-build = { version = "0.9", default-features = false, features = ["prost"] }
+prost-build = "0.11"
+anyhow = "1.0.65"
+
+[features]
+integration-tests = []

@@ -4,11 +4,9 @@ use std::env;
 use std::net::IpAddr;
 use std::str::FromStr;
 
-use thiserror::Error;
-use url::{ParseError, Url};
-
-/// Name of the environment variable that holds the default socket endpoint path.
-pub const SOCKET_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
+use crate::constants::SPIFFE_SOCKET_ENV;
+use crate::error::SocketPathError;
+use url::Url;
 
 const TCP_SCHEME: &str = "tcp";
 const UNIX_SCHEME: &str = "unix";
@@ -16,51 +14,10 @@ const UNIX_SCHEME: &str = "unix";
 /// Gets the endpoint socket endpoint path from the environment variable `SPIFFE_ENDPOINT_SOCKET`,
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_default_socket_path() -> Option<String> {
-    match env::var(SOCKET_ENV) {
+    match env::var(SPIFFE_SOCKET_ENV) {
         Ok(addr) => Some(addr),
         Err(_) => None,
     }
-}
-
-/// An error that arises validating a SPIFFE endpoint socket path.
-#[derive(Debug, Error, PartialEq, Copy, Clone)]
-#[non_exhaustive]
-pub enum SocketPathError {
-    /// The SPIFFE endpoint socket URI has a scheme other than 'unix' or 'tcp'.
-    #[error("workload endpoint socket URI must have a tcp:// or unix:// scheme")]
-    InvalidScheme,
-
-    /// The SPIFFE endpoint unix socket URI does not include a path.
-    #[error("workload endpoint unix socket URI must include a path")]
-    UnixAddressEmptyPath,
-
-    /// The SPIFFE endpoint tcp socket URI include a path.
-    #[error("workload endpoint tcp socket URI must not include a path")]
-    TcpAddressNonEmptyPath,
-
-    /// The SPIFFE endpoint socket URI has query values.
-    #[error("workload endpoint socket URI must not include query values")]
-    HasQueryValues,
-
-    /// The SPIFFE endpoint socket URI has a fragment.
-    #[error("workload endpoint socket URI must not include a fragment")]
-    HasFragment,
-
-    /// The SPIFFE endpoint socket URI has query user info.
-    #[error("workload endpoint socket URI must not include user info")]
-    HasUserInfo,
-
-    /// The SPIFFE endpoint tcp socket URI has misses a host.
-    #[error("workload endpoint tcp socket URI must include a host")]
-    TcpEmptyHost,
-
-    /// The SPIFFE endpoint tcp socket URI has misses a port.
-    #[error("workload endpoint tcp socket URI host component must be an IP:port")]
-    TcpAddressNoIpPort,
-
-    /// Error returned by the URI parsing library.
-    #[error("workload endpoint socket is not a valid URI")]
-    Parse(#[from] ParseError),
 }
 
 /// Validates that the `socket_path` complies with [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
@@ -112,6 +69,7 @@ pub fn validate_socket_path(socket_path: &str) -> Result<(), SocketPathError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use url::ParseError;
 
     #[test]
     fn test_validate_correct_unix_address() {
