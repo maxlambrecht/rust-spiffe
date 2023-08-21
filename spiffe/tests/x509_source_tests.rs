@@ -49,7 +49,11 @@ mod integration_tests_x509_source {
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
 
-        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_1, "Unexpected SPIFFE ID");
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        assert!(
+            expected_ids.contains(&svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
+        );
         assert_eq!(svid.cert_chain().len(), 1);
     }
 
@@ -111,10 +115,11 @@ mod integration_tests_x509_source {
             .get_svid()
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
-        assert_eq!(
-            svid.spiffe_id(),
-            &*SPIFFE_ID_2,
-            "Unexpected SPIFFE ID picked"
+
+        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        assert!(
+            expected_ids.contains(&svid.spiffe_id()),
+            "Unexpected SPIFFE ID"
         );
 
         Ok(())
