@@ -3,7 +3,7 @@
 // as an authorized_delegate.
 
 #[cfg(feature = "integration-tests")]
-mod integration_tests {
+mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::jwt::JwtBundleSet;
     use spiffe::bundle::BundleRefSource;

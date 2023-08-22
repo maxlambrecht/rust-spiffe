@@ -41,3 +41,4 @@
 //! ```
 pub mod client;
 pub mod x509_context;
+pub mod x509_source;
