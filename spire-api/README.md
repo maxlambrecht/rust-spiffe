@@ -19,12 +19,17 @@ spire-api = "0.1.0"
 
 ## Usage
 
-A basic example:
+Fetch a delegated X.509 and JWT SVIDs providing a set of selectors:
 
 ```rust
-use spire_api::delegated_identity;
-// Your code here...
+use spire_api::agent::delegated_identity::DelegatedIdentityClient;
+
+let client = DelegatedIdentityClient::default().await?;
+
+let x509_svid = client.fetch_x509_svid(vec![selectors::Selector::Unix(selectors::Unix::Uid(1000))]).await?;
 ```
+
+For more documentation, refer to the `spire-api` [crate documentation](https://docs.rs/spire-api/).
 
 ## Delegated Identity API
 
