@@ -14,7 +14,7 @@ client (`workload-api`) by default:
 
 ```toml
 [dependencies]
-spiffe = "0.3.1"
+spiffe = "0.4.0"
 ```
 
 ## Examples of Usage
@@ -86,6 +86,32 @@ while let Some(x509_bundle_update) = x509_bundle_stream.next().await {
             // handle the error
         }
     }
+}
+```
+
+### Fetching X.509 Materials using `X509Source`
+
+A convenient way to fetch X.509 materials is by using the `X509Source`:
+
+```rust
+use spiffe::workload_api::x509_source::X509Source;
+use spiffe::bundle::BundleSource;
+use spiffe::spiffe_id::TrustDomain;
+use spiffe::svid::x509::X509Svid;
+use spiffe::svid::SvidSource;
+
+async fn fetch_x509_materials() -> Result<(), Box<dyn std::error::Error>> {
+    // Create a new X509Source
+    let x509_source = X509Source::default().await?;
+
+    // Fetch the SVID
+    let svid = x509_source.get_svid()?.ok_or("No X509Svid found")?;
+
+    // Fetch the bundle for a specific trust domain
+    let trust_domain = spiffe::TrustDomain::new("example.org"); // Replace with the appropriate trust domain
+    let bundle = x509_source.get_bundle_for_trust_domain(&trust_domain)?.ok_or("No bundle found for trust domain")?;
+
+    Ok(())
 }
 ```
 

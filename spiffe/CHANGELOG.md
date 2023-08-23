@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.0] - 2023-08-23
+
+### Added
+
+- Refactor of `spiffe` crate: Introduced `spiffe-types` and `workload-api` features for better modularity (#44).
+- Implemented `X509Source` for fetching X.509 materials (#50).
+- Added dependencies `log` and `tokio-util` specifically to the `workload-api` feature (#50, #51).
+
+### API Changes
+
+- Renamed `stream_` methods in `WorkloadApiClient` (#44).
+- Moved `SocketPathError` and `GrpcClientError` to `spiffe::errors` package as part of the `spiffe-types` feature,
+  aligning with the new structure (#44).
+
+### Changed
+
+- Replaced `unreachable!()` in `find_spiffe_id` function with `UnexpectedExtension` error variant to handle unexpected
+  X.509 extensions, improving error handling in SAN extension parsing (#48).
+
 ## [0.3.1] - 2023-08-12
 
 ### Fixed
