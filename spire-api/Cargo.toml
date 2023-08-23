@@ -15,7 +15,7 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "SPIRE"]
 
 [dependencies]
-spiffe = { path = "../spiffe", default-features = false, features = ["spiffe-types"] }
+spiffe = { version = "0.4.0", default-features = false, features = ["spiffe-types"] }
 bytes = { version = "1", features = ["serde"] }
 tonic = { version = "0.9", default-features = false, features = ["prost", "codegen", "transport"]}
 prost = { version = "0.11"}
@@ -34,3 +34,6 @@ anyhow = "1.0.65"
 
 [features]
 integration-tests = []
+
+[patch.crates-io]
+spiffe = { path = "../spiffe" }
