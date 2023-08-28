@@ -1,3 +1,3 @@
 [submodule "spire-api-sdk"]
-	path = spire-api-sdk
+	path = spire-api/spire-api-sdk
 	url = https://github.com/spiffe/spire-api-sdk.git
