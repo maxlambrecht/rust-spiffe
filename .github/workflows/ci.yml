@@ -11,6 +11,9 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
+
       - name: Install dependencies and common setup
         uses: ./.github/actions/setup-env
       - name: Lint Rust code with rustfmt and clippy
@@ -27,6 +30,9 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
+
       - name: Install dependencies and common setup
         uses: ./.github/actions/setup-env
       - name: Build Rust project
@@ -44,14 +50,13 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache Project
-        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Start SPIRE
         run: ./scripts/run-spire.sh &
