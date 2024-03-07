@@ -1,0 +1,32 @@
+name: Publish Crates
+
+on:
+  push:
+    tags:
+      - '*'
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+        with:
+          submodules: recursive
+      - name: Install dependencies and common setup
+        uses: ./.github/actions/setup-env
+
+      - name: Cargo Login
+        run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
+
+      # Conditional step for spiffe crate
+      - name: Publish spiffe
+        if: startsWith(github.ref, 'refs/tags/spiffe-')
+        run: |
+          cd spiffe
+          cargo publish
+      # Conditional step for spire-api crate
+      - name: Publish spire-api
+        if: startsWith(github.ref, 'refs/tags/spire-api-')
+        run: |
+          cd spire-api
+          cargo publish

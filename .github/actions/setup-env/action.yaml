@@ -4,10 +4,10 @@ runs:
   using: 'composite'
   steps:
     - name: Install Protoc
-      uses: arduino/setup-protoc@v2
+      uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b  #v3.0.0
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v2
+      uses: actions/cache@ab5e6d0c87105b4c9c2047343972218f562e4319 # v4.0.1
       with:
         path: |
           ~/.cargo/registry
@@ -18,7 +18,7 @@ runs:
           ${{ runner.os }}-cargo-
 
     - name: Setup Rust toolchain
-      uses: actions-rs/toolchain@v1
+      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.06
       with:
         toolchain: nightly
         components: rustfmt, clippy
