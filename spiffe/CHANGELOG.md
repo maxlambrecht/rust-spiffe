@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0] - 2024-03-07
+
+### Dependencies updates
+
+- Updated `prost`, `prost-types`, and `prost-build` to "0.12" (#73)
+- Updated `tonic` and `tonic-build` to "0.11" (#73)
+- Updated `x509-parser` to "0.16" (#73)
+
 ## [0.4.0] - 2023-08-23
 
 ### Added

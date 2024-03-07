@@ -14,7 +14,7 @@ client (`workload-api`) by default:
 
 ```toml
 [dependencies]
-spiffe = "0.4.0"
+spiffe = "0.5.0"
 ```
 
 ## Examples of Usage
