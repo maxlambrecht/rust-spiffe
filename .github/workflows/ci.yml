@@ -15,8 +15,8 @@ jobs:
         uses: ./.github/actions/setup-env
       - name: Lint Rust code with rustfmt and clippy
         run: |
-          cargo +nightly fmt
-          cargo +nightly clippy
+          cargo fmt
+          cargo clippy
 
   build:
     name: Build Rust Project
