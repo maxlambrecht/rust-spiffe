@@ -35,3 +35,6 @@ anyhow = "1"
 
 [features]
 integration-tests = []
+
+[patch.crates-io]
+spiffe = { path = "../spiffe" }
