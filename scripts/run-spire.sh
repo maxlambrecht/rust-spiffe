@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Constants
-spire_version="1.7.1"
+spire_version="1.9.1"
 spire_folder="spire-${spire_version}"
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_agent_log_file="/tmp/spire-agent/agent.log"
@@ -31,7 +31,7 @@ function wait_for_service() {
 set -euf -o pipefail
 
 # Install and run a SPIRE server
-curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-glibc.tar.gz | tar xz
+curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-musl.tar.gz | tar xz
 pushd "${spire_folder}"
 mkdir -p /tmp/spire-server
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
@@ -49,17 +49,15 @@ wait_for_service "bin/spire-agent healthcheck" "SPIRE Agent" "${spire_agent_log_
 
 # Register workloads
 for service in "myservice" "myservice2"; do
+  echo "Creating entry for '${service}'"
   bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u) -ttl 5
-  sleep 10  # Derived from the default Agent sync interval
 done
-
 
 uid=$(id -u)
 # The UID in the test has to match this, so take the current UID and add 1
 uid_plus_one=$((uid + 1))
-# Register a different UID with the SPIFFE ID "spiffe://example.org/different-process" with a TTL of 5 seconds
-bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/different-process -selector unix:uid:${uid_plus_one} -ttl 5
-sleep 10
-
+echo "Creating entry for 'different-service'"
+bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/different-process -selector unix:uid:${uid_plus_one}
+sleep 10  # Derived from the default Agent sync interval
 
 popd
