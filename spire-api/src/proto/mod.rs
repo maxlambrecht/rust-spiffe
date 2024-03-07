@@ -1,3 +1,4 @@
+#![allow(clippy::all)]
 pub mod spire {
     pub mod api {
         pub mod agent {

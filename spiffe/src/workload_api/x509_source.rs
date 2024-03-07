@@ -206,10 +206,16 @@ impl X509SourceBuilder {
             Some(client) => client,
             None => WorkloadApiClient::default()
                 .await
-                .map_err(|e| X509SourceError::GrpcError(e))?,
+                .map_err(X509SourceError::GrpcError)?,
         };
 
         X509Source::new(client, self.svid_picker).await
+    }
+}
+
+impl Default for X509SourceBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -351,7 +357,7 @@ impl X509Source {
         let mut stream = client_clone
             .stream_x509_contexts()
             .await
-            .map_err(|e| X509SourceError::GrpcError(GrpcClientError::from(e)))?;
+            .map_err(X509SourceError::GrpcError)?;
 
         // Block until the first X509Context is fetched.
         if let Some(update) = stream.next().await {
@@ -359,7 +365,7 @@ impl X509Source {
                 Ok(x509_context) => source_clone.set_x509_context(x509_context).map_err(|e| {
                     X509SourceError::Other(format!("Failed to set X509Context: {}", e))
                 })?,
-                Err(e) => return Err(X509SourceError::GrpcError(GrpcClientError::from(e))),
+                Err(e) => return Err(X509SourceError::GrpcError(e)),
             }
         } else {
             return Err(X509SourceError::Other(
@@ -400,7 +406,7 @@ impl X509Source {
     fn set_x509_context(&self, x509_context: X509Context) -> Result<(), X509SourceError> {
         let svid = if let Some(ref svid_picker) = self.svid_picker {
             svid_picker
-                .pick_svid(&x509_context.svids())
+                .pick_svid(x509_context.svids())
                 .ok_or(X509SourceError::NoSuitableSvid)?
         } else {
             x509_context
@@ -408,7 +414,7 @@ impl X509Source {
                 .ok_or(X509SourceError::NoSuitableSvid)?
         };
 
-        self.set_svid(&svid)?;
+        self.set_svid(svid)?;
 
         self.bundles
             .write()
