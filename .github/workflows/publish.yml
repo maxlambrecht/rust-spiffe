@@ -12,8 +12,12 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
-      - name: Install dependencies and common setup
+
+      - name: Install toolchain
         uses: ./.github/actions/setup-env
+
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Cargo Login
         run: cargo login ${{ secrets.CRATES_IO_TOKEN }}

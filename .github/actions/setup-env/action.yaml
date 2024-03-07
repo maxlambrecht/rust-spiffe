@@ -6,19 +6,9 @@ runs:
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b  #v3.0.0
 
-    - name: Cache Rust dependencies
-      uses: actions/cache@ab5e6d0c87105b4c9c2047343972218f562e4319 # v4.0.1
-      with:
-        path: |
-          ~/.cargo/registry
-          ~/.cargo/git
-          target
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-
-
     - name: Setup Rust toolchain
       uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
       with:
-        toolchain: nightly
+        profile: minimal
+        toolchain: stable
         components: rustfmt, clippy

@@ -45,8 +45,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install dependencies and common setup
+      - name: Install toolchain
         uses: ./.github/actions/setup-env
+
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Start SPIRE
         run: ./scripts/run-spire.sh &
