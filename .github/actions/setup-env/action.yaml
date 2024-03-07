@@ -1,5 +1,9 @@
 name: 'Setup Environment'
 description: 'Install Protoc and Rust toolchain, and set up Rust dependencies cache'
+inputs:
+  github_token:
+    description: 'GitHub Token for authentication'
+    required: true
 runs:
   using: 'composite'
   steps:
