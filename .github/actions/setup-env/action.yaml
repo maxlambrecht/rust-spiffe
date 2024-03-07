@@ -18,7 +18,7 @@ runs:
           ${{ runner.os }}-cargo-
 
     - name: Setup Rust toolchain
-      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.06
+      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
       with:
         toolchain: nightly
         components: rustfmt, clippy
