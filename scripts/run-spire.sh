@@ -49,12 +49,14 @@ wait_for_service "bin/spire-agent healthcheck" "SPIRE Agent" "${spire_agent_log_
 
 # Register workloads
 for service in "myservice" "myservice2"; do
+  echo "Creating entry for '${service}'"
   bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u)
 done
 
 uid=$(id -u)
 # The UID in the test has to match this, so take the current UID and add 1
 uid_plus_one=$((uid + 1))
+echo "Creating entry for 'different-service'"
 bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/different-process -selector unix:uid:${uid_plus_one}
 sleep 10  # Derived from the default Agent sync interval
 
