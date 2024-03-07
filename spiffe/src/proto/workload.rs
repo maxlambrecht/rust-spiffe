@@ -365,7 +365,7 @@ pub mod spiffe_workload_api_server {
     #[async_trait]
     pub trait SpiffeWorkloadApi: Send + Sync + 'static {
         /// Server streaming response type for the FetchX509SVID method.
-        type FetchX509SVIDStream: futures_core::Stream<
+        type FetchX509SVIDStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::X509svidResponse, tonic::Status>,
             >
             + Send
@@ -382,7 +382,7 @@ pub mod spiffe_workload_api_server {
             tonic::Status,
         >;
         /// Server streaming response type for the FetchX509Bundles method.
-        type FetchX509BundlesStream: futures_core::Stream<
+        type FetchX509BundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::X509BundlesResponse, tonic::Status>,
             >
             + Send
@@ -406,7 +406,7 @@ pub mod spiffe_workload_api_server {
             request: tonic::Request<super::JwtsvidRequest>,
         ) -> std::result::Result<tonic::Response<super::JwtsvidResponse>, tonic::Status>;
         /// Server streaming response type for the FetchJWTBundles method.
-        type FetchJWTBundlesStream: futures_core::Stream<
+        type FetchJWTBundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::JwtBundlesResponse, tonic::Status>,
             >
             + Send
@@ -529,7 +529,8 @@ pub mod spiffe_workload_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_x509svid(request).await
+                                <T as SpiffeWorkloadApi>::fetch_x509svid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -576,7 +577,11 @@ pub mod spiffe_workload_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_x509_bundles(request).await
+                                <T as SpiffeWorkloadApi>::fetch_x509_bundles(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -622,7 +627,8 @@ pub mod spiffe_workload_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_jwtsvid(request).await
+                                <T as SpiffeWorkloadApi>::fetch_jwtsvid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -669,7 +675,8 @@ pub mod spiffe_workload_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_jwt_bundles(request).await
+                                <T as SpiffeWorkloadApi>::fetch_jwt_bundles(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -715,7 +722,8 @@ pub mod spiffe_workload_api_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).validate_jwtsvid(request).await
+                                <T as SpiffeWorkloadApi>::validate_jwtsvid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
