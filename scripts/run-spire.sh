@@ -50,7 +50,7 @@ wait_for_service "bin/spire-agent healthcheck" "SPIRE Agent" "${spire_agent_log_
 # Register workloads
 for service in "myservice" "myservice2"; do
   echo "Creating entry for '${service}'"
-  bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u)
+  bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u) -ttl 5
 done
 
 uid=$(id -u)
