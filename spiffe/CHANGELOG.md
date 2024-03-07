@@ -4,7 +4,7 @@
 
 ### Dependencies updates
 
-- Updated `prost``prost-types`, and `prost-build` to "0.12" (#73)
+- Updated `prost`, `prost-types`, and `prost-build` to "0.12" (#73)
 - Updated `tonic` and `tonic-build` to "0.11" (#73)
 - Updated `x509-parser` to "0.16" (#73)
 
