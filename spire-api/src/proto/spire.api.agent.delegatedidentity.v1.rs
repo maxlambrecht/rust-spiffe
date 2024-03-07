@@ -307,7 +307,7 @@ pub mod delegated_identity_server {
     #[async_trait]
     pub trait DelegatedIdentity: Send + Sync + 'static {
         /// Server streaming response type for the SubscribeToX509SVIDs method.
-        type SubscribeToX509SVIDsStream: futures_core::Stream<
+        type SubscribeToX509SVIDsStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     super::SubscribeToX509sviDsResponse,
                     tonic::Status,
@@ -325,7 +325,7 @@ pub mod delegated_identity_server {
             tonic::Status,
         >;
         /// Server streaming response type for the SubscribeToX509Bundles method.
-        type SubscribeToX509BundlesStream: futures_core::Stream<
+        type SubscribeToX509BundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     super::SubscribeToX509BundlesResponse,
                     tonic::Status,
@@ -352,7 +352,7 @@ pub mod delegated_identity_server {
             tonic::Status,
         >;
         /// Server streaming response type for the SubscribeToJWTBundles method.
-        type SubscribeToJWTBundlesStream: futures_core::Stream<
+        type SubscribeToJWTBundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<
                     super::SubscribeToJwtBundlesResponse,
                     tonic::Status,
@@ -478,7 +478,11 @@ pub mod delegated_identity_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_to_x509svi_ds(request).await
+                                <T as DelegatedIdentity>::subscribe_to_x509svi_ds(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -526,7 +530,11 @@ pub mod delegated_identity_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_to_x509_bundles(request).await
+                                <T as DelegatedIdentity>::subscribe_to_x509_bundles(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -572,7 +580,8 @@ pub mod delegated_identity_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).fetch_jwtsvi_ds(request).await
+                                <T as DelegatedIdentity>::fetch_jwtsvi_ds(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -620,7 +629,11 @@ pub mod delegated_identity_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                (*inner).subscribe_to_jwt_bundles(request).await
+                                <T as DelegatedIdentity>::subscribe_to_jwt_bundles(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }

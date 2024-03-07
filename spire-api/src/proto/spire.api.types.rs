@@ -38,11 +38,11 @@ pub mod selector_match {
         /// candidate selectors, independent of ordering.
         /// Example:
         ///    Given:
-        ///      - 'e1 { Selectors: ["a:1", "b:2", "c:3"]}'
-        ///      - 'e2 { Selectors: ["a:1", "b:2"]}'
+        ///      - 'e1 { Selectors: \["a:1", "b:2", "c:3"\]}'
+        ///      - 'e2 { Selectors: \["a:1", "b:2"\]}'
         ///      - 'e3 { Selectors: \["a:1"\]}'
         ///    Operation:
-        ///      - MATCH_EXACT ["a:1", "b:2"]
+        ///      - MATCH_EXACT \["a:1", "b:2"\]
         ///    Entries that match:
         ///      - 'e2'
         MatchExact = 0,
@@ -50,8 +50,8 @@ pub mod selector_match {
         /// of the provided set of selectors will match.
         /// Example:
         ///    Given:
-        ///      - 'e1 { Selectors: ["a:1", "b:2", "c:3"]}'
-        ///      - 'e2 { Selectors: ["a:1", "b:2"]}'
+        ///      - 'e1 { Selectors: \["a:1", "b:2", "c:3"\]}'
+        ///      - 'e2 { Selectors: \["a:1", "b:2"\]}'
         ///      - 'e3 { Selectors: \["a:1"\]}'
         ///    Operation:
         ///      - MATCH_SUBSET \["a:1"\]
@@ -62,11 +62,11 @@ pub mod selector_match {
         /// of the provided selectors will match.
         /// Example:
         ///    Given:
-        ///      - 'e1 { Selectors: ["a:1", "b:2", "c:3"]}'
-        ///      - 'e2 { Selectors: ["a:1", "b:2"]}'
+        ///      - 'e1 { Selectors: \["a:1", "b:2", "c:3"\]}'
+        ///      - 'e2 { Selectors: \["a:1", "b:2"\]}'
         ///      - 'e3 { Selectors: \["a:1"\]}'
         ///    Operation:
-        ///      - MATCH_SUPERSET ["a:1", "b:2"]
+        ///      - MATCH_SUPERSET \["a:1", "b:2"\]
         ///    Entries that match:
         ///      - 'e1'
         ///      - 'e2'
@@ -75,8 +75,8 @@ pub mod selector_match {
         /// of the provided set of selectors will match.
         /// Example:
         ///    Given:
-        ///      - 'e1 { Selectors: ["a:1", "b:2", "c:3"]}'
-        ///      - 'e2 { Selectors: ["a:1", "b:2"]}'
+        ///      - 'e1 { Selectors: \["a:1", "b:2", "c:3"\]}'
+        ///      - 'e2 { Selectors: \["a:1", "b:2"\]}'
         ///      - 'e3 { Selectors: \["a:1"\]}'
         ///    Operation:
         ///      - MATCH_ANY \["a:1"\]
