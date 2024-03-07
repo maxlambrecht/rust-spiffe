@@ -11,12 +11,12 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Project
-        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Lint Rust code with rustfmt and clippy
         run: |
@@ -35,12 +35,12 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Cache Project
-        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
       - name: Build Rust project
         run: cargo build
@@ -48,13 +48,8 @@ jobs:
       - name: Start SPIRE
         run: ./scripts/run-spire.sh &
 
-      - name: Execute spiffe Integration Tests
+      - name: Run Integration Tests
         run: RUST_BACKTRACE=1 cargo test --features integration-tests
-        working-directory: spiffe
-
-      - name: Execute spire-api Integration Tests
-        run: RUST_BACKTRACE=1 cargo test --features integration-tests
-        working-directory: spire-api
 
       - name: Clean up SPIRE
         run: ./scripts/cleanup-spire.sh
