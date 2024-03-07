@@ -9,8 +9,6 @@ runs:
   steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b  #v3.0.0
-      with:
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Setup Rust toolchain
       uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
