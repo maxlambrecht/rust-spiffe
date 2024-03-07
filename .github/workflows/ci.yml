@@ -3,7 +3,7 @@ name: Continuous Integration
 on: [push, pull_request]
 
 jobs:
-  lint-and-setup:
+  setup-and-lint:
     name: Setup and Lint Rust Code
     runs-on: ubuntu-latest
     steps:
@@ -11,52 +11,36 @@ jobs:
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
+      - name: Install toolchain
+        uses: ./.github/actions/setup-env
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Cache Project
         uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
 
-      - name: Install dependencies and common setup
-        uses: ./.github/actions/setup-env
       - name: Lint Rust code with rustfmt and clippy
         run: |
           cargo fmt
           cargo clippy
 
-  build:
-    name: Build Rust Project
+  build-and-test:
+    name: Build and Test Rust Project
     runs-on: ubuntu-latest
-    needs: lint-and-setup
+    needs: setup-and-lint
     steps:
       - name: Check out code
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
         with:
           submodules: recursive
-      - name: Cache Project
-        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
-
-      - name: Install dependencies and common setup
-        uses: ./.github/actions/setup-env
-      - name: Build Rust project
-        run: cargo build
-
-  test:
-    name: Run spiffe and spire-api Integration Tests
-    runs-on: ubuntu-latest
-    env:
-      SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
-      SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
-    needs: build
-    steps:
-      - name: Check out code
-        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
-        with:
-          submodules: recursive
-      - name: Cache Project
-        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
-
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Cache Project
+        uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84  # v2.7.3
+
+      - name: Build Rust project
+        run: cargo build
 
       - name: Start SPIRE
         run: ./scripts/run-spire.sh &
