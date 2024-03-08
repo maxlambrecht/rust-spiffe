@@ -20,8 +20,8 @@ jobs:
 
       - name: Lint Rust code with rustfmt and clippy
         run: |
-          cargo +nightly fmt
-          cargo clippy
+          cargo +nightly fmt -- --check
+          cargo clippy -- -D warnings
 
   build-and-test:
     name: Build and Test Rust Project

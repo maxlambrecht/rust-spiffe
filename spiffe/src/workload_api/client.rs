@@ -2,16 +2,17 @@
 //! # Examples
 //!
 //! ```no_run
-//! use tokio_stream::StreamExt;
-//! use std::error::Error;
-//! use spiffe::workload_api::client::WorkloadApiClient;
 //! use spiffe::bundle::x509::X509BundleSet;
 //! use spiffe::svid::x509::X509Svid;
+//! use spiffe::workload_api::client::WorkloadApiClient;
 //! use spiffe::workload_api::x509_context::X509Context;
+//! use std::error::Error;
+//! use tokio_stream::StreamExt;
 //!
 //! # async fn example() -> Result<(), Box< dyn Error>> {
 //!
-//! let mut client = WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/public/api.sock").await?;
+//! let mut client =
+//!     WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/public/api.sock").await?;
 //!
 //! let target_audience = &["service1", "service2"];
 //! // fetch a jwt token for the default identity with the target audience
@@ -65,10 +66,11 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::constants::DEFAULT_SVID;
 use crate::error::GrpcClientError;
+use crate::proto::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
 use crate::proto::workload::{
-    spiffe_workload_api_client::SpiffeWorkloadApiClient, JwtBundlesRequest, JwtBundlesResponse,
-    JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest, ValidateJwtsvidResponse,
-    X509BundlesRequest, X509BundlesResponse, X509svidRequest, X509svidResponse,
+    JwtBundlesRequest, JwtBundlesResponse, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest,
+    ValidateJwtsvidResponse, X509BundlesRequest, X509BundlesResponse, X509svidRequest,
+    X509svidResponse,
 };
 use tonic::transport::{Endpoint, Uri};
 use tower::service_fn;
