@@ -20,7 +20,7 @@ jobs:
 
       - name: Lint Rust code with rustfmt and clippy
         run: |
-          cargo fmt
+          cargo +nightly fmt
           cargo clippy
 
   build-and-test:
