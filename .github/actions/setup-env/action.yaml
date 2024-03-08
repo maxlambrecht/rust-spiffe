@@ -10,9 +10,18 @@ runs:
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b  #v3.0.0
 
-    - name: Setup Rust toolchain
+    - name: Setup Rust stable toolchain
       uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
       with:
         profile: minimal
         toolchain: stable
-        components: rustfmt, clippy
+        default: true
+        components: clippy
+
+    - name: Setup Rust nightly toolchain
+      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
+      with:
+        profile: minimal
+        toolchain: nightly
+        components: rustfmt
+        override: false
