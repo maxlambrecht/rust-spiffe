@@ -99,7 +99,7 @@ impl SpiffeId {
         }
 
         let rest = &id[SCHEME_PREFIX.len()..];
-        let i = rest.find('/').unwrap_or_else(|| rest.len());
+        let i = rest.find('/').unwrap_or(rest.len());
 
         if i == 0 {
             return Err(SpiffeIdError::MissingTrustDomain);
@@ -214,10 +214,10 @@ pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
         return Err(SpiffeIdError::Empty);
     }
 
-    let mut chars = path.char_indices().peekable();
+    let chars = path.char_indices().peekable();
     let mut segment_start = 0;
 
-    while let Some((idx, c)) = chars.next() {
+    for (idx, c) in chars {
         if c == '/' {
             match &path[segment_start..idx] {
                 "/" => return Err(SpiffeIdError::EmptySegment),
@@ -573,7 +573,6 @@ mod spiffe_id_tests {
 
 #[cfg(test)]
 mod trust_domain_tests {
-
     use super::*;
     use std::str::FromStr;
 

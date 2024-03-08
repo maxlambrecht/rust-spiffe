@@ -6,5 +6,4 @@
 //!
 //! # Note
 //! Access these APIs via the `admin_socket_path` in the [agent configuration file](https://spiffe.io/docs/latest/deploying/spire_agent/#agent-configuration-file).
-//!
 pub mod delegated_identity;

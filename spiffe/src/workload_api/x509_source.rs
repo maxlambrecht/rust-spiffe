@@ -25,8 +25,14 @@
 //! let source = X509Source::default().await?;
 //! let svid = source.get_svid()?;
 //! let trust_domain = TrustDomain::new("example.org").unwrap();
-//! let bundle = source.get_bundle_for_trust_domain(&trust_domain)
-//!     .map_err(|e| format!("Failed to get bundle for trust domain {}: {}", trust_domain, e))?;
+//! let bundle = source
+//!     .get_bundle_for_trust_domain(&trust_domain)
+//!     .map_err(|e| {
+//!         format!(
+//!             "Failed to get bundle for trust domain {}: {}",
+//!             trust_domain, e
+//!         )
+//!     })?;
 //!
 //! # Ok(())
 //! # }
@@ -78,7 +84,7 @@ use tokio_util::sync::CancellationToken;
 ///
 /// impl SvidPicker for SecondSvidPicker {
 ///     fn pick_svid<'a>(&self, svids: &'a [X509Svid]) -> Option<&'a X509Svid> {
-///         svids.get(1)  // return second svid
+///         svids.get(1) // return second svid
 ///     }
 /// }
 /// ```
@@ -151,27 +157,26 @@ pub struct X509SourceBuilder {
 /// # Example
 ///
 /// ```no_run
-/// use std::error::Error;
-/// use spiffe::workload_api::client::WorkloadApiClient;
-/// use spiffe::workload_api::x509_source::X509SourceBuilder;
 /// use spiffe::svid::x509::X509Svid;
-/// use spiffe::workload_api::x509_source::SvidPicker;
+/// use spiffe::workload_api::client::WorkloadApiClient;
+/// use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
+/// use std::error::Error;
 ///
 /// struct SecondSvidPicker;
 ///
 /// impl SvidPicker for SecondSvidPicker {
 ///     fn pick_svid<'a>(&self, svids: &'a [X509Svid]) -> Option<&'a X509Svid> {
-///         svids.get(1)  // return second svid
+///         svids.get(1) // return second svid
 ///     }
 /// }
 ///
 /// # async fn example() -> Result<(), Box< dyn Error>> {
 /// let client = WorkloadApiClient::default().await?;
 /// let source = X509SourceBuilder::new()
-///    .with_client(client)
-///    .with_picker(Box::new(SecondSvidPicker))
-///    .build()
-///    .await?;
+///     .with_client(client)
+///     .with_picker(Box::new(SecondSvidPicker))
+///     .build()
+///     .await?;
 ///
 /// # Ok(())
 /// # }
@@ -206,10 +211,16 @@ impl X509SourceBuilder {
             Some(client) => client,
             None => WorkloadApiClient::default()
                 .await
-                .map_err(|e| X509SourceError::GrpcError(e))?,
+                .map_err(X509SourceError::GrpcError)?,
         };
 
         X509Source::new(client, self.svid_picker).await
+    }
+}
+
+impl Default for X509SourceBuilder {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -351,7 +362,7 @@ impl X509Source {
         let mut stream = client_clone
             .stream_x509_contexts()
             .await
-            .map_err(|e| X509SourceError::GrpcError(GrpcClientError::from(e)))?;
+            .map_err(X509SourceError::GrpcError)?;
 
         // Block until the first X509Context is fetched.
         if let Some(update) = stream.next().await {
@@ -359,7 +370,7 @@ impl X509Source {
                 Ok(x509_context) => source_clone.set_x509_context(x509_context).map_err(|e| {
                     X509SourceError::Other(format!("Failed to set X509Context: {}", e))
                 })?,
-                Err(e) => return Err(X509SourceError::GrpcError(GrpcClientError::from(e))),
+                Err(e) => return Err(X509SourceError::GrpcError(e)),
             }
         } else {
             return Err(X509SourceError::Other(
@@ -400,7 +411,7 @@ impl X509Source {
     fn set_x509_context(&self, x509_context: X509Context) -> Result<(), X509SourceError> {
         let svid = if let Some(ref svid_picker) = self.svid_picker {
             svid_picker
-                .pick_svid(&x509_context.svids())
+                .pick_svid(x509_context.svids())
                 .ok_or(X509SourceError::NoSuitableSvid)?
         } else {
             x509_context
@@ -408,7 +419,7 @@ impl X509Source {
                 .ok_or(X509SourceError::NoSuitableSvid)?
         };
 
-        self.set_svid(&svid)?;
+        self.set_svid(svid)?;
 
         self.bundles
             .write()

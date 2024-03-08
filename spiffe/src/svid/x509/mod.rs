@@ -92,7 +92,7 @@ impl X509Svid {
     ) -> Result<Self, X509SvidError> {
         let cert_chain = to_certificate_vec(cert_chain_der)?;
 
-        let leaf = match cert_chain.get(0) {
+        let leaf = match cert_chain.first() {
             None => return Err(X509SvidError::EmptyChain),
             Some(c) => c,
         };
