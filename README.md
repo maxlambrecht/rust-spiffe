@@ -1,5 +1,9 @@
 # Rust SPIRE Libraries
 
+[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
+[![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
+[![Docs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
+
 This repository contains two distinct Rust libraries focused on supporting SPIRE functionalities:
 
 ## [spiffe](./spiffe)
