@@ -2,10 +2,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! use spiffe::bundle::x509::X509BundleSet;
-//! use spiffe::svid::x509::X509Svid;
-//! use spiffe::workload_api::client::WorkloadApiClient;
-//! use spiffe::workload_api::x509_context::X509Context;
+//! use spiffe::{WorkloadApiClient, X509BundleSet, X509Context, X509Svid};
 //! use std::error::Error;
 //! use tokio_stream::StreamExt;
 //!

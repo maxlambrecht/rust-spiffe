@@ -22,7 +22,7 @@ spire-api = "0.2.0"
 Fetch a delegated X.509 and JWT SVIDs providing a set of selectors:
 
 ```rust
-use spire_api::agent::delegated_identity::DelegatedIdentityClient;
+use spire_api::DelegatedIdentityClient;
 
 let client = DelegatedIdentityClient::default().await?;
 

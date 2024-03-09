@@ -3,11 +3,7 @@
 //! This encompasses errors related to endpoint configuration, response handling, data processing, and specific
 //! errors for various SPIFFE components.
 
-use crate::bundle::jwt::JwtBundleError;
-use crate::bundle::x509::X509BundleError;
-use crate::spiffe_id::SpiffeIdError;
-use crate::svid::jwt::JwtSvidError;
-use crate::svid::x509::X509SvidError;
+use crate::{JwtBundleError, JwtSvidError, SpiffeIdError, X509BundleError, X509SvidError};
 use thiserror::Error;
 use url::ParseError;
 

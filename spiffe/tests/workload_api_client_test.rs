@@ -4,8 +4,7 @@
 mod integration_tests_workload_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleRefSource;
-    use spiffe::spiffe_id::{SpiffeId, TrustDomain};
-    use spiffe::workload_api::client::WorkloadApiClient;
+    use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
     use tokio_stream::StreamExt;
 
     static SPIFFE_ID_1: Lazy<SpiffeId> =

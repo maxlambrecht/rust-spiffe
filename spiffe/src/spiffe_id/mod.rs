@@ -83,7 +83,7 @@ impl SpiffeId {
     /// # Examples
     ///
     /// ```
-    /// use spiffe::spiffe_id::SpiffeId;
+    /// use spiffe::SpiffeId;
     ///
     /// let spiffe_id = SpiffeId::new("spiffe://trustdomain/path").unwrap();
     /// assert_eq!("trustdomain", spiffe_id.trust_domain().to_string());
@@ -140,7 +140,7 @@ impl SpiffeId {
     /// # Examples
     ///
     /// ```
-    /// use spiffe::spiffe_id::{SpiffeId, TrustDomain};
+    /// use spiffe::{SpiffeId, TrustDomain};
     ///
     /// let trust_domain = TrustDomain::new("trustdomain").unwrap();
     /// let spiffe_id = SpiffeId::from_segments(trust_domain, &["path1", "path2", "path3"]).unwrap();
@@ -261,7 +261,7 @@ impl TrustDomain {
     /// # Examples
     ///
     /// ```
-    /// use spiffe::spiffe_id::TrustDomain;
+    /// use spiffe::TrustDomain;
     ///
     /// let trust_domain = TrustDomain::new("domain.test").unwrap();
     /// assert_eq!("domain.test", trust_domain.to_string());

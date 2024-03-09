@@ -3,13 +3,11 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_x509_source {
     use once_cell::sync::Lazy;
-    use spiffe::bundle::x509::X509Bundle;
-    use spiffe::bundle::BundleSource;
-    use spiffe::spiffe_id::{SpiffeId, TrustDomain};
-    use spiffe::svid::x509::X509Svid;
-    use spiffe::svid::SvidSource;
-    use spiffe::workload_api::client::WorkloadApiClient;
-    use spiffe::workload_api::x509_source::{SvidPicker, X509Source, X509SourceBuilder};
+    use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
+    use spiffe::{
+        BundleSource, SpiffeId, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle, X509Source,
+        X509Svid,
+    };
     use std::error::Error;
     use std::sync::Arc;
 

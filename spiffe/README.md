@@ -94,11 +94,11 @@ while let Some(x509_bundle_update) = x509_bundle_stream.next().await {
 A convenient way to fetch X.509 materials is by using the `X509Source`:
 
 ```rust
-use spiffe::workload_api::x509_source::X509Source;
-use spiffe::bundle::BundleSource;
-use spiffe::spiffe_id::TrustDomain;
-use spiffe::svid::x509::X509Svid;
-use spiffe::svid::SvidSource;
+use spiffe::X509Source;
+use spiffe::BundleSource;
+use spiffe::TrustDomain;
+use spiffe::X509Svid;
+use spiffe::SvidSource;
 
 async fn fetch_x509_materials() -> Result<(), Box<dyn std::error::Error>> {
     // Create a new X509Source

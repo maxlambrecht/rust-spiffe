@@ -1,8 +1,7 @@
 mod x509_svid_tests {
     use std::str::FromStr;
 
-    use spiffe::spiffe_id::SpiffeId;
-    use spiffe::svid::x509::{X509Svid, X509SvidError};
+    use spiffe::{SpiffeId, X509Svid, X509SvidError};
 
     use spiffe::cert::errors::{CertificateError, PrivateKeyError};
 

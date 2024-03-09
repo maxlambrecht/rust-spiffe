@@ -13,12 +13,8 @@ use crate::proto::spire::api::agent::delegatedidentity::v1::{
     SubscribeToX509sviDsResponse,
 };
 use crate::proto::spire::api::types::Jwtsvid as ProtoJwtSvid;
-use spiffe::bundle::jwt::{JwtBundle, JwtBundleSet};
-use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
 use spiffe::endpoint::validate_socket_path;
-use spiffe::spiffe_id::TrustDomain;
-use spiffe::svid::jwt::JwtSvid;
-use spiffe::svid::x509::X509Svid;
+use spiffe::{JwtBundle, JwtBundleSet, JwtSvid, TrustDomain, X509Bundle, X509BundleSet, X509Svid};
 use tokio_stream::{Stream, StreamExt};
 
 use crate::selectors::Selector;
