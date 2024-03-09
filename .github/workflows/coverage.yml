@@ -32,7 +32,7 @@ jobs:
         run: cargo install grcov
 
       - name: Start SPIRE
-        run: ./scripts/run-spire.sh &
+        run: .github/workflows/scripts/run-spire.sh &
 
       - name: Run Tests
         run: cargo test --all-features
@@ -56,4 +56,4 @@ jobs:
           path-to-json: ./coveralls.json
 
       - name: Clean up SPIRE
-        run: ./scripts/cleanup-spire.sh
+        run: .github/workflows/scripts/cleanup-spire.sh
