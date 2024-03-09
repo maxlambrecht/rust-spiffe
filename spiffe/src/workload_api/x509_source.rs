@@ -61,6 +61,7 @@ use crate::workload_api::client::WorkloadApiClient;
 use crate::workload_api::x509_context::X509Context;
 use log::{debug, error, info};
 use std::error::Error;
+use std::fmt::Debug;
 use std::sync::{Arc, PoisonError, RwLock};
 use thiserror::Error;
 use tokio::sync::watch;
@@ -80,6 +81,8 @@ use tokio_util::sync::CancellationToken;
 /// ```
 /// use spiffe::svid::x509::X509Svid;
 /// use spiffe::workload_api::x509_source::SvidPicker;
+///
+/// #[derive(Debug)]
 /// struct SecondSvidPicker;
 ///
 /// impl SvidPicker for SecondSvidPicker {
@@ -88,7 +91,7 @@ use tokio_util::sync::CancellationToken;
 ///     }
 /// }
 /// ```
-pub trait SvidPicker: Send + Sync {
+pub trait SvidPicker: Send + Sync + Debug  {
     /// Selects an `X509Svid` from the provided slice of `X509Svid`.
     ///
     /// # Parameters
@@ -131,7 +134,7 @@ impl X509SourceError {
 /// `X509Source` implements the [`BundleSource`] and [`SvidSource`] traits.
 ///
 /// The methods return cloned instances of the underlying objects.
-#[allow(missing_debug_implementations)]
+#[derive(Debug)]
 pub struct X509Source {
     svid: RwLock<Option<X509Svid>>,
     bundles: RwLock<Option<X509BundleSet>>,
@@ -144,7 +147,7 @@ pub struct X509Source {
 }
 
 /// Builder for `X509Source`.
-#[allow(missing_debug_implementations)]
+#[derive(Debug)]
 pub struct X509SourceBuilder {
     client: Option<WorkloadApiClient>,
     svid_picker: Option<Box<dyn SvidPicker>>,
@@ -162,6 +165,7 @@ pub struct X509SourceBuilder {
 /// use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
 /// use std::error::Error;
 ///
+/// #[derive(Debug)]
 /// struct SecondSvidPicker;
 ///
 /// impl SvidPicker for SecondSvidPicker {
