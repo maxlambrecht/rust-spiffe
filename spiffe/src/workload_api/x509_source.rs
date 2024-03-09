@@ -91,7 +91,7 @@ use tokio_util::sync::CancellationToken;
 ///     }
 /// }
 /// ```
-pub trait SvidPicker: Send + Sync + Debug  {
+pub trait SvidPicker: Send + Sync + Debug {
     /// Selects an `X509Svid` from the provided slice of `X509Svid`.
     ///
     /// # Parameters
