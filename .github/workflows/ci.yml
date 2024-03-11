@@ -46,10 +46,10 @@ jobs:
         run: cargo build
 
       - name: Start SPIRE
-        run: ./scripts/run-spire.sh &
+        run: .github/workflows/scripts/run-spire.sh &
 
       - name: Run Integration Tests
         run: RUST_BACKTRACE=1 cargo test --features integration-tests
 
       - name: Clean up SPIRE
-        run: ./scripts/cleanup-spire.sh
+        run: .github/workflows/scripts/cleanup-spire.sh
