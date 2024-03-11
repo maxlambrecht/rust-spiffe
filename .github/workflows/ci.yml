@@ -24,7 +24,7 @@ jobs:
           cargo clippy -- -D warnings
 
   build-and-test:
-    name: Build and Test Rust Project
+    name: Build and Test
     runs-on: ubuntu-latest
     needs: setup-and-lint
     env:
