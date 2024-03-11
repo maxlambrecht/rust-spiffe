@@ -21,6 +21,7 @@ mod integration_tests_x509_source {
 
     static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
 
+    #[derive(Debug)]
     struct SecondSvidPicker;
 
     impl SvidPicker for SecondSvidPicker {

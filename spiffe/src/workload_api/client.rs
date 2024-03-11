@@ -83,8 +83,7 @@ const SPIFFE_HEADER_VALUE: &str = "true";
 /// Supports one-shot calls and streaming updates for X.509 and JWT SVIDs and bundles.
 /// The client can be used to fetch the current SVIDs and bundles, as well as to
 /// subscribe for updates whenever the SVIDs or bundles change.
-#[allow(missing_debug_implementations)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WorkloadApiClient {
     client: SpiffeWorkloadApiClient<
         tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>,
