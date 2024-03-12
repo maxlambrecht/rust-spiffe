@@ -1,6 +1,5 @@
 #![deny(missing_docs)]
 #![warn(missing_debug_implementations)]
-// #![warn(rust_2018_idioms)]
 
 //! This library provides functions to interact with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md)
 //! to fetch X.509 and JWT SVIDs and Bundles. It also provides types that comply with the [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
