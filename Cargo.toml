@@ -3,3 +3,4 @@ members = [
     "spiffe",
     "spire-api",
 ]
+resolver = "2"

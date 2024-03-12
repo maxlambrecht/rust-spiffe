@@ -1,10 +1,10 @@
 [package]
-edition = "2018"
 name = "spire-api"
 # When releasing to crates.io:
 # - Update CHANGELOG.md.
 # - Create a new tag
 version = "0.2.0"
+edition = "2021"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
 description = "Rust library for the SPIRE APIs"
 license = "Apache-2.0"
