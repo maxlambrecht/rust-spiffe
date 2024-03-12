@@ -1,6 +1,5 @@
-use spiffe::bundle::x509::{X509Bundle, X509BundleError};
 use spiffe::cert::errors::CertificateError;
-use spiffe::spiffe_id::TrustDomain;
+use spiffe::{TrustDomain, X509Bundle, X509BundleError};
 
 #[test]
 fn test_x509_bundle_parse_from_der() {

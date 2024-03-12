@@ -7,15 +7,11 @@
 //! # Examples
 //!
 //! ```no_run
-//! use spiffe::bundle::jwt::{JwtAuthority, JwtBundle};
-//! use spiffe::bundle::x509::{X509Bundle, X509BundleSet};
-//! use spiffe::bundle::BundleSource;
 //! use spiffe::cert::{Certificate, PrivateKey};
-//! use spiffe::spiffe_id::{SpiffeId, TrustDomain};
-//! use spiffe::svid::jwt::{JwtSvid, JwtSvidError};
-//! use spiffe::svid::x509::X509Svid;
-//! use spiffe::workload_api::client::WorkloadApiClient;
-//! use spiffe::workload_api::x509_context::X509Context;
+//! use spiffe::{
+//!     JwtAuthority, JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle,
+//!     X509BundleSet, X509Context, X509Svid,
+//! };
 //! use std::convert::TryFrom;
 //! use std::error::Error;
 //!
@@ -106,3 +102,15 @@ pub(crate) mod proto;
 
 #[cfg(feature = "workload-api")]
 pub mod workload_api;
+
+// Core SPIFFE types and utilities re-exported for simplified access.
+pub use bundle::jwt::{JwtAuthority, JwtBundle, JwtBundleError, JwtBundleSet};
+pub use bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
+pub use bundle::BundleSource;
+pub use spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
+pub use svid::jwt::{JwtSvid, JwtSvidError};
+pub use svid::x509::{X509Svid, X509SvidError};
+pub use svid::SvidSource;
+pub use workload_api::client::WorkloadApiClient;
+pub use workload_api::x509_context::X509Context;
+pub use workload_api::x509_source::{X509Source, X509SourceBuilder};

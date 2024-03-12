@@ -16,10 +16,7 @@
 //! ### Example
 //!
 //! ```no_run
-//! use spiffe::bundle::BundleSource;
-//! use spiffe::spiffe_id::TrustDomain;
-//! use spiffe::svid::SvidSource;
-//! use spiffe::workload_api::x509_source::{X509Source, X509SourceError};
+//! use spiffe::{BundleSource, SvidSource, TrustDomain, X509Source};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! let source = X509Source::default().await?;
@@ -51,14 +48,11 @@
 //! ## Closing the Source
 //!
 //! The `close` method can be used to close the `X509Source`, canceling all spawned tasks and stopping updates.
-use crate::bundle::x509::{X509Bundle, X509BundleSet};
-use crate::bundle::BundleSource;
 use crate::error::GrpcClientError;
-use crate::spiffe_id::TrustDomain;
-use crate::svid::x509::X509Svid;
-use crate::svid::SvidSource;
-use crate::workload_api::client::WorkloadApiClient;
-use crate::workload_api::x509_context::X509Context;
+use crate::{
+    BundleSource, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle, X509BundleSet,
+    X509Context, X509Svid,
+};
 use log::{debug, error, info};
 use std::error::Error;
 use std::fmt::Debug;
@@ -79,8 +73,8 @@ use tokio_util::sync::CancellationToken;
 /// # Example
 ///
 /// ```
-/// use spiffe::svid::x509::X509Svid;
 /// use spiffe::workload_api::x509_source::SvidPicker;
+/// use spiffe::X509Svid;
 ///
 /// #[derive(Debug)]
 /// struct SecondSvidPicker;
@@ -160,9 +154,8 @@ pub struct X509SourceBuilder {
 /// # Example
 ///
 /// ```no_run
-/// use spiffe::svid::x509::X509Svid;
-/// use spiffe::workload_api::client::WorkloadApiClient;
 /// use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
+/// use spiffe::{WorkloadApiClient, X509Svid};
 /// use std::error::Error;
 ///
 /// #[derive(Debug)]

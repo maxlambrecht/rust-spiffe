@@ -5,11 +5,11 @@
 //! ```no_run
 //! 
 //! use std::error::Error;
-//! use spiffe::workload_api::client::WorkloadApiClient;
+//! use spiffe::WorkloadApiClient;
 //!
-//! use spiffe::svid::x509::X509Svid;
-//! use spiffe::bundle::x509::X509BundleSet;
-//! use spiffe::workload_api::x509_context::X509Context;
+//! use spiffe::X509Svid;
+//! use spiffe::X509BundleSet;
+//! use spiffe::X509Context;
 //!
 //! # async fn example() -> Result<(), Box< dyn Error>> {
 //!

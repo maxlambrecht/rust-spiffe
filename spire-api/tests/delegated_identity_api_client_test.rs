@@ -5,11 +5,9 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
-    use spiffe::bundle::jwt::JwtBundleSet;
     use spiffe::bundle::BundleRefSource;
-    use spiffe::spiffe_id::TrustDomain;
-    use spire_api::agent::delegated_identity::DelegatedIdentityClient;
-    use spire_api::selectors;
+    use spiffe::{JwtBundleSet, TrustDomain};
+    use spire_api::{selectors, DelegatedIdentityClient};
     use std::process::Command;
     use tokio_stream::StreamExt;
 
