@@ -256,4 +256,14 @@ mod jwt_bundle_test {
             JwtBundleError::Deserialize(..)
         ));
     }
+
+    #[test]
+    fn test_parse_jwks_with_empty_keys_array() {
+        let bundle_bytes = r#"{"keys": []}"#.as_bytes();
+        let trust_domain = TrustDomain::new("domain.test").unwrap();
+        let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes)
+            .expect("Failed to parse JWKS with empty keys array");
+
+        assert!(jwt_bundle.jwt_authorities.is_empty(), "JWT authorities should be empty");
+    }
 }
