@@ -264,6 +264,9 @@ mod jwt_bundle_test {
         let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes)
             .expect("Failed to parse JWKS with empty keys array");
 
-        assert!(jwt_bundle.jwt_authorities.is_empty(), "JWT authorities should be empty");
+        assert!(
+            jwt_bundle.jwt_authorities.is_empty(),
+            "JWT authorities should be empty"
+        );
     }
 }
