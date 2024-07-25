@@ -44,6 +44,16 @@ pub struct DelegatedIdentityClient {
     client: DelegatedIdentityApiClient<tonic::transport::Channel>,
 }
 
+/// Represents that a delegate attestation request can have one-of
+/// PID (let agent attest PID->selectors) or selectors (delegate has already attested a PID)
+#[derive(Debug, Clone)]
+pub enum DelegateAttestationRequest {
+    /// PID (let agent attest PID->selectors)
+    Pid(i32),
+    /// selectors (delegate has already attested a PID and generated full set of selectors)
+    Selectors(Vec<Selector>),
+}
+
 /// Constructors
 impl DelegatedIdentityClient {
     const UNIX_PREFIX: &'static str = "unix:";
@@ -135,10 +145,22 @@ impl DelegatedIdentityClient {
     /// Returns [`GrpcClientError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
     pub async fn fetch_x509_svid(
         &mut self,
-        selectors: Vec<Selector>,
+        attest_type: DelegateAttestationRequest,
     ) -> Result<X509Svid, GrpcClientError> {
-        let request = SubscribeToX509sviDsRequest {
-            selectors: selectors.into_iter().map(|s| s.into()).collect(),
+
+        let request = match attest_type {
+            DelegateAttestationRequest::Selectors(selectors) => {
+                SubscribeToX509sviDsRequest {
+                    selectors: selectors.into_iter().map(|s| s.into()).collect(),
+                    pid: 0
+                }
+            },
+            DelegateAttestationRequest::Pid(pid) => {
+                SubscribeToX509sviDsRequest {
+                    selectors: Vec::default(),
+                    pid
+                }
+            }
         };
 
         self.client
@@ -175,10 +197,22 @@ impl DelegatedIdentityClient {
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_x509_svids(
         &mut self,
-        selectors: Vec<Selector>,
+        attest_type: DelegateAttestationRequest,
     ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>>, GrpcClientError> {
-        let request = SubscribeToX509sviDsRequest {
-            selectors: selectors.into_iter().map(|s| s.into()).collect(),
+
+        let request = match attest_type {
+            DelegateAttestationRequest::Selectors(selectors) => {
+                SubscribeToX509sviDsRequest {
+                    selectors: selectors.into_iter().map(|s| s.into()).collect(),
+                    pid: 0
+                }
+            },
+            DelegateAttestationRequest::Pid(pid) => {
+                SubscribeToX509sviDsRequest {
+                    selectors: Vec::default(),
+                    pid
+                }
+            }
         };
 
         let response: tonic::Response<tonic::Streaming<SubscribeToX509sviDsResponse>> =
@@ -259,11 +293,24 @@ impl DelegatedIdentityClient {
     pub async fn fetch_jwt_svids<T: AsRef<str> + ToString>(
         &mut self,
         audience: &[T],
-        selectors: Vec<Selector>,
+        attest_type: DelegateAttestationRequest,
     ) -> Result<Vec<JwtSvid>, GrpcClientError> {
-        let request = FetchJwtsviDsRequest {
-            audience: audience.iter().map(|s| s.to_string()).collect(),
-            selectors: selectors.into_iter().map(|s| s.into()).collect(),
+
+        let request = match attest_type {
+            DelegateAttestationRequest::Selectors(selectors) => {
+                FetchJwtsviDsRequest {
+                    audience: audience.iter().map(|s| s.to_string()).collect(),
+                    selectors: selectors.into_iter().map(|s| s.into()).collect(),
+                    pid: 0,
+                }
+            },
+            DelegateAttestationRequest::Pid(pid) => {
+                FetchJwtsviDsRequest {
+                    audience: audience.iter().map(|s| s.to_string()).collect(),
+                    selectors: Vec::default(),
+                    pid,
+                }
+            }
         };
 
         DelegatedIdentityClient::parse_jwt_svid_from_grpc_response(
