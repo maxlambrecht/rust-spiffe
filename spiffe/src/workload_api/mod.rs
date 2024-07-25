@@ -3,7 +3,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! 
+//!
 //! use std::error::Error;
 //! use spiffe::WorkloadApiClient;
 //!
