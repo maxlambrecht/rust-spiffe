@@ -21,8 +21,10 @@ pub struct X509svidResponse {
     /// the workload should trust, keyed by the SPIFFE ID of the foreign trust
     /// domain. Bundles are ASN.1 DER encoded.
     #[prost(map = "string, bytes", tag = "3")]
-    pub federated_bundles:
-        ::std::collections::HashMap<::prost::alloc::string::String, ::prost::bytes::Bytes>,
+    pub federated_bundles: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 /// The X509SVID message carries a single SVID and all associated information,
 /// including the X.509 bundle for the trust domain.
@@ -60,7 +62,10 @@ pub struct X509BundlesResponse {
     /// workload should trust, keyed by the SPIFFE ID of the trust domain.
     /// Bundles are ASN.1 DER encoded.
     #[prost(map = "string, bytes", tag = "2")]
-    pub bundles: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::bytes::Bytes>,
+    pub bundles: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -104,7 +109,10 @@ pub struct JwtBundlesResponse {
     /// Required. JWK encoded JWT bundles, keyed by the SPIFFE ID of the trust
     /// domain.
     #[prost(map = "string, bytes", tag = "1")]
-    pub bundles: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::bytes::Bytes>,
+    pub bundles: ::std::collections::HashMap<
+        ::prost::alloc::string::String,
+        ::prost::bytes::Bytes,
+    >,
 }
 /// The ValidateJWTSVIDRequest message conveys request parameters for
 /// JWT-SVID validation.
@@ -136,8 +144,8 @@ pub struct ValidateJwtsvidResponse {
 /// Generated client implementations.
 pub mod spiffe_workload_api_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct SpiffeWorkloadApiClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -170,8 +178,9 @@ pub mod spiffe_workload_api_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             SpiffeWorkloadApiClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -217,14 +226,19 @@ pub mod spiffe_workload_api_client {
             tonic::Response<tonic::codec::Streaming<super::X509svidResponse>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/SpiffeWorkloadAPI/FetchX509SVID");
+            let path = http::uri::PathAndQuery::from_static(
+                "/SpiffeWorkloadAPI/FetchX509SVID",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("SpiffeWorkloadAPI", "FetchX509SVID"));
@@ -241,14 +255,19 @@ pub mod spiffe_workload_api_client {
             tonic::Response<tonic::codec::Streaming<super::X509BundlesResponse>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/SpiffeWorkloadAPI/FetchX509Bundles");
+            let path = http::uri::PathAndQuery::from_static(
+                "/SpiffeWorkloadAPI/FetchX509Bundles",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("SpiffeWorkloadAPI", "FetchX509Bundles"));
@@ -260,15 +279,23 @@ pub mod spiffe_workload_api_client {
         pub async fn fetch_jwtsvid(
             &mut self,
             request: impl tonic::IntoRequest<super::JwtsvidRequest>,
-        ) -> std::result::Result<tonic::Response<super::JwtsvidResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::JwtsvidResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/SpiffeWorkloadAPI/FetchJWTSVID");
+            let path = http::uri::PathAndQuery::from_static(
+                "/SpiffeWorkloadAPI/FetchJWTSVID",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("SpiffeWorkloadAPI", "FetchJWTSVID"));
@@ -284,14 +311,19 @@ pub mod spiffe_workload_api_client {
             tonic::Response<tonic::codec::Streaming<super::JwtBundlesResponse>>,
             tonic::Status,
         > {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/SpiffeWorkloadAPI/FetchJWTBundles");
+            let path = http::uri::PathAndQuery::from_static(
+                "/SpiffeWorkloadAPI/FetchJWTBundles",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("SpiffeWorkloadAPI", "FetchJWTBundles"));
@@ -302,16 +334,23 @@ pub mod spiffe_workload_api_client {
         pub async fn validate_jwtsvid(
             &mut self,
             request: impl tonic::IntoRequest<super::ValidateJwtsvidRequest>,
-        ) -> std::result::Result<tonic::Response<super::ValidateJwtsvidResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::ValidateJwtsvidResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/SpiffeWorkloadAPI/ValidateJWTSVID");
+            let path = http::uri::PathAndQuery::from_static(
+                "/SpiffeWorkloadAPI/ValidateJWTSVID",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("SpiffeWorkloadAPI", "ValidateJWTSVID"));
@@ -329,7 +368,8 @@ pub mod spiffe_workload_api_server {
         /// Server streaming response type for the FetchX509SVID method.
         type FetchX509SVIDStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::X509svidResponse, tonic::Status>,
-            > + Send
+            >
+            + Send
             + 'static;
         /// Fetch X.509-SVIDs for all SPIFFE identities the workload is entitled to,
         /// as well as related information like trust bundles and CRLs. As this
@@ -338,11 +378,15 @@ pub mod spiffe_workload_api_server {
         async fn fetch_x509svid(
             &self,
             request: tonic::Request<super::X509svidRequest>,
-        ) -> std::result::Result<tonic::Response<Self::FetchX509SVIDStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::FetchX509SVIDStream>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the FetchX509Bundles method.
         type FetchX509BundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::X509BundlesResponse, tonic::Status>,
-            > + Send
+            >
+            + Send
             + 'static;
         /// Fetch trust bundles and CRLs. Useful for clients that only need to
         /// validate SVIDs without obtaining an SVID for themself. As this
@@ -351,7 +395,10 @@ pub mod spiffe_workload_api_server {
         async fn fetch_x509_bundles(
             &self,
             request: tonic::Request<super::X509BundlesRequest>,
-        ) -> std::result::Result<tonic::Response<Self::FetchX509BundlesStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::FetchX509BundlesStream>,
+            tonic::Status,
+        >;
         /// Fetch JWT-SVIDs for all SPIFFE identities the workload is entitled to,
         /// for the requested audience. If an optional SPIFFE ID is requested, only
         /// the JWT-SVID for that SPIFFE ID is returned.
@@ -362,7 +409,8 @@ pub mod spiffe_workload_api_server {
         /// Server streaming response type for the FetchJWTBundles method.
         type FetchJWTBundlesStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::JwtBundlesResponse, tonic::Status>,
-            > + Send
+            >
+            + Send
             + 'static;
         /// Fetches the JWT bundles, formatted as JWKS documents, keyed by the
         /// SPIFFE ID of the trust domain. As this information changes, subsequent
@@ -370,13 +418,19 @@ pub mod spiffe_workload_api_server {
         async fn fetch_jwt_bundles(
             &self,
             request: tonic::Request<super::JwtBundlesRequest>,
-        ) -> std::result::Result<tonic::Response<Self::FetchJWTBundlesStream>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<Self::FetchJWTBundlesStream>,
+            tonic::Status,
+        >;
         /// Validates a JWT-SVID against the requested audience. Returns the SPIFFE
         /// ID of the JWT-SVID and JWT claims.
         async fn validate_jwtsvid(
             &self,
             request: tonic::Request<super::ValidateJwtsvidRequest>,
-        ) -> std::result::Result<tonic::Response<super::ValidateJwtsvidResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::ValidateJwtsvidResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct SpiffeWorkloadApiServer<T: SpiffeWorkloadApi> {
@@ -401,7 +455,10 @@ pub mod spiffe_workload_api_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -457,21 +514,24 @@ pub mod spiffe_workload_api_server {
                 "/SpiffeWorkloadAPI/FetchX509SVID" => {
                     #[allow(non_camel_case_types)]
                     struct FetchX509SVIDSvc<T: SpiffeWorkloadApi>(pub Arc<T>);
-                    impl<T: SpiffeWorkloadApi>
-                        tonic::server::ServerStreamingService<super::X509svidRequest>
-                        for FetchX509SVIDSvc<T>
-                    {
+                    impl<
+                        T: SpiffeWorkloadApi,
+                    > tonic::server::ServerStreamingService<super::X509svidRequest>
+                    for FetchX509SVIDSvc<T> {
                         type Response = super::X509svidResponse;
                         type ResponseStream = T::FetchX509SVIDStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::X509svidRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SpiffeWorkloadApi>::fetch_x509svid(&inner, request).await
+                                <T as SpiffeWorkloadApi>::fetch_x509svid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -502,21 +562,27 @@ pub mod spiffe_workload_api_server {
                 "/SpiffeWorkloadAPI/FetchX509Bundles" => {
                     #[allow(non_camel_case_types)]
                     struct FetchX509BundlesSvc<T: SpiffeWorkloadApi>(pub Arc<T>);
-                    impl<T: SpiffeWorkloadApi>
-                        tonic::server::ServerStreamingService<super::X509BundlesRequest>
-                        for FetchX509BundlesSvc<T>
-                    {
+                    impl<
+                        T: SpiffeWorkloadApi,
+                    > tonic::server::ServerStreamingService<super::X509BundlesRequest>
+                    for FetchX509BundlesSvc<T> {
                         type Response = super::X509BundlesResponse;
                         type ResponseStream = T::FetchX509BundlesStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::X509BundlesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SpiffeWorkloadApi>::fetch_x509_bundles(&inner, request).await
+                                <T as SpiffeWorkloadApi>::fetch_x509_bundles(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -547,18 +613,23 @@ pub mod spiffe_workload_api_server {
                 "/SpiffeWorkloadAPI/FetchJWTSVID" => {
                     #[allow(non_camel_case_types)]
                     struct FetchJWTSVIDSvc<T: SpiffeWorkloadApi>(pub Arc<T>);
-                    impl<T: SpiffeWorkloadApi> tonic::server::UnaryService<super::JwtsvidRequest>
-                        for FetchJWTSVIDSvc<T>
-                    {
+                    impl<
+                        T: SpiffeWorkloadApi,
+                    > tonic::server::UnaryService<super::JwtsvidRequest>
+                    for FetchJWTSVIDSvc<T> {
                         type Response = super::JwtsvidResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::JwtsvidRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SpiffeWorkloadApi>::fetch_jwtsvid(&inner, request).await
+                                <T as SpiffeWorkloadApi>::fetch_jwtsvid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -589,21 +660,24 @@ pub mod spiffe_workload_api_server {
                 "/SpiffeWorkloadAPI/FetchJWTBundles" => {
                     #[allow(non_camel_case_types)]
                     struct FetchJWTBundlesSvc<T: SpiffeWorkloadApi>(pub Arc<T>);
-                    impl<T: SpiffeWorkloadApi>
-                        tonic::server::ServerStreamingService<super::JwtBundlesRequest>
-                        for FetchJWTBundlesSvc<T>
-                    {
+                    impl<
+                        T: SpiffeWorkloadApi,
+                    > tonic::server::ServerStreamingService<super::JwtBundlesRequest>
+                    for FetchJWTBundlesSvc<T> {
                         type Response = super::JwtBundlesResponse;
                         type ResponseStream = T::FetchJWTBundlesStream;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::ResponseStream>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::JwtBundlesRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SpiffeWorkloadApi>::fetch_jwt_bundles(&inner, request).await
+                                <T as SpiffeWorkloadApi>::fetch_jwt_bundles(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -634,19 +708,23 @@ pub mod spiffe_workload_api_server {
                 "/SpiffeWorkloadAPI/ValidateJWTSVID" => {
                     #[allow(non_camel_case_types)]
                     struct ValidateJWTSVIDSvc<T: SpiffeWorkloadApi>(pub Arc<T>);
-                    impl<T: SpiffeWorkloadApi>
-                        tonic::server::UnaryService<super::ValidateJwtsvidRequest>
-                        for ValidateJWTSVIDSvc<T>
-                    {
+                    impl<
+                        T: SpiffeWorkloadApi,
+                    > tonic::server::UnaryService<super::ValidateJwtsvidRequest>
+                    for ValidateJWTSVIDSvc<T> {
                         type Response = super::ValidateJwtsvidResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ValidateJwtsvidRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SpiffeWorkloadApi>::validate_jwtsvid(&inner, request).await
+                                <T as SpiffeWorkloadApi>::validate_jwtsvid(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -674,14 +752,18 @@ pub mod spiffe_workload_api_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }
@@ -707,7 +789,8 @@ pub mod spiffe_workload_api_server {
             write!(f, "{:?}", self.0)
         }
     }
-    impl<T: SpiffeWorkloadApi> tonic::server::NamedService for SpiffeWorkloadApiServer<T> {
+    impl<T: SpiffeWorkloadApi> tonic::server::NamedService
+    for SpiffeWorkloadApiServer<T> {
         const NAME: &'static str = "SpiffeWorkloadAPI";
     }
 }
