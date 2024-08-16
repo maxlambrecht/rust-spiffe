@@ -9,4 +9,4 @@ pub mod agent;
 pub mod selectors;
 
 // Core spire-api crate type re-exported for simplified access.
-pub use agent::delegated_identity::{DelegatedIdentityClient, DelegateAttestationRequest};
+pub use agent::delegated_identity::{DelegateAttestationRequest, DelegatedIdentityClient};
