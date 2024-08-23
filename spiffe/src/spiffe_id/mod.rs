@@ -252,7 +252,7 @@ impl TrustDomain {
     /// # Arguments
     ///
     /// * `id_or_name` - Name of a trust domain, it also can be a SPIFFE ID string from which the domain name
-    /// is extracted.
+    ///   is extracted.
     ///
     /// # Errors
     ///
