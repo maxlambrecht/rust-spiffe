@@ -138,11 +138,6 @@ impl Claims {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct Header {
-    inner: jsonwebtoken::Header,
-}
-
 impl JwtSvid {
     /// Parses the given token verifying the token signature using the provided [`BundleSource`] as
     /// a source of [`JwtBundle`], validating the audience in the token with the expected audience,
