@@ -79,7 +79,7 @@ impl X509Svid {
     /// # Arguments
     ///
     /// * `cert_chain_der` - Slice of bytes representing a chain of certificates as ASN.1 DER-encoded (concatenated
-    /// with no intermediate padding if there are more than one certificate).
+    ///   with no intermediate padding if there are more than one certificate).
     ///
     /// * `private_key_der` - Slice of bytes representing a private key as ASN.1 DER in PKCS#8 format.
     ///

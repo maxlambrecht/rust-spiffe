@@ -294,7 +294,7 @@ impl WorkloadApiClient {
     ///
     /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
     /// * `spiffe_id` - Optional [`SpiffeId`] for the token 'sub' claim. If not provided, the Workload API returns the
-    /// default identity.
+    ///   default identity.
     ///
     /// # Errors
     ///
@@ -322,7 +322,7 @@ impl WorkloadApiClient {
     ///
     /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
     /// * `spiffe_id` - Optional reference [`SpiffeId`] for the token 'sub' claim. If not provided, the Workload API returns the
-    /// default identity,
+    ///   default identity,
     ///
     /// # Errors
     ///
