@@ -111,6 +111,10 @@ pub use spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 pub use svid::jwt::{JwtSvid, JwtSvidError};
 pub use svid::x509::{X509Svid, X509SvidError};
 pub use svid::SvidSource;
+
+#[cfg(feature = "workload-api")]
 pub use workload_api::client::WorkloadApiClient;
+#[cfg(feature = "workload-api")]
 pub use workload_api::x509_context::X509Context;
+#[cfg(feature = "workload-api")]
 pub use workload_api::x509_source::{X509Source, X509SourceBuilder};
