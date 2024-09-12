@@ -14,7 +14,7 @@ Include this line in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spire-api = "0.2.0"
+spire-api = "0.3.0"
 ```
 
 ## Usage
@@ -26,7 +26,9 @@ use spire_api::DelegatedIdentityClient;
 
 let client = DelegatedIdentityClient::default().await?;
 
-let x509_svid = client.fetch_x509_svid(vec![selectors::Selector::Unix(selectors::Unix::Uid(1000))]).await?;
+let x509_svid = client.fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
+  selectors::Selector::Unix(selectors::Unix::Uid(1000)),
+])).await?;
 ```
 
 For more documentation, refer to the `spire-api` [crate documentation](https://docs.rs/spire-api/).
