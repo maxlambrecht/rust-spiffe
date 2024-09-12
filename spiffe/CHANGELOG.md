@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.6.0] - 2024-09-11
+
+- Update Rust Edition to 2021 (#82)
+- Enhance Usability with Core Type Re-exports (#83)
+
 ## [0.5.0] - 2024-03-07
 
 ### Dependencies updates
