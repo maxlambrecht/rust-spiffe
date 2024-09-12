@@ -27,7 +27,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 time = "0.3"
-tonic = "0.11"
+tonic = "0.12"
 
 # workload-api dependencies:
 prost = { version = "0.12", optional = true }
