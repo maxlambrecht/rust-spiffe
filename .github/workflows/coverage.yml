@@ -16,7 +16,7 @@ jobs:
       SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
     steps:
       - name: Check out code
-        uses: actions/checkout@9bb56186c3b09b4f86b1c65136769dd318469633 # v4.1.2
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           submodules: recursive
       - name: Cache Project
@@ -51,7 +51,7 @@ jobs:
             --keep-only '*/src/*' > coveralls.json
 
       - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@3dfc5567390f6fa9267c0ee9c251e4c8c3f18949 # v2.2.3
+        uses: coverallsapp/github-action@643bc377ffa44ace6394b2b5d0d3950076de9f63 # v2.3.0
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path-to-json: ./coveralls.json
