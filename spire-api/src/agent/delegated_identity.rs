@@ -18,6 +18,7 @@ use spiffe::{JwtBundle, JwtBundleSet, JwtSvid, TrustDomain, X509Bundle, X509Bund
 use tokio_stream::{Stream, StreamExt};
 
 use crate::selectors::Selector;
+use hyper_util::rt::TokioIo;
 use spiffe::constants::DEFAULT_SVID;
 use spiffe::error::GrpcClientError;
 use std::convert::{Into, TryFrom};
@@ -83,8 +84,11 @@ impl DelegatedIdentityClient {
 
         let channel = Endpoint::try_from(Self::TONIC_DEFAULT_URI)?
             .connect_with_connector(service_fn(move |_: Uri| {
-                // Connect to the UDS socket using the modified path.
-                UnixStream::connect(stripped_path.clone())
+                let stripped_path = stripped_path.clone();
+                async {
+                    // Connect to the UDS socket using the modified path.
+                    UnixStream::connect(stripped_path).await.map(TokioIo::new)
+                }
             }))
             .await?;
 

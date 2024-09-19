@@ -27,16 +27,17 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 time = "0.3"
-tonic = "0.11"
+tonic = "0.12"
 
 # workload-api dependencies:
-prost = { version = "0.12", optional = true }
-prost-types = { version = "0.12", optional = true }
+prost = { version = "0.13", optional = true }
+prost-types = { version = "0.13", optional = true }
 tokio = { version = "1", features = ["net"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
-tower = { version = "0.4", features = ["util"], optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
 tokio-util = {version = "0.7", optional = true }
 log = {version = "0.4", optional = true }
+hyper-util = { version = "0.1.8", default-features = false }
 
 [dev-dependencies]
 jsonwebkey = { version = "0.3", features = ["generate"] }
@@ -48,8 +49,8 @@ once_cell = "1"
 openssl = { version = "0.10", features = ["vendored"] }
 
 [build-dependencies]
-tonic-build = { version = "0.11", default-features = false, features = ["prost"] }
-prost-build = "0.12"
+tonic-build = { version = "0.12", default-features = false, features = ["prost"] }
+prost-build = "0.13"
 anyhow = "1"
 
 [features]

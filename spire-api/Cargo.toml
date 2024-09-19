@@ -17,12 +17,13 @@ keywords = ["SPIFFE", "SPIRE"]
 [dependencies]
 spiffe = { version = "0.6.1", path = "../spiffe", default-features = false, features = ["spiffe-types"] }
 bytes = { version = "1", features = ["serde"] }
-tonic = { version = "0.11", default-features = false, features = ["prost", "codegen", "transport"]}
-prost = { version = "0.12"}
+tonic = { version = "0.12", default-features = false, features = ["prost", "codegen", "transport"]}
+prost = { version = "0.13"}
 prost-types = {version = "0.13"}
 tokio = { "version" = "1", features = ["net"]}
 tokio-stream = "0.1"
-tower = { version = "0.4", features = ["util"] }
+tower = { version = "0.5", features = ["util"] }
+hyper-util = { version = "0.1.8", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros"] }
