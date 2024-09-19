@@ -17,7 +17,7 @@ keywords = ["SPIFFE", "SPIRE"]
 [dependencies]
 spiffe = { version = "0.6.1", path = "../spiffe", default-features = false, features = ["spiffe-types"] }
 bytes = { version = "1", features = ["serde"] }
-tonic = { version = "0.11", default-features = false, features = ["prost", "codegen", "transport"]}
+tonic = { version = "0.12", default-features = false, features = ["prost", "codegen", "transport"]}
 prost = { version = "0.12"}
 prost-types = {version = "0.13"}
 tokio = { "version" = "1", features = ["net"]}
