@@ -58,6 +58,7 @@ use crate::svid::x509::X509Svid;
 use crate::workload_api::x509_context::X509Context;
 use std::convert::TryFrom;
 
+use hyper_util::rt::TokioIo;
 use tokio::net::UnixStream;
 use tokio_stream::{Stream, StreamExt};
 
@@ -133,8 +134,11 @@ impl WorkloadApiClient {
 
         let channel = Endpoint::try_from(Self::TONIC_DEFAULT_URI)?
             .connect_with_connector(service_fn(move |_: Uri| {
-                // Connect to the UDS socket using the modified path.
-                UnixStream::connect(stripped_path.clone())
+                let stripped_path = stripped_path.clone();
+                async {
+                    // Connect to the UDS socket using the modified path.
+                    UnixStream::connect(stripped_path).await.map(TokioIo::new)
+                }
             }))
             .await?;
 
