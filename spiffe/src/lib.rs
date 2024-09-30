@@ -104,7 +104,7 @@ pub(crate) mod proto;
 pub mod workload_api;
 
 // Core SPIFFE types and utilities re-exported for simplified access.
-pub use bundle::jwt::{JwtAuthority, JwtBundle, JwtBundleError, JwtBundleSet};
+pub use bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
 pub use bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 pub use bundle::BundleSource;
 pub use spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
