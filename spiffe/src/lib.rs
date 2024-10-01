@@ -7,12 +7,12 @@
 //! # Examples
 //!
 //! ```no_run
+//! use jsonwebtoken::jwk::Jwk;
 //! use spiffe::cert::{Certificate, PrivateKey};
 //! use spiffe::{
-//!     JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle,
-//!     X509BundleSet, X509Context, X509Svid,
+//!     JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509BundleSet,
+//!     X509Context, X509Svid,
 //! };
-//! use jsonwebtoken::jwk::Jwk;
 //! use std::convert::TryFrom;
 //! use std::error::Error;
 //!

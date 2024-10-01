@@ -392,7 +392,6 @@ mod test {
 
     #[test]
     fn test_parse_invalid_jwt_svid_without_key_id() {
-
         let test_key = jsonwebkey::Key::generate_p256();
 
         let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
@@ -450,7 +449,6 @@ mod test {
 
     #[test]
     fn test_parse_and_validate_jwt_svid_from_expired_token() {
-
         let test_key = jsonwebkey::Key::generate_p256();
 
         let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
