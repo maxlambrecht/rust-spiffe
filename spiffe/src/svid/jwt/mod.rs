@@ -155,29 +155,24 @@ impl JwtSvid {
     /// # Errors
     ///
     /// If the function cannot parse or verify the signature of the token, a [`JwtSvidError`] variant will be returned.
-    pub fn parse_and_validate<T: AsRef<str> + ToString>(
+    pub fn parse_and_validate<T: AsRef<str> + ToString + std::fmt::Debug>(
         token: &str,
         bundle_source: &impl BundleRefSource<Item = JwtBundle>,
         expected_audience: &[T],
     ) -> Result<Self, JwtSvidError> {
-        println!("BML PRINTIN 1");
         let jwt_svid = JwtSvid::parse_insecure(token)?;
 
-        println!("BML PRINTIN: {:?}", jwt_svid);
         let jwt_authority = JwtSvid::find_jwt_authority(
             bundle_source,
             jwt_svid.spiffe_id.trust_domain(),
             &jwt_svid.kid,
         )?;
 
-        let token_audience = jwt_svid.audience();
-
         let mut validation = jsonwebtoken::Validation::new(jwt_svid.alg.to_owned());
         validation.validate_exp = true;
-        let dec_key = DecodingKey::from_jwk(&jwt_authority)?;
+        validation.set_audience(expected_audience);
+        let dec_key = DecodingKey::from_jwk(jwt_authority)?;
         jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)?;
-        JwtSvid::validate_audience(&jwt_svid, expected_audience)?;
-
         Ok(jwt_svid)
     }
 
@@ -231,44 +226,24 @@ impl JwtSvid {
 
         Ok(jwt_authority)
     }
-
-    // Validate that the expected_audience is contained by the audience in the jwt_svid.
-    fn validate_audience<T: AsRef<str> + ToString>(
-        jwt_svid: &JwtSvid,
-        expected_audience: &[T],
-    ) -> Result<(), JwtSvidError> {
-        let token_audience = jwt_svid.audience();
-        match expected_audience
-            .iter()
-            .find(|aud| !token_audience.contains(&aud.to_string()))
-        {
-            None => Ok(()),
-            Some(_) => {
-                return Err(JwtSvidError::InvalidAudience(
-                    expected_audience.iter().map(|a| a.to_string()).collect(),
-                    token_audience.to_owned(),
-                ))
-            }
-        }
-    }
 }
 
 impl FromStr for JwtSvid {
     type Err = JwtSvidError;
 
     /// Creates a new [`JwtSvid`] with the given token without signature verification.
+    /// Any result from this function is untrusted.
     ///
     /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
         // decode token without signature or expiration validation
-        println!("BEEP");
         let mut validation = Validation::default();
+        // We later on validate audience separately with `parse_and_validate`
+        validation.validate_aud = false;
         validation.insecure_disable_signature_validation();
-        println!("BEEP 2");
         let token_data =
             jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
 
-        println!("BEEP 3");
         let claims = token_data.claims;
         let spiffe_id = SpiffeId::from_str(&claims.sub)?;
 
@@ -376,12 +351,9 @@ mod test {
         let mut bundle_source = JwtBundleSet::default();
         let trust_domain = TrustDomain::new("example.org").unwrap();
         let mut bundle = JwtBundle::new(trust_domain);
-        println!("BML WHOOP1: {:?}", token);
         bundle.add_jwt_authority(jwk).unwrap();
-        println!("BML WHOOP2");
         bundle_source.add_bundle(bundle);
 
-        println!("BML WHOOP2");
         // parse and validate JWT-SVID from signed token using the bundle source to validate the signature
         let jwt_svid = JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap();
 

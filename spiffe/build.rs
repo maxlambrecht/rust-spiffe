@@ -10,7 +10,7 @@ fn main() -> Result<(), anyhow::Error> {
         tonic_build::configure()
             .build_client(true)
             .out_dir("src/proto")
-            .compile_with_config(proto_config, &["src/proto/workload.proto"], &["src/proto"])?;
+            .compile_protos_with_config(proto_config, &["src/proto/workload.proto"], &["src/proto"])?;
 
         fs::rename("src/proto/_.rs", "src/proto/workload.rs")?;
     } else {

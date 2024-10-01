@@ -62,7 +62,7 @@ impl JwtBundle {
     /// # Examples
     ///
     /// ```
-    /// use spiffe::{JwtAuthority, JwtBundle, TrustDomain};
+    /// use spiffe::{JwtBundle, TrustDomain};
     ///
     /// let jwt_authorities = r#"{
     ///     "keys": [

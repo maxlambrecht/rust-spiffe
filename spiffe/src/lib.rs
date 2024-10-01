@@ -9,9 +9,10 @@
 //! ```no_run
 //! use spiffe::cert::{Certificate, PrivateKey};
 //! use spiffe::{
-//!     JwtAuthority, JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle,
+//!     JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle,
 //!     X509BundleSet, X509Context, X509Svid,
 //! };
+//! use jsonwebtoken::jwk::Jwk;
 //! use std::convert::TryFrom;
 //! use std::error::Error;
 //!
@@ -66,7 +67,7 @@
 //! let jwt_bundle: &JwtBundle = jwt_bundles_set.get_bundle(&trust_domain).unwrap();
 //!
 //! // get the JWT authorities (public keys) in the bundle
-//! let jwt_authority: &JwtAuthority = jwt_bundle.find_jwt_authority("a_key_id").unwrap();
+//! let jwt_authority: &Jwk = jwt_bundle.find_jwt_authority("a_key_id").unwrap();
 //!
 //! // parse a `JwtSvid` validating the token signature with a JWT bundle source.
 //! let validated_jwt_svid =
