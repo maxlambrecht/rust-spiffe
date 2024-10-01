@@ -8,9 +8,6 @@ use thiserror::Error;
 use crate::bundle::{Bundle, BundleRefSource};
 use crate::spiffe_id::TrustDomain;
 
-/// Represents a public key for validating JWT tokens.
-// pub type JwtAuthority = JsonWebKey;
-
 /// This type contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundle {
@@ -105,8 +102,6 @@ impl JwtBundle {
     }
     /// Returns the [`JwtAuthority`] with the given key ID.
     pub fn find_jwt_authority(&self, key_id: &str) -> Option<&Jwk> {
-        // let set: JwkSet = serde_json::from_value(jwks_json).expect("Failed HS256 check");
-        // let set: JwkSet = serde_json::from_value(jwks_json).expect("Failed HS256 check");
         self.jwt_authorities.get(key_id)
     }
 
@@ -126,11 +121,6 @@ impl JwtBundle {
         &self.trust_domain
     }
 }
-
-// #[derive(Debug, Serialize, Deserialize)]
-// struct JwtSet {
-//     keys: Vec<JwtAuthority>,
-// }
 
 impl JwtBundleSet {
     /// Creates an empty JWT bundle set.

@@ -357,8 +357,6 @@ mod test {
         // parse and validate JWT-SVID from signed token using the bundle source to validate the signature
         let jwt_svid = JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap();
 
-        // println!("WHOOP: {:?}", jwt_svid.err());
-
         assert_eq!(
             jwt_svid.spiffe_id,
             SpiffeId::new("spiffe://example.org/service").unwrap()
