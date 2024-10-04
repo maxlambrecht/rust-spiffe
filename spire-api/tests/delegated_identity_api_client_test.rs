@@ -139,7 +139,7 @@ mod integration_tests_delegate_identity_api_client {
             .expect("Failed to unwrap bundle");
         assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
         assert_eq!(
-            bundle.find_jwt_authority(key_id).unwrap().key_id,
+            bundle.find_jwt_authority(key_id).unwrap().common.key_id,
             Some(key_id.to_string())
         );
     }

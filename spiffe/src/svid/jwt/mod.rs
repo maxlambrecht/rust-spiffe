@@ -2,12 +2,13 @@
 
 use std::str::FromStr;
 
+use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 use zeroize::Zeroize;
 
-use crate::bundle::jwt::{JwtAuthority, JwtBundle};
+use crate::bundle::jwt::JwtBundle;
 use crate::bundle::BundleRefSource;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 use crate::svid::Svid;
@@ -154,7 +155,7 @@ impl JwtSvid {
     /// # Errors
     ///
     /// If the function cannot parse or verify the signature of the token, a [`JwtSvidError`] variant will be returned.
-    pub fn parse_and_validate<T: AsRef<str> + ToString>(
+    pub fn parse_and_validate<T: AsRef<str> + ToString + std::fmt::Debug>(
         token: &str,
         bundle_source: &impl BundleRefSource<Item = JwtBundle>,
         expected_audience: &[T],
@@ -169,10 +170,9 @@ impl JwtSvid {
 
         let mut validation = jsonwebtoken::Validation::new(jwt_svid.alg.to_owned());
         validation.validate_exp = true;
-        jsonwebtoken::decode::<Claims>(token, &jwt_authority.key.to_decoding_key(), &validation)?;
-
-        JwtSvid::validate_audience(&jwt_svid, expected_audience)?;
-
+        validation.set_audience(expected_audience);
+        let dec_key = DecodingKey::from_jwk(jwt_authority)?;
+        jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)?;
         Ok(jwt_svid)
     }
 
@@ -214,7 +214,7 @@ impl JwtSvid {
         bundle_source: &'a impl BundleRefSource<Item = JwtBundle>,
         trust_domain: &TrustDomain,
         key_id: &str,
-    ) -> Result<&'a JwtAuthority, JwtSvidError> {
+    ) -> Result<&'a Jwk, JwtSvidError> {
         let bundle = match bundle_source.get_bundle_for_trust_domain(trust_domain)? {
             None => return Err(JwtSvidError::BundleNotFound(trust_domain.to_owned())),
             Some(b) => b,
@@ -226,37 +226,20 @@ impl JwtSvid {
 
         Ok(jwt_authority)
     }
-
-    // Validate that the expected_audience is contained by the audience in the jwt_svid.
-    fn validate_audience<T: AsRef<str> + ToString>(
-        jwt_svid: &JwtSvid,
-        expected_audience: &[T],
-    ) -> Result<(), JwtSvidError> {
-        let token_audience = jwt_svid.audience();
-        match expected_audience
-            .iter()
-            .find(|aud| !token_audience.contains(&aud.to_string()))
-        {
-            None => Ok(()),
-            Some(_) => {
-                return Err(JwtSvidError::InvalidAudience(
-                    expected_audience.iter().map(|a| a.to_string()).collect(),
-                    token_audience.to_owned(),
-                ))
-            }
-        }
-    }
 }
 
 impl FromStr for JwtSvid {
     type Err = JwtSvidError;
 
     /// Creates a new [`JwtSvid`] with the given token without signature verification.
+    /// Any result from this function is untrusted.
     ///
     /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
         // decode token without signature or expiration validation
         let mut validation = Validation::default();
+        // We later on validate audience separately with `parse_and_validate`
+        validation.validate_aud = false;
         validation.insecure_disable_signature_validation();
         let token_data =
             jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
@@ -340,12 +323,19 @@ mod test {
     #[test]
     fn test_parse_and_validate_jwt_svid() {
         let test_key_id = "test-key-id";
-        let mut jwt_key = jsonwebkey::JsonWebKey::new(jsonwebkey::Key::generate_p256());
+
+        let test_key = jsonwebkey::Key::generate_p256();
+
+        let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
+
+        let mut jwt_key = jsonwebkey::JsonWebKey::new(test_key);
         jwt_key.set_algorithm(jsonwebkey::Algorithm::ES256).unwrap();
         jwt_key.key_id = Some(test_key_id.to_string());
 
-        let target_audience = vec!["audience".to_owned()];
+        let res = serde_json::to_string(&jwt_key).expect("JWK should be serializable");
+        let jwk = serde_json::from_str(&res).expect("JWK should be deserializable");
 
+        let target_audience = vec!["audience".to_owned()];
         // generate signed token
         let token = generate_token(
             target_audience.clone(),
@@ -354,14 +344,14 @@ mod test {
             Some(test_key_id.to_string()),
             4294967295,
             jsonwebtoken::Algorithm::ES256,
-            &jwt_key.key.to_encoding_key(),
+            &encoding_key,
         );
 
         // create a new source of JWT bundles
         let mut bundle_source = JwtBundleSet::default();
         let trust_domain = TrustDomain::new("example.org").unwrap();
         let mut bundle = JwtBundle::new(trust_domain);
-        bundle.add_jwt_authority(jwt_key).unwrap();
+        bundle.add_jwt_authority(jwk).unwrap();
         bundle_source.add_bundle(bundle);
 
         // parse and validate JWT-SVID from signed token using the bundle source to validate the signature
@@ -402,9 +392,13 @@ mod test {
 
     #[test]
     fn test_parse_invalid_jwt_svid_without_key_id() {
+        let test_key = jsonwebkey::Key::generate_p256();
+
+        let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
+
         let target_audience = vec!["audience".to_owned()];
         let test_key_id = "test-key-id";
-        let mut jwt_key = jsonwebkey::JsonWebKey::new(jsonwebkey::Key::generate_p256());
+        let mut jwt_key = jsonwebkey::JsonWebKey::new(test_key);
         jwt_key.set_algorithm(jsonwebkey::Algorithm::ES256).unwrap();
         jwt_key.key_id = Some(test_key_id.to_string());
 
@@ -416,7 +410,7 @@ mod test {
             None,
             4294967295,
             jsonwebtoken::Algorithm::ES256,
-            &jwt_key.key.to_encoding_key(),
+            &encoding_key,
         );
 
         let result = JwtSvid::parse_insecure(&token).unwrap_err();
@@ -426,9 +420,13 @@ mod test {
 
     #[test]
     fn test_parse_invalid_jwt_svid_with_invalid_header_typ() {
+        let test_key = jsonwebkey::Key::generate_p256();
+
+        let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
+
         let target_audience = vec!["audience".to_owned()];
         let test_key_id = "test-key-id";
-        let mut jwt_key = jsonwebkey::JsonWebKey::new(jsonwebkey::Key::generate_p256());
+        let mut jwt_key = jsonwebkey::JsonWebKey::new(test_key);
         jwt_key.set_algorithm(jsonwebkey::Algorithm::ES256).unwrap();
         jwt_key.key_id = Some(test_key_id.to_string());
 
@@ -440,7 +438,7 @@ mod test {
             Some("kid".to_string()),
             4294967295,
             jsonwebtoken::Algorithm::ES256,
-            &jwt_key.key.to_encoding_key(),
+            &encoding_key,
         );
 
         // parse JWT-SVID from token without validating
@@ -451,12 +449,18 @@ mod test {
 
     #[test]
     fn test_parse_and_validate_jwt_svid_from_expired_token() {
+        let test_key = jsonwebkey::Key::generate_p256();
+
+        let encoding_key = jsonwebtoken::EncodingKey::from_ec_der(&test_key.to_der());
+
+        let target_audience = vec!["audience".to_owned()];
         let test_key_id = "test-key-id";
-        let mut jwt_key = jsonwebkey::JsonWebKey::new(jsonwebkey::Key::generate_p256());
+        let mut jwt_key = jsonwebkey::JsonWebKey::new(test_key);
         jwt_key.set_algorithm(jsonwebkey::Algorithm::ES256).unwrap();
         jwt_key.key_id = Some(test_key_id.to_string());
 
-        let target_audience = vec!["audience".to_owned()];
+        let res = serde_json::to_string(&jwt_key).expect("JWK should be serializable");
+        let jwk = serde_json::from_str(&res).expect("JWK should be deserializable");
 
         // generate signed token
         let token = generate_token(
@@ -466,14 +470,14 @@ mod test {
             Some(test_key_id.to_string()),
             1,
             jsonwebtoken::Algorithm::ES256,
-            &jwt_key.key.to_encoding_key(),
+            &encoding_key,
         );
 
         // create a new source of JWT bundles
         let mut bundle_source = JwtBundleSet::default();
         let trust_domain = TrustDomain::new("example.org").unwrap();
         let mut bundle = JwtBundle::new(trust_domain);
-        bundle.add_jwt_authority(jwt_key).unwrap();
+        bundle.add_jwt_authority(jwk).unwrap();
         bundle_source.add_bundle(bundle);
 
         // parse and validate JWT-SVID from signed token using the bundle source to validate the signature

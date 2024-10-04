@@ -2,21 +2,17 @@
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use jsonwebtoken::jwk::{Jwk, JwkSet};
 use thiserror::Error;
 
 use crate::bundle::{Bundle, BundleRefSource};
 use crate::spiffe_id::TrustDomain;
-use jsonwebkey::JsonWebKey;
-
-/// Represents a public key for validating JWT tokens.
-pub type JwtAuthority = JsonWebKey;
 
 /// This type contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundle {
     trust_domain: TrustDomain,
-    jwt_authorities: HashMap<String, JwtAuthority>,
+    jwt_authorities: HashMap<String, Jwk>,
 }
 
 impl Bundle for JwtBundle {}
@@ -63,7 +59,7 @@ impl JwtBundle {
     /// # Examples
     ///
     /// ```
-    /// use spiffe::{JwtAuthority, JwtBundle, TrustDomain};
+    /// use spiffe::{JwtBundle, TrustDomain};
     ///
     /// let jwt_authorities = r#"{
     ///     "keys": [
@@ -89,10 +85,10 @@ impl JwtBundle {
         jwt_authorities: &[u8],
     ) -> Result<Self, JwtBundleError> {
         let mut authorities = HashMap::new();
-        let jwk_set: JwtSet = serde_json::from_slice(jwt_authorities)?;
+        let jwk_set: JwkSet = serde_json::from_slice(jwt_authorities)?;
 
         for key in jwk_set.keys.into_iter() {
-            let key_id = match &key.key_id {
+            let key_id = match &key.common.key_id {
                 Some(k) => k,
                 None => return Err(JwtBundleError::MissingKeyId),
             };
@@ -105,13 +101,13 @@ impl JwtBundle {
         })
     }
     /// Returns the [`JwtAuthority`] with the given key ID.
-    pub fn find_jwt_authority(&self, key_id: &str) -> Option<&JwtAuthority> {
+    pub fn find_jwt_authority(&self, key_id: &str) -> Option<&Jwk> {
         self.jwt_authorities.get(key_id)
     }
 
     /// Adds a [`JwtAuthority`] to the bundle.
-    pub fn add_jwt_authority(&mut self, authority: JwtAuthority) -> Result<(), JwtBundleError> {
-        let key_id = match &authority.key_id {
+    pub fn add_jwt_authority(&mut self, authority: Jwk) -> Result<(), JwtBundleError> {
+        let key_id = match &authority.common.key_id {
             Some(k) => k.to_owned(),
             None => return Err(JwtBundleError::MissingKeyId),
         };
@@ -124,11 +120,6 @@ impl JwtBundle {
     pub fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct JwtSet {
-    keys: Vec<JwtAuthority>,
 }
 
 impl JwtBundleSet {
