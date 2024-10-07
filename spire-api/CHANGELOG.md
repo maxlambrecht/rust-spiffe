@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.1] - 2024-10-07
+
+## What's Changed
+* Bump tonic dependencies to latest tonic release `0.12` by @howardjohn in https://github.com/maxlambrecht/rust-spiffe/pull/111
+* Remove https://github.com/nhynes/jwk-rs as a runtime dependency by @bleggett in https://github.com/maxlambrecht/rust-spiffe/pull/115
+
 ## [0.3.0] - 2024-09-12
 
 - Update Rust Edition to 2021 (#82)
