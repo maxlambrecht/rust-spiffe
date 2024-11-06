@@ -16,7 +16,7 @@ keywords = ["SPIFFE", "X509", "JWT"]
 
 [dependencies]
 # spiffe-types dependencies:
-thiserror = "1"
+thiserror = "2"
 url = "2"
 asn1 = { package = "simple_asn1", version = "0.6" }
 x509-parser = "0.16"
