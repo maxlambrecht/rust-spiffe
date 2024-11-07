@@ -3,7 +3,7 @@
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
 # Constants
-spire_version="1.10.4"
+spire_version="1.11.0"
 spire_folder="spire-${spire_version}"
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_agent_log_file="/tmp/spire-agent/agent.log"
@@ -50,7 +50,7 @@ wait_for_service "bin/spire-agent healthcheck" "SPIRE Agent" "${spire_agent_log_
 # Register workloads
 for service in "myservice" "myservice2"; do
   echo "Creating entry for '${service}'"
-  bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u) -ttl 5
+  bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -selector unix:uid:$(id -u) -x509SVIDTTL 5 -jwtSVIDTTL 5
 done
 
 uid=$(id -u)
