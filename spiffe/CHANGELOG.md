@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3] - 2024-11-07
+
+## What's Changed
+
+* Depend explicitly on tonic 0.12.3 (#120)
+* Update thiserror requirement from 1 to 2 in (#127)
+
 ## [0.6.2] - 2024-10-07
 
 ## What's Changed
