@@ -14,7 +14,7 @@ Include this line in your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spire-api = "0.3.1"
+spire-api = "0.3.2"
 ```
 
 ## Usage

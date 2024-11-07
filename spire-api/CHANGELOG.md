@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.2] - 2024-11-07
+
+## What's Changed
+
+* Depend explicitly on tonic `0.12.3` (#120)
+* Update thiserror requirement from `1` to `2` in (#127)
+* Depend on spiffe `0.6.3`
+
 ## [0.3.1] - 2024-10-07
 
 ## What's Changed
