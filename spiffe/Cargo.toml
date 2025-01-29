@@ -19,7 +19,7 @@ keywords = ["SPIFFE", "X509", "JWT"]
 thiserror = "2"
 url = "2"
 asn1 = { package = "simple_asn1", version = "0.6" }
-x509-parser = "0.16"
+x509-parser = "0.17"
 pkcs8 = "0.10"
 jsonwebtoken = "9"
 serde = { version = "1", features = ["derive"] }
