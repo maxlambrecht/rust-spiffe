@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.4] - 2025-01-31
+
+## What's Changed
+* Use protox to avoid the need to have protoc installed (#133)
+* Bump Swatinem/rust-cache from 2.7.5 to 2.7.7 (#131)
+* Bump coverallsapp/github-action from 2.3.4 to 2.3.6 (#134)
+* Update x509-parser requirement from 0.16 to 0.17 (#135)
+ 
 ## [0.6.3] - 2024-11-07
 
 ## What's Changed
