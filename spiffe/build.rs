@@ -4,6 +4,9 @@ use std::{env, fs};
 use anyhow::{bail, Context as _};
 
 fn main() -> anyhow::Result<()> {
+    println!("cargo::rerun-if-changed=src/proto");
+    println!("cargo::rerun-if-env-changed=DOCS_RS");
+
     // Check if this is a docs.rs build
     let is_docs_rs = env::var_os("DOCS_RS").is_some();
 
