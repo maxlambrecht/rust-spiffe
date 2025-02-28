@@ -99,7 +99,12 @@ pub mod error;
 pub mod endpoint;
 
 #[cfg(feature = "workload-api")]
-pub(crate) mod proto;
+pub(crate) mod proto {
+    #![allow(clippy::all)]
+    pub(crate) mod workload {
+        include!(concat!(env!("OUT_DIR"), "/_.rs"));
+    }
+}
 
 #[cfg(feature = "workload-api")]
 pub mod workload_api;
