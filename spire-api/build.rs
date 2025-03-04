@@ -24,7 +24,7 @@ fn main() -> anyhow::Result<()> {
 
     tonic_build::configure()
         .build_client(true)
-        .out_dir(&out_dir)
+        .out_dir(out_dir)
         .compile_fds_with_config(proto_config, file_descriptors)
         .context("failed to compile protocol buffers")?;
 

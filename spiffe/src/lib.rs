@@ -102,7 +102,7 @@ pub mod endpoint;
 pub(crate) mod proto {
     #![allow(clippy::all)]
     pub(crate) mod workload {
-        include!(concat!(env!("OUT_DIR"), "/_.rs"));
+        include!(concat!(env!("OUT_DIR"), "/workload.rs"));
     }
 }
 
