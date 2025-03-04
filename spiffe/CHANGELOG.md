@@ -1,8 +1,14 @@
 # Changelog
 
+## [0.6.5] - 2025-03-04
+
+### What's Changed
+
+* Directly include generated Protobuf code from OUT_DIR (#138)
+
 ## [0.6.4] - 2025-01-31
 
-## What's Changed
+### What's Changed
 * Use protox to avoid the need to have protoc installed (#133)
 * Bump Swatinem/rust-cache from 2.7.5 to 2.7.7 (#131)
 * Bump coverallsapp/github-action from 2.3.4 to 2.3.6 (#134)
@@ -10,18 +16,20 @@
  
 ## [0.6.3] - 2024-11-07
 
-## What's Changed
+### What's Changed
 
 * Depend explicitly on tonic 0.12.3 (#120)
 * Update thiserror requirement from 1 to 2 in (#127)
 
 ## [0.6.2] - 2024-10-07
 
-## What's Changed
+### What's Changed
 * Bump tonic dependencies to latest tonic release `0.12` by @howardjohn in https://github.com/maxlambrecht/rust-spiffe/pull/111
 * Remove https://github.com/nhynes/jwk-rs as a runtime dependency by @bleggett in https://github.com/maxlambrecht/rust-spiffe/pull/115
 
 ## [0.6.1] - 2024-09-11
+
+### What's Changed
 
 - Update Rust Edition to 2021 (#82)
 - Enhance Usability with Core Type Re-exports (#83)
