@@ -1,8 +1,14 @@
 # Changelog
 
+## [0.3.4] - 2025-03-04
+
+### What's Changed
+
+* Directly include generated Protobuf code from OUT_DIR (#138)
+
 ## [0.3.3] - 2025-01-31
 
-## What's Changed
+### What's Changed
 
 * Use protox to avoid the need to have protoc installed (#133)
 * Update spiffe requirement from 0.6.3 to 0.6.4
@@ -12,7 +18,7 @@
 
 ## [0.3.2] - 2024-11-07
 
-## What's Changed
+### What's Changed
 
 * Depend explicitly on tonic `0.12.3` (#120)
 * Update thiserror requirement from `1` to `2` in (#127)
@@ -20,7 +26,7 @@
 
 ## [0.3.1] - 2024-10-07
 
-## What's Changed
+### What's Changed
 * Bump tonic dependencies to latest tonic release `0.12` by @howardjohn in https://github.com/maxlambrecht/rust-spiffe/pull/111
 * Remove https://github.com/nhynes/jwk-rs as a runtime dependency by @bleggett in https://github.com/maxlambrecht/rust-spiffe/pull/115
 
