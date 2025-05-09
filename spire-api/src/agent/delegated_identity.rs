@@ -33,10 +33,7 @@ pub const ADMIN_SOCKET_ENV: &str = "SPIRE_ADMIN_ENDPOINT_SOCKET";
 /// Gets the endpoint socket endpoint path from the environment variable `ADMIN_SOCKET_ENV`,
 /// as described in [SPIFFE standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_Endpoint.md#4-locating-the-endpoint).
 pub fn get_admin_socket_path() -> Option<String> {
-    match std::env::var(ADMIN_SOCKET_ENV) {
-        Ok(addr) => Some(addr),
-        Err(_) => None,
-    }
+    std::env::var(ADMIN_SOCKET_ENV).ok()
 }
 
 /// Impl for DelegatedIdentity API
