@@ -28,4 +28,4 @@ Follow the links above to the individual README files for detailed information o
 
 ## License
 
-This project is licensed under [LICENSE NAME](./LICENSE).
+This project is licensed under the [Apache License 2.0](./LICENSE).
