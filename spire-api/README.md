@@ -2,6 +2,11 @@
 
 This library provides support for SPIRE specific APIs in Rust.
 
+[![crates.io](https://img.shields.io/crates/v/spire-api.svg)](https://crates.io/crates/spire-api)
+[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml)
+[![docs.rs](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
+
 ## Features
 
 - **Delegated Identity API support**: Facilitates authorized workloads to obtain SVIDs (SPIFFE Verifiable Identity
