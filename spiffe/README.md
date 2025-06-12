@@ -3,8 +3,8 @@
 This utility library enables interaction with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md). It allows fetching of X.509 and JWT SVIDs, bundles and supports watch/stream updates. The types in the library are in compliance with [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards). More about SPIFFE can be found at [spiffe.io](https://spiffe.io/).
 
 [![crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
+[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml)
 [![docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe)
-![CI](https://github.com/maxlambrecht/rust-spiffe/workflows/Continuous%20Integration/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
 
 ## Getting Started
