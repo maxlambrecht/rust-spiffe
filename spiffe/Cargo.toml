@@ -50,7 +50,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 [build-dependencies]
 protox = "0.8.0"
 tonic-build = { version = "0.13.0", default-features = false, features = ["prost"] }
-prost-build = "0.13"
+prost-build = "0.14"
 anyhow = "1"
 
 [features]
