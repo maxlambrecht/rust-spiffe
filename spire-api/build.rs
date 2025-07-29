@@ -22,10 +22,10 @@ fn main() -> anyhow::Result<()> {
     )
     .context("failed to compile protocol buffer file set")?;
 
-    tonic_build::configure()
+    tonic_prost_build::configure()
         .build_client(true)
         .out_dir(out_dir)
-        .compile_fds_with_config(proto_config, file_descriptors)
+        .compile_fds_with_config(file_descriptors, proto_config)
         .context("failed to compile protocol buffers")?;
 
     Ok(())
