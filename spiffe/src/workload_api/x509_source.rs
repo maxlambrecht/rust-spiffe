@@ -365,7 +365,7 @@ impl X509Source {
         if let Some(update) = stream.next().await {
             match update {
                 Ok(x509_context) => source_clone.set_x509_context(x509_context).map_err(|e| {
-                    X509SourceError::Other(format!("Failed to set X509Context: {}", e))
+                    X509SourceError::Other(format!("Failed to set X509Context: {e}"))
                 })?,
                 Err(e) => return Err(X509SourceError::GrpcError(e)),
             }
@@ -387,12 +387,12 @@ impl X509Source {
                     Some(update) => match update {
                         Ok(x509_context) => {
                             if let Err(e) = source_clone.set_x509_context(x509_context) {
-                                error!("Error updating X509 context: {}", e);
+                                error!("Error updating X509 context: {e}");
                             } else {
                                 info!("X509 context updated successfully.");
                             }
                         }
-                        Err(e) => error!("GRPC client error: {}", e),
+                        Err(e) => error!("GRPC client error: {e}"),
                     },
                     None => {
                         error!("Stream ended; no more updates will be received.");
