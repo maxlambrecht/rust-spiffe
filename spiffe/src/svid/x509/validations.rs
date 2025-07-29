@@ -96,7 +96,7 @@ fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError>
             Ok(SpiffeId::try_from(uri_str)?)
         }
         other => Err(X509SvidError::Certificate(
-            CertificateError::UnexpectedExtension(format!("{:?}", other)),
+            CertificateError::UnexpectedExtension(format!("{other:?}")),
         )),
     }
 }

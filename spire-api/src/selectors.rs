@@ -42,8 +42,8 @@ const K8S_NS_TYPE: &str = "ns";
 impl From<K8s> for String {
     fn from(k: K8s) -> String {
         match k {
-            K8s::ServiceAccount(s) => format!("{}:{}", K8S_SA_TYPE, s),
-            K8s::Namespace(s) => format!("{}:{}", K8S_NS_TYPE, s),
+            K8s::ServiceAccount(s) => format!("{K8S_SA_TYPE}:{s}"),
+            K8s::Namespace(s) => format!("{K8S_NS_TYPE}:{s}"),
         }
     }
 }
@@ -65,9 +65,9 @@ const UNIX_UID_TYPE: &str = "uid";
 impl From<Unix> for String {
     fn from(value: Unix) -> Self {
         match value {
-            Unix::Pid(s) => format!("{}:{}", UNIX_PID_TYPE, s),
-            Unix::Gid(s) => format!("{}:{}", UNIX_GID_TYPE, s),
-            Unix::Uid(s) => format!("{}:{}", UNIX_UID_TYPE, s),
+            Unix::Pid(s) => format!("{UNIX_PID_TYPE}:{s}"),
+            Unix::Gid(s) => format!("{UNIX_GID_TYPE}:{s}"),
+            Unix::Uid(s) => format!("{UNIX_UID_TYPE}:{s}"),
         }
     }
 }
