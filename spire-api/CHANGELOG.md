@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.6] - 2025-07-30
+
+### What's Changed
+
+* Bump tonic and prost dependencies to version 0.14 (#165)
+* Bump protox dependency to 0.9.0 (#165)
+* Update spiffe requirement to 0.6.7
+
 ## [0.3.5] - 2025-05-25
 
 ### What's Changed
