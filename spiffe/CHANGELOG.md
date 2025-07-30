@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7] - 2025-07-30
+
+### What's Changed
+
+* Bump tonic and prost dependencies to version 0.14 (#165)
+* Bump protox dependency to 0.9.0 (#165)
+
 ## [0.6.6] - 2025-05-25
 
 ### What's Changed
