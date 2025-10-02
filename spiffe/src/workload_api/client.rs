@@ -610,6 +610,13 @@ impl WorkloadApiClient {
             bundle_set.add_bundle(bundle);
         }
 
+        for (trust_domain, bundle) in response.federated_bundles.into_iter() {
+            let trust_domain = TrustDomain::try_from(trust_domain)?;
+            let x509_bundle = X509Bundle::parse_from_der(trust_domain, bundle.as_ref())
+                .map_err(GrpcClientError::from)?;
+            bundle_set.add_bundle(x509_bundle);
+        }
+
         Ok(X509Context::new(svids, bundle_set))
     }
 }
