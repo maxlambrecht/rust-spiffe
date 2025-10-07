@@ -51,5 +51,12 @@ jobs:
       - name: Run Integration Tests
         run: RUST_BACKTRACE=1 cargo test --features integration-tests
 
+      - name: Run Integration Tests with aws-lc-rs
+        run: >
+          RUST_BACKTRACE=1
+          cargo test
+          --no-default-features
+          --features integration-tests,spiffe-types,workload-api,aws-lc-rs
+
       - name: Clean up SPIRE
         run: .github/workflows/scripts/cleanup-spire.sh
