@@ -3,7 +3,7 @@
 use std::str::FromStr;
 
 use jsonwebtoken::jwk::Jwk;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{Algorithm, DecodingKey};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 use zeroize::Zeroize;
@@ -237,12 +237,8 @@ impl FromStr for JwtSvid {
     /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
         // decode token without signature or expiration validation
-        let mut validation = Validation::default();
         // We later on validate audience separately with `parse_and_validate`
-        validation.validate_aud = false;
-        validation.insecure_disable_signature_validation();
-        let token_data =
-            jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
+        let token_data = jsonwebtoken::dangerous::insecure_decode::<Claims>(token)?;
 
         let claims = token_data.claims;
         let spiffe_id = SpiffeId::from_str(&claims.sub)?;
@@ -503,13 +499,7 @@ mod test {
             typ,
             alg,
             kid,
-            cty: None,
-            jku: None,
-            x5u: None,
-            x5c: None,
-            x5t: None,
-            jwk: None,
-            x5t_s256: None,
+            ..Default::default()
         };
         encode(&header, &claims, encoding_key).unwrap()
     }

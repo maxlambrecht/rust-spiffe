@@ -21,7 +21,7 @@ url = "2"
 asn1 = { package = "simple_asn1", version = "0.6" }
 x509-parser = "0.18"
 pkcs8 = "0.10"
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
@@ -55,7 +55,9 @@ prost-build = "0.14"
 anyhow = "1"
 
 [features]
-default = ["spiffe-types", "workload-api"]
+default = ["spiffe-types", "workload-api", "rust-crypto"]
 spiffe-types = []
 workload-api = ["prost", "prost-types", "tokio", "tokio-stream", "tower", "tokio-util", "log"]
 integration-tests = []
+aws-lc-rs = ["jsonwebtoken/aws_lc_rs"]
+rust-crypto = ["jsonwebtoken/rust_crypto"]
