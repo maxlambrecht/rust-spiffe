@@ -4,3 +4,6 @@ members = [
     "spire-api",
 ]
 resolver = "2"
+
+[patch.crates-io]
+jsonwebtoken = { git = "https://github.com/dsykes16/jsonwebtoken.git", branch = "add-dangerous-decode" }
