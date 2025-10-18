@@ -14,6 +14,8 @@ mod integration_tests_workload_api_client {
         Lazy::new(|| SpiffeId::new("spiffe://example.org/myservice2").unwrap());
 
     static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
+    static FEDERATED_TRUST_DOMAIN: Lazy<TrustDomain> =
+        Lazy::new(|| TrustDomain::new("example-federated.org").unwrap());
 
     async fn get_client() -> WorkloadApiClient {
         WorkloadApiClient::default()
@@ -161,6 +163,16 @@ mod integration_tests_workload_api_client {
 
         assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
         assert_eq!(bundle.authorities().len(), 1);
+
+        let federated_bundle = x509_context
+            .bundle_set()
+            .get_bundle_for_trust_domain(&*FEDERATED_TRUST_DOMAIN);
+        let federated_bundle = federated_bundle
+            .expect("Federated bundle was None")
+            .expect("Failed to unwrap federated bundle");
+
+        assert_eq!(federated_bundle.trust_domain(), &*FEDERATED_TRUST_DOMAIN);
+        assert_eq!(federated_bundle.authorities().len(), 1);
     }
 
     #[tokio::test]
@@ -212,6 +224,16 @@ mod integration_tests_workload_api_client {
 
                         assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
                         assert_eq!(bundle.authorities().len(), 1);
+
+                        let federated_bundle = x509_context
+                            .bundle_set()
+                            .get_bundle_for_trust_domain(&*FEDERATED_TRUST_DOMAIN);
+                        let federated_bundle = federated_bundle
+                            .expect("Federated bundle was None")
+                            .expect("Failed to unwrap federated bundle");
+
+                        assert_eq!(federated_bundle.trust_domain(), &*FEDERATED_TRUST_DOMAIN);
+                        assert_eq!(federated_bundle.authorities().len(), 1);
 
                         update_count += 1;
                         if update_count == 3 {
