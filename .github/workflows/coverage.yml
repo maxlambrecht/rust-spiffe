@@ -33,7 +33,7 @@ jobs:
         run: cargo install grcov
 
       - name: Start SPIRE
-        run: .github/workflows/scripts/run-spire.sh &
+        run: .github/workflows/scripts/run-spire.sh
 
       - name: Run Tests
         run: cargo test --all-features
