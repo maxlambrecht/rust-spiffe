@@ -40,7 +40,7 @@ log = {version = "0.4", optional = true }
 hyper-util = { version = "0.1.8", default-features = false }
 
 [dev-dependencies]
-jsonwebkey = { version = "0.3", features = ["generate", "jwt-convert"] }
+jsonwebkey = { version = "0.4", features = ["generate", "jwt-convert"] }
 tokio = { version = "1", features = ["macros"] }
 once_cell = "1"
 
