@@ -4,7 +4,7 @@ use std::{env, fs};
 use anyhow::{ensure, Context as _};
 
 fn main() -> anyhow::Result<()> {
-    println!("cargo::rerun-if-changed=src/proto");
+    println!("cargo:rerun-if-changed=src/proto");
 
     let out_dir = env::var_os("OUT_DIR").context("failed to lookup `OUT_DIR`")?;
     let out_dir = Path::new(&out_dir);
