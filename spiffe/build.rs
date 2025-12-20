@@ -4,14 +4,8 @@ use std::{env, fs};
 use anyhow::{ensure, Context as _};
 
 fn main() -> anyhow::Result<()> {
-    println!("cargo::rerun-if-changed=src/proto");
-    println!("cargo::rerun-if-env-changed=DOCS_RS");
+    println!("cargo:rerun-if-changed=src/proto");
 
-    // Check if this is a docs.rs build
-    if env::var_os("DOCS_RS").is_some() {
-        println!("cargo:warning=Skipping protobuf code generation on docs.rs.");
-        return Ok(());
-    }
     let out_dir = env::var_os("OUT_DIR").context("failed to lookup `OUT_DIR`")?;
     let out_dir = Path::new(&out_dir);
 
