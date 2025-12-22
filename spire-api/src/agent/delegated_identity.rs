@@ -384,7 +384,7 @@ impl DelegatedIdentityClient {
     ) -> Result<Vec<JwtSvid>, GrpcClientError> {
         let result: Result<Vec<JwtSvid>, GrpcClientError> = svids
             .iter()
-            .map(|r| JwtSvid::from_str(&r.token).map_err(GrpcClientError::InvalidJwtSvid))
+            .map(|r| JwtSvid::from_str(&r.token).map_err(GrpcClientError::JwtSvid))
             .collect();
         result
     }
@@ -415,7 +415,7 @@ impl DelegatedIdentityClient {
 
             bundle_set.add_bundle(
                 X509Bundle::parse_from_der(trust_domain, &bundle)
-                    .map_err(GrpcClientError::InvalidX509Bundle)?,
+                    .map_err(GrpcClientError::X509Bundle)?,
             );
         }
         Ok(bundle_set)

@@ -3,12 +3,15 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_x509_source {
     use once_cell::sync::Lazy;
+    use spiffe::error::GrpcClientError;
     use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
     use spiffe::{
         BundleSource, SpiffeId, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle, X509Source,
         X509Svid,
     };
     use std::error::Error;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Arc;
 
     static SPIFFE_ID_1: Lazy<SpiffeId> =
@@ -29,7 +32,7 @@ mod integration_tests_x509_source {
     }
 
     async fn get_source() -> Arc<X509Source> {
-        X509Source::default()
+        X509Source::new()
             .await
             .expect("Failed to create X509Source")
     }
@@ -101,11 +104,16 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     async fn test_x509_source_with_custom_picker_and_client() -> Result<(), Box<dyn Error>> {
-        let client = get_client().await;
         let picker = Box::new(SecondSvidPicker);
 
+        let factory = Arc::new(|| -> Pin<Box<dyn Future<Output = Result<WorkloadApiClient, GrpcClientError>> + Send>> {
+            Box::pin(async {
+                WorkloadApiClient::default().await
+            })
+        });
+
         let source = X509SourceBuilder::new()
-            .with_client(client)
+            .with_client_factory(factory)
             .with_picker(picker)
             .build()
             .await?;

@@ -97,22 +97,22 @@ mod tests {
     }
 
     validate_socket_path_error_tests! {
-        test_validate_empty_str: (" ", SocketPathError::Parse(ParseError::RelativeUrlWithoutBase), "workload endpoint socket is not a valid URI"),
-        test_validate_str_missing_scheme: ("foo", SocketPathError::Parse(ParseError::RelativeUrlWithoutBase), "workload endpoint socket is not a valid URI"),
-        test_validate_uri_invalid_scheme: ("other:///path", SocketPathError::InvalidScheme, "workload endpoint socket URI must have a tcp:// or unix:// scheme"),
+        test_validate_empty_str: (" ", SocketPathError::Parse(ParseError::RelativeUrlWithoutBase), "endpoint socket is not a valid URI"),
+        test_validate_str_missing_scheme: ("foo", SocketPathError::Parse(ParseError::RelativeUrlWithoutBase), "endpoint socket is not a valid URI"),
+        test_validate_uri_invalid_scheme: ("other:///path", SocketPathError::InvalidScheme, "endpoint socket URI scheme must be tcp:// or unix://"),
 
-        test_validate_unix_uri_empty_path: ("unix://", SocketPathError::UnixAddressEmptyPath, "workload endpoint unix socket URI must include a path"),
-        test_validate_unix_uri_empty_path_slash: ("unix:///", SocketPathError::UnixAddressEmptyPath, "workload endpoint unix socket URI must include a path"),
-        test_validate_unix_uri_with_query_values: ("unix:///foo?whatever", SocketPathError::HasQueryValues, "workload endpoint socket URI must not include query values"),
-        test_validate_unix_uri_with_fragment: ("unix:///foo#whatever", SocketPathError::HasFragment, "workload endpoint socket URI must not include a fragment"),
-        test_validate_unix_uri_with_user_info: ("unix://john:doe@foo/path", SocketPathError::HasUserInfo, "workload endpoint socket URI must not include user info"),
+        test_validate_unix_uri_empty_path: ("unix://", SocketPathError::UnixAddressEmptyPath, "unix:// endpoint socket URI must include a path"),
+        test_validate_unix_uri_empty_path_slash: ("unix:///", SocketPathError::UnixAddressEmptyPath, "unix:// endpoint socket URI must include a path"),
+        test_validate_unix_uri_with_query_values: ("unix:///foo?whatever", SocketPathError::HasQueryValues, "endpoint socket URI must not include query values"),
+        test_validate_unix_uri_with_fragment: ("unix:///foo#whatever", SocketPathError::HasFragment, "endpoint socket URI must not include a fragment"),
+        test_validate_unix_uri_with_user_info: ("unix://john:doe@foo/path", SocketPathError::HasUserInfo, "endpoint socket URI must not include user info"),
 
-        test_validate_tcp_uri_non_empty_path: ("tcp://1.2.3.4:80/path", SocketPathError::TcpAddressNonEmptyPath, "workload endpoint tcp socket URI must not include a path"),
-        test_validate_tcp_uri_with_query_values: ("tcp://1.2.3.4:80?whatever", SocketPathError::HasQueryValues, "workload endpoint socket URI must not include query values"),
-        test_validate_tcp_uri_with_fragment: ("tcp://1.2.3.4:80#whatever", SocketPathError::HasFragment, "workload endpoint socket URI must not include a fragment"),
-        test_validate_tcp_uri_with_user_info: ("tcp://john:doe@1.2.3.4:80", SocketPathError::HasUserInfo, "workload endpoint socket URI must not include user info"),
-        test_validate_tcp_uri_no_ip: ("tcp://foo:80", SocketPathError::TcpAddressNoIpPort, "workload endpoint tcp socket URI host component must be an IP:port"),
-        test_validate_tcp_uri_no_ip_and_port: ("tcp://foo", SocketPathError::TcpAddressNoIpPort, "workload endpoint tcp socket URI host component must be an IP:port"),
-        test_validate_tcp_uri_no_port: ("tcp://1.2.3.4", SocketPathError::TcpAddressNoIpPort, "workload endpoint tcp socket URI host component must be an IP:port"),
+        test_validate_tcp_uri_non_empty_path: ("tcp://1.2.3.4:80/path", SocketPathError::TcpAddressNonEmptyPath, "tcp:// endpoint socket URI must not include a path"),
+        test_validate_tcp_uri_with_query_values: ("tcp://1.2.3.4:80?whatever", SocketPathError::HasQueryValues, "endpoint socket URI must not include query values"),
+        test_validate_tcp_uri_with_fragment: ("tcp://1.2.3.4:80#whatever", SocketPathError::HasFragment, "endpoint socket URI must not include a fragment"),
+        test_validate_tcp_uri_with_user_info: ("tcp://john:doe@1.2.3.4:80", SocketPathError::HasUserInfo, "endpoint socket URI must not include user info"),
+        test_validate_tcp_uri_no_ip: ("tcp://foo:80", SocketPathError::TcpAddressNoIpPort, "tcp:// endpoint socket URI host must be an IP:port"),
+        test_validate_tcp_uri_no_ip_and_port: ("tcp://foo", SocketPathError::TcpAddressNoIpPort, "tcp:// endpoint socket URI host must be an IP:port"),
+        test_validate_tcp_uri_no_port: ("tcp://1.2.3.4", SocketPathError::TcpAddressNoIpPort, "tcp:// endpoint socket URI host must be an IP:port"),
     }
 }
