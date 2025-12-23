@@ -12,37 +12,43 @@ jobs:
     env:
       RUSTFLAGS: "-Cinstrument-coverage"
       LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
-      SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
-      SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
+      SPIFFE_ENDPOINT_SOCKET: unix:///tmp/spire-agent/public/api.sock
+      SPIRE_ADMIN_ENDPOINT_SOCKET: unix:///tmp/spire-agent/admin/api.sock
+
     steps:
       - name: Check out code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           submodules: recursive
+
       - name: Cache Project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5  # v2.8.2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: install LLVM
+      - name: Install LLVM tools
         run: rustup component add llvm-tools-preview
 
       - name: Install grcov
-        run: cargo install grcov
+        run: cargo install grcov --locked
 
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      - name: Run Tests
-        run: cargo test --all-features
+      # Do NOT use --all-features due to mutually exclusive rustls providers.
+      - name: Run Tests (workspace defaults)
+        run: cargo test --workspace
+
+      - name: Run Tests (spiffe-rustls aws-lc-rs)
+        run: cargo test -p spiffe-rustls --no-default-features --features aws-lc-rs
 
       - name: Generate Coveralls JSON Report
         run: |
           grcov . \
             --binary-path ./target/debug/ -t coveralls -s . \
-            --token ${{ secrets.COVERALLS_TOKEN }} \
             --ignore-not-existing \
             --ignore "$HOME/.cargo/**" \
             --ignore "*/proto/*" \
@@ -57,4 +63,5 @@ jobs:
           path-to-json: ./coveralls.json
 
       - name: Clean up SPIRE
+        if: always()
         run: .github/workflows/scripts/cleanup-spire.sh
