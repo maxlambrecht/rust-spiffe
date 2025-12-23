@@ -1,0 +1,106 @@
+[package]
+name = "spiffe-rustls"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "SPIFFE/SPIRE integration for rustls"
+repository = "https://github.com/maxlambrecht/rust-spiffe"
+readme = "README.md"
+keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
+categories = ["network-programming", "cryptography", "authentication"]
+
+# ----------------------------
+# Features
+# ----------------------------
+[features]
+default = ["ring"]
+
+# Crypto backend selection
+ring = ["rustls/ring"]
+aws-lc-rs = ["rustls/aws_lc_rs"]
+
+# Examples
+grpc-examples = [
+    "dep:tonic",
+    "dep:tonic-rustls",
+    "dep:tonic-prost",
+    "dep:prost",
+    "dep:prost-types",
+]
+tcp-examples = ["dep:tokio-rustls"]
+
+
+integration-tests = []
+
+# ----------------------------
+# Library dependencies
+# ----------------------------
+[dependencies]
+spiffe = { version = "0.7.0", path = "../spiffe" }
+
+# rustls with std needed for builder APIs + Error impls
+rustls = { version = "0.23.35", default-features = false, features = ["std"] }
+
+# Minimal Tokio for the library itself
+tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
+
+# Optional, enabled via ring/aws-lc-rs pull-in
+tokio-rustls = { version = "0.26.4", default-features = false, optional = true }
+
+log = "0.4"
+thiserror = "2"
+x509-parser = "0.18.0"
+tokio-util = "0.7.10"
+
+# gRPC stack, only when grpc-examples enabled
+tonic = { version = "0.14", optional = true, features = ["transport"] }
+tonic-rustls = { version = "0.3.0", optional = true }
+tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+prost-types = { version = "0.14", optional = true }
+
+# ----------------------------
+# Build-time: proto generation
+# ----------------------------
+[build-dependencies]
+tonic-prost-build = "0.14"
+
+# ----------------------------
+# Dev deps (tests, examples)
+# ----------------------------
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = [
+    "macros",
+    "rt-multi-thread",
+    "signal",
+    "net",
+    "io-util",
+    "sync",
+] }
+
+anyhow = "1"
+env_logger = "0.11.8"
+
+# ----------------------------
+# Examples (feature-gated)
+# ----------------------------
+[[example]]
+name = "grpc_server_mtls"
+path = "examples/grpc_server_mtls.rs"
+required-features = ["grpc-examples"]
+
+[[example]]
+name = "grpc_client_mtls"
+path = "examples/grpc_client_mtls.rs"
+required-features = ["grpc-examples"]
+
+[[example]]
+name = "mtls_tcp_server"
+path = "examples/mtls_tcp_server.rs"
+required-features = ["tcp-examples"]
+
+[[example]]
+name = "mtls_tcp_client"
+path = "examples/mtls_tcp_client.rs"
+required-features = ["tcp-examples"]
+
