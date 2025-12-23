@@ -48,13 +48,16 @@ jobs:
       - name: Generate Coveralls JSON Report
         run: |
           grcov . \
-            --binary-path ./target/debug/ -t coveralls -s . \
-            --ignore-not-existing \
-            --ignore "$HOME/.cargo/**" \
-            --ignore "*/proto/*" \
-            --ignore "*/spire-api-sdk/*" \
-            --ignore "*/build.rs" \
-            --keep-only '*/src/*' > coveralls.json
+          --binary-path ./target/debug/ \
+          -t coveralls \
+          --service-job-id "${{ github.run_id }}" \
+          -s . \
+          --ignore-not-existing \
+          --ignore "$HOME/.cargo/**" \
+          --ignore "*/proto/*" \
+          --ignore "*/spire-api-sdk/*" \
+          --ignore "*/build.rs" \
+          --keep-only '*/src/*' > coveralls.json
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7
