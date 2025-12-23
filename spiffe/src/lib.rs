@@ -15,18 +15,17 @@
 //! ## X.509 (recommended)
 //!
 //! ```no_run
-//! use spiffe::X509Source;
-//! use spiffe::TrustDomain;
+//! use spiffe::{TrustDomain, X509Source};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Connect to the Workload API using SPIFFE_ENDPOINT_SOCKET
 //! let source = X509Source::new().await?;
 //!
 //! // Get the current X.509 context (SVIDs + bundles)
-//! let context = source.x509_context();
+//! let context = source.x509_context()?;
 //!
 //! // Access the default SVID
-//! let svid = context.default_svid()?;
+//! let svid = context.default_svid().ok_or("missing svid")?;
 //!
 //! // Inspect the certificate chain and private key
 //! let cert_chain = svid.cert_chain();
@@ -34,7 +33,7 @@
 //!
 //! // Access trust bundles by trust domain
 //! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let bundle = context.bundles().get_bundle(&trust_domain).unwrap();
+//! let bundle = context.bundle_set().get_bundle(&trust_domain).unwrap();
 //!
 //! # source.shutdown().await?;
 //! # Ok(())
@@ -49,7 +48,7 @@
 //! use spiffe::{JwtSvid, WorkloadApiClient};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut client = WorkloadApiClient::new().await?;
+//! let mut client = WorkloadApiClient::default().await?;
 //!
 //! let audiences = &["service-a"];
 //! let jwt_svid = client.fetch_jwt_svid(audiences, None).await?;
