@@ -62,8 +62,23 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-cargo
 
-      - name: Build Rust project
-        run: cargo build --all-targets --all-features
+      - name: Build workspace (default features)
+        run: cargo build --workspace --all-targets
+
+      - name: Test workspace
+        run: cargo test --workspace
+
+      - name: Build spiffe-rustls (aws-lc-rs)
+        run: cargo build -p spiffe-rustls --no-default-features --features aws-lc-rs --all-targets
+
+      - name: Test spiffe-rustls (aws-lc-rs)
+        run: cargo test -p spiffe-rustls --no-default-features --features aws-lc-rs
+
+      - name: Build spiffe-rustls examples (tcp)
+        run: cargo build -p spiffe-rustls --features tcp-examples --examples
+
+      - name: Build spiffe-rustls examples (grpc)
+        run: cargo build -p spiffe-rustls --features grpc-examples --examples
 
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
