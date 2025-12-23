@@ -292,6 +292,24 @@ impl BundleSource for X509Source {
     }
 }
 
+impl X509Source {
+    /// Returns the current X.509 bundle set.
+    pub fn bundle_set(&self) -> Result<X509BundleSet, X509SourceError> {
+        self.assert_open()?;
+        Ok((**self.bundles.load()).clone())
+    }
+
+    /// Returns the current X.509 context (SVID + bundles) as a single value.
+    pub fn x509_context(&self) -> Result<X509Context, X509SourceError> {
+        self.assert_open()?;
+
+        let svid = (**self.svid.load()).clone();
+        let bundles = (**self.bundles.load()).clone();
+
+        Ok(X509Context::new(vec![svid], bundles))
+    }
+}
+
 // private/internal
 impl X509Source {
     async fn new_with(

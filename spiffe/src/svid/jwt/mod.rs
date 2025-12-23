@@ -124,17 +124,17 @@ pub struct Claims {
 
 impl Claims {
     /// Get the sub claim.
-    pub fn get_sub(&self) -> &str {
+    pub fn sub(&self) -> &str {
         &self.sub
     }
 
     /// Get the aud claim.
-    pub fn get_aud(&self) -> &Vec<String> {
+    pub fn aud(&self) -> &Vec<String> {
         &self.aud
     }
 
     /// Get the exp claim.
-    pub fn get_exp(&self) -> u32 {
+    pub fn exp(&self) -> u32 {
         self.exp
     }
 }
@@ -206,6 +206,11 @@ impl JwtSvid {
     /// Returns the key id header of the JWT token.
     pub fn key_id(&self) -> &str {
         &self.kid
+    }
+
+    /// Returns the parsed JWT claims (untrusted unless this JWT-SVID was validated).
+    pub fn claims(&self) -> &Claims {
+        &self.claims
     }
 
     // Get the bundle associated to the trust_domain in the bundle_source, then from the bundle

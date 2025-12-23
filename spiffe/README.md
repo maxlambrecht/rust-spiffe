@@ -1,6 +1,7 @@
 # Rust SPIFFE
 
-A Rust library for interacting with the **SPIFFE Workload API**.  
+A Rust library for interacting with the **SPIFFE Workload API**.
+
 It provides idiomatic access to SPIFFE identities and trust material, including:
 
 - X.509 SVIDs and bundles
@@ -25,14 +26,14 @@ Add `spiffe` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.6.7"
+spiffe = "0.7.1"
 ````
 
-This includes both SPIFFE core types and a Workload API client.
+This includes both core SPIFFE types and a Workload API client.
 
 ---
 
-## Quick Start
+## Quick start
 
 ### Create a Workload API client
 
@@ -58,7 +59,7 @@ let client = WorkloadApiClient::default().await?;
 
 ## X.509 identities
 
-### Fetch X.509 materials directly
+The Workload API client provides **direct, low-level access** to X.509 materials.
 
 ```rust
 use spiffe::{TrustDomain, X509Context};
@@ -74,6 +75,8 @@ let bundle = bundles.get_bundle(&trust_domain)?;
 ### Watch for updates
 
 ```rust
+use futures_util::StreamExt;
+
 let mut stream = client.stream_x509_contexts().await?;
 
 while let Some(update) = stream.next().await {
@@ -84,30 +87,39 @@ while let Some(update) = stream.next().await {
 
 ---
 
-## X.509Source (recommended)
+## X509Source (recommended)
 
-`X509Source` maintains a locally cached, automatically refreshed view of X.509
-SVIDs and bundles.
+`X509Source` provides a **higher-level abstraction** over the Workload API for
+X.509-based workloads.
+
+It maintains a locally cached, automatically refreshed view of SVIDs and bundles,
+and transparently handles reconnections and rotations.
 
 ```rust
-use spiffe::X509Source;
+use spiffe::{TrustDomain, X509Source};
 
 let source = X509Source::new().await?;
 
+// Snapshot of the current X.509 materials
+let context = source.x509_context();
+
 // Default SVID
-let svid = source.get_svid()?.expect("no SVID available");
+let svid = context.default_svid()?;
 
 // Bundle for a trust domain
-let bundle = source
-    .get_bundle_for_trust_domain(&"example.org".try_into()?)?
-    .expect("no bundle found");
+let trust_domain = TrustDomain::try_from("example.org")?;
+let bundle = context.bundles().get_bundle(&trust_domain)?;
 ```
+
+For most applications that rely on X.509 identities, **`X509Source` is the preferred API**.
 
 ---
 
 ## JWT identities
 
-### Fetch and validate JWT SVIDs
+JWT-based identity is accessed via the Workload API client.
+
+### Fetch JWT SVIDs
 
 ```rust
 use spiffe::{JwtSvid, SpiffeId};
@@ -132,6 +144,8 @@ let bundle = bundles.get_bundle(&trust_domain)?;
 ### Watch JWT bundle updates
 
 ```rust
+use futures_util::StreamExt;
+
 let mut stream = client.stream_jwt_bundles().await?;
 
 while let Some(update) = stream.next().await {
