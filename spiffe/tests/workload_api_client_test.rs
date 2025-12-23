@@ -171,7 +171,10 @@ mod integration_tests_workload_api_client {
             .expect("Federated bundle was None")
             .expect("Failed to unwrap federated bundle");
 
-        assert_eq!(federated_bundle.trust_domain().as_ref(), FEDERATED_TRUST_DOMAIN.as_ref());
+        assert_eq!(
+            federated_bundle.trust_domain().as_ref(),
+            FEDERATED_TRUST_DOMAIN.as_ref()
+        );
         assert_eq!(federated_bundle.authorities().len(), 1);
     }
 
@@ -232,7 +235,10 @@ mod integration_tests_workload_api_client {
                             .expect("Federated bundle was None")
                             .expect("Failed to unwrap federated bundle");
 
-                        assert_eq!(federated_bundle.trust_domain().as_ref(), FEDERATED_TRUST_DOMAIN.as_ref());
+                        assert_eq!(
+                            federated_bundle.trust_domain().as_ref(),
+                            FEDERATED_TRUST_DOMAIN.as_ref()
+                        );
                         assert_eq!(federated_bundle.authorities().len(), 1);
 
                         update_count += 1;
