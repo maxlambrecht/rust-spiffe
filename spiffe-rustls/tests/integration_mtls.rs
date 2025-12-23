@@ -1,11 +1,13 @@
 #![cfg(feature = "integration-tests")]
 
-use spiffe_rustls::{ClientConfigBuilder, ClientConfigOptions, ServerConfigBuilder, ServerConfigOptions};
+use rustls::pki_types::ServerName;
 use spiffe::X509Source;
+use spiffe_rustls::{
+    ClientConfigBuilder, ClientConfigOptions, ServerConfigBuilder, ServerConfigOptions,
+};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
-use rustls::pki_types::ServerName;
 
 #[tokio::test]
 async fn integration_mtls() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,15 +17,15 @@ async fn integration_mtls() -> Result<(), Box<dyn std::error::Error>> {
         source.clone(),
         ServerConfigOptions::allow_any("example.org".try_into()?),
     )
-        .build()
-        .await?;
+    .build()
+    .await?;
 
     let client_cfg = ClientConfigBuilder::new(
         source.clone(),
         ClientConfigOptions::allow_any("example.org".try_into()?),
     )
-        .build()
-        .await?;
+    .build()
+    .await?;
 
     let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
     let connector = TlsConnector::from(Arc::new(client_cfg));
