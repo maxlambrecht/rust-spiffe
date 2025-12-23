@@ -50,6 +50,7 @@ jobs:
           grcov . \
           --binary-path ./target/debug/ \
           -t coveralls \
+          --service-name github \
           --service-job-id "${{ github.run_id }}" \
           -s . \
           --ignore-not-existing \
