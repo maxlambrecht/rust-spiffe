@@ -15,8 +15,7 @@
 //! ## X.509 (recommended)
 //!
 //! ```no_run
-//! use spiffe::X509Source;
-//! use spiffe::TrustDomain;
+//! use spiffe::{TrustDomain, X509Source};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Connect to the Workload API using SPIFFE_ENDPOINT_SOCKET
