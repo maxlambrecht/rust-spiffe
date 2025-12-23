@@ -98,7 +98,7 @@ mod integration_tests_delegate_identity_api_client {
             .await
             .expect("Failed to fetch trust bundles");
         response
-            .get_bundle(&*TRUST_DOMAIN)
+            .get_bundle(&TRUST_DOMAIN)
             .expect("Failed to get bundle");
     }
 
@@ -116,7 +116,7 @@ mod integration_tests_delegate_identity_api_client {
             .expect("Test did not complete in the expected duration");
         let response = result.expect("empty result").expect("error in stream");
         response
-            .get_bundle(&*TRUST_DOMAIN)
+            .get_bundle(&TRUST_DOMAIN)
             .expect("Failed to get bundle");
     }
 
@@ -133,11 +133,11 @@ mod integration_tests_delegate_identity_api_client {
         let svid = svids.first().expect("no items in jwt bundle list");
         let key_id = svid.key_id();
 
-        let bundle = bundles.get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(
             bundle.find_jwt_authority(key_id).unwrap().common.key_id,
             Some(key_id.to_string())

@@ -37,12 +37,6 @@ mod integration_tests_x509_source {
             .expect("Failed to create X509Source")
     }
 
-    async fn get_client() -> WorkloadApiClient {
-        WorkloadApiClient::default()
-            .await
-            .expect("Failed to create client")
-    }
-
     #[tokio::test]
     async fn get_x509_svid() {
         let source = get_source().await;
@@ -51,7 +45,7 @@ mod integration_tests_x509_source {
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
             expected_ids.contains(&svid.spiffe_id()),
             "Unexpected SPIFFE ID"
@@ -63,11 +57,11 @@ mod integration_tests_x509_source {
     async fn get_bundle_for_trust_domain() {
         let source = get_source().await;
         let bundle: X509Bundle = source
-            .get_bundle_for_trust_domain(&*TRUST_DOMAIN)
+            .get_bundle_for_trust_domain(&TRUST_DOMAIN)
             .expect("Failed to get X509Bundle")
             .expect("No X509Bundle found");
 
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(bundle.authorities().len(), 1);
     }
 
@@ -123,7 +117,7 @@ mod integration_tests_x509_source {
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
             expected_ids.contains(&svid.spiffe_id()),
             "Unexpected SPIFFE ID"
