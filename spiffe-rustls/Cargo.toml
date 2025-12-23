@@ -29,8 +29,7 @@ grpc-examples = [
 ]
 tcp-examples = ["dep:tokio-rustls"]
 
-
-integration-tests = []
+integration-tests = ["dep:tokio-rustls"]
 
 # ----------------------------
 # Library dependencies
