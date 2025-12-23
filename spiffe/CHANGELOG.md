@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.1] - 2025-12-23
+
+### Added
+
+* Added `JwtSvid::claims()` accessor to expose parsed JWT claims in a read-only, safe manner.
+* Added `X509Source::x509_context()` convenience method to retrieve a snapshot of the current X.509 SVIDs and bundle set.
+
+### Documentation
+
+* Fixed doctest examples to correctly handle `Option`-returning APIs (`default_svid()`).
+* Updated examples to use `bundle_set()` instead of non-existent `bundles()` accessor.
+* Clarify `X509Source` as the primary entry point for X.509 workloads
+* Improve overall structure and readability of crate-level docs
+
+### Notes
+
+* No breaking changes: existing APIs remain unchanged; additions are purely additive.
+
+
 ## [0.7.0] - 2025-12-23
 
 ### Added
