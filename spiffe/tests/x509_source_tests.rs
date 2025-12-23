@@ -3,12 +3,15 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_x509_source {
     use once_cell::sync::Lazy;
+    use spiffe::error::GrpcClientError;
     use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
     use spiffe::{
         BundleSource, SpiffeId, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle, X509Source,
         X509Svid,
     };
     use std::error::Error;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Arc;
 
     static SPIFFE_ID_1: Lazy<SpiffeId> =
@@ -29,15 +32,9 @@ mod integration_tests_x509_source {
     }
 
     async fn get_source() -> Arc<X509Source> {
-        X509Source::default()
+        X509Source::new()
             .await
             .expect("Failed to create X509Source")
-    }
-
-    async fn get_client() -> WorkloadApiClient {
-        WorkloadApiClient::default()
-            .await
-            .expect("Failed to create client")
     }
 
     #[tokio::test]
@@ -48,7 +45,7 @@ mod integration_tests_x509_source {
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
             expected_ids.contains(&svid.spiffe_id()),
             "Unexpected SPIFFE ID"
@@ -60,11 +57,11 @@ mod integration_tests_x509_source {
     async fn get_bundle_for_trust_domain() {
         let source = get_source().await;
         let bundle: X509Bundle = source
-            .get_bundle_for_trust_domain(&*TRUST_DOMAIN)
+            .get_bundle_for_trust_domain(&TRUST_DOMAIN)
             .expect("Failed to get X509Bundle")
             .expect("No X509Bundle found");
 
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(bundle.authorities().len(), 1);
     }
 
@@ -101,11 +98,16 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     async fn test_x509_source_with_custom_picker_and_client() -> Result<(), Box<dyn Error>> {
-        let client = get_client().await;
         let picker = Box::new(SecondSvidPicker);
 
+        let factory = Arc::new(|| -> Pin<Box<dyn Future<Output = Result<WorkloadApiClient, GrpcClientError>> + Send>> {
+            Box::pin(async {
+                WorkloadApiClient::default().await
+            })
+        });
+
         let source = X509SourceBuilder::new()
-            .with_client(client)
+            .with_client_factory(factory)
             .with_picker(picker)
             .build()
             .await?;
@@ -115,7 +117,7 @@ mod integration_tests_x509_source {
             .expect("Failed to get X509Svid")
             .expect("No X509Svid found");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
             expected_ids.contains(&svid.spiffe_id()),
             "Unexpected SPIFFE ID"

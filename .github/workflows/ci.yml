@@ -1,6 +1,17 @@
 name: Build
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   setup-and-lint:
@@ -11,17 +22,21 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           submodules: recursive
-      - name: Cache Project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5  # v2.8.2
+
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Project
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: ${{ runner.os }}-cargo
 
       - name: Lint code with rustfmt and clippy
         run: |
           cargo +nightly fmt -- --check
-          cargo clippy -- -D warnings
+          cargo clippy --all-targets -- -D warnings
 
   build-and-test:
     name: Build and Test
@@ -30,26 +45,37 @@ jobs:
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
       SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
+      RUST_BACKTRACE: "1"
     steps:
       - name: Check out code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           submodules: recursive
-      - name: Cache Project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5  # v2.8.2
+
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache Project
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: ${{ runner.os }}-cargo
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.3"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Rust project
-        run: cargo build
+        run: cargo build --all-targets --all-features
 
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
       - name: Run Integration Tests
-        run: RUST_BACKTRACE=1 cargo test --features integration-tests
+        run: cargo test --features integration-tests
 
       - name: Clean up SPIRE
         run: .github/workflows/scripts/cleanup-spire.sh

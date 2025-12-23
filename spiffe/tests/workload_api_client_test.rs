@@ -68,7 +68,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT bundles");
 
-        let bundle = bundles.get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
@@ -79,7 +79,7 @@ mod integration_tests_workload_api_client {
             .expect("Failed to fetch JWT SVID");
         let key_id = svid.key_id();
 
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(
             bundle.find_jwt_authority(key_id).unwrap().common.key_id,
             Some(key_id.to_string())
@@ -94,7 +94,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch X509 SVID");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
             expected_ids.contains(&svid.spiffe_id()),
             "Unexpected SPIFFE ID"
@@ -112,7 +112,7 @@ mod integration_tests_workload_api_client {
 
         assert_eq!(svids.len(), 2, "Expected exactly two SVIDs");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         // Checking the first SVID
         let first_svid = &svids[0];
@@ -145,7 +145,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch X509 context");
 
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         let svid = x509_context.default_svid().unwrap();
         assert!(
@@ -156,22 +156,25 @@ mod integration_tests_workload_api_client {
 
         let bundle = x509_context
             .bundle_set()
-            .get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+            .get_bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
 
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(bundle.authorities().len(), 1);
 
         let federated_bundle = x509_context
             .bundle_set()
-            .get_bundle_for_trust_domain(&*FEDERATED_TRUST_DOMAIN);
+            .get_bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
         let federated_bundle = federated_bundle
             .expect("Federated bundle was None")
             .expect("Failed to unwrap federated bundle");
 
-        assert_eq!(federated_bundle.trust_domain(), &*FEDERATED_TRUST_DOMAIN);
+        assert_eq!(
+            federated_bundle.trust_domain().as_ref(),
+            FEDERATED_TRUST_DOMAIN.as_ref()
+        );
         assert_eq!(federated_bundle.authorities().len(), 1);
     }
 
@@ -183,12 +186,12 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch X509 bundles");
 
-        let bundle = bundles.get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
 
-        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(bundle.authorities().len(), 1);
     }
 
@@ -196,7 +199,7 @@ mod integration_tests_workload_api_client {
     async fn stream_x509_contexts() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
@@ -217,22 +220,25 @@ mod integration_tests_workload_api_client {
 
                         let bundle = x509_context
                             .bundle_set()
-                            .get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+                            .get_bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
 
-                        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+                        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
                         assert_eq!(bundle.authorities().len(), 1);
 
                         let federated_bundle = x509_context
                             .bundle_set()
-                            .get_bundle_for_trust_domain(&*FEDERATED_TRUST_DOMAIN);
+                            .get_bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
                         let federated_bundle = federated_bundle
                             .expect("Federated bundle was None")
                             .expect("Failed to unwrap federated bundle");
 
-                        assert_eq!(federated_bundle.trust_domain(), &*FEDERATED_TRUST_DOMAIN);
+                        assert_eq!(
+                            federated_bundle.trust_domain().as_ref(),
+                            FEDERATED_TRUST_DOMAIN.as_ref()
+                        );
                         assert_eq!(federated_bundle.authorities().len(), 1);
 
                         update_count += 1;
@@ -258,7 +264,7 @@ mod integration_tests_workload_api_client {
     async fn stream_x509_svids() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
-        let expected_ids = vec![&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
         let result = tokio::time::timeout(test_duration, async {
             let mut update_count = 0;
@@ -308,12 +314,12 @@ mod integration_tests_workload_api_client {
             if let Some(update) = stream.next().await {
                 match update {
                     Ok(bundles) => {
-                        let bundle = bundles.get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+                        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
 
-                        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+                        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
                         assert_eq!(bundle.authorities().len(), 1);
                     }
                     Err(e) => eprintln!("Error in stream: {:?}", e),
@@ -341,7 +347,7 @@ mod integration_tests_workload_api_client {
             if let Some(update) = stream.next().await {
                 match update {
                     Ok(bundles) => {
-                        let bundle = bundles.get_bundle_for_trust_domain(&*TRUST_DOMAIN);
+                        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
@@ -352,7 +358,7 @@ mod integration_tests_workload_api_client {
                             .expect("Failed to fetch JWT SVID");
                         let key_id = svid.key_id();
 
-                        assert_eq!(bundle.trust_domain(), &*TRUST_DOMAIN);
+                        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
                         assert_eq!(
                             bundle.find_jwt_authority(key_id).unwrap().common.key_id,
                             Some(key_id.to_string())

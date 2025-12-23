@@ -28,6 +28,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 time = "0.3"
 tonic = "0.14.0"
 tonic-prost = "0.14"
+arc-swap = "1"
 
 # workload-api dependencies:
 prost = { version = "0.14", optional = true }
