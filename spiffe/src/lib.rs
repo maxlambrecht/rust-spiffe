@@ -1,81 +1,70 @@
 #![deny(missing_docs)]
 #![warn(missing_debug_implementations)]
 
-//! This library provides functions to interact with the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md)
-//! to fetch X.509 and JWT SVIDs and Bundles. It also provides types that comply with the [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
+//! This crate provides Rust bindings for the
+//! [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 //!
-//! # Examples
+//! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs,
+//! trust bundles, and related metadata, using strongly typed APIs that comply
+//! with the SPIFFE standards.
+//!
+//! The primary entry point for X.509-based workloads is [`X509Source`], which
+//! maintains a live connection to the Workload API and automatically tracks
+//! SVID and bundle rotation.
+//!
+//! ## X.509 (recommended)
 //!
 //! ```no_run
-//! use jsonwebtoken::jwk::Jwk;
-//! use spiffe::cert::{Certificate, PrivateKey};
-//! use spiffe::{
-//!     JwtBundle, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509BundleSet,
-//!     X509Context, X509Svid,
-//! };
-//! use std::convert::TryFrom;
-//! use std::error::Error;
+//! use spiffe::X509Source;
+//! use spiffe::TrustDomain;
 //!
-//! # async fn some_function() -> Result<(), Box< dyn Error>> {
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! // Connect to the Workload API using SPIFFE_ENDPOINT_SOCKET
+//! let source = X509Source::new().await?;
 //!
-//! // create a new Workload API client connecting to the provided endpoint socket path
-//! let mut client =
-//!     WorkloadApiClient::new_from_path("unix:/tmp/spire-agent/api/public.sock").await?;
+//! // Get the current X.509 context (SVIDs + bundles)
+//! let context = source.x509_context();
 //!
-//! // fetch the default X.509 SVID
-//! let x509_svid: X509Svid = client.fetch_x509_svid().await?;
+//! // Access the default SVID
+//! let svid = context.default_svid()?;
 //!
-//! // fetch a set of X.509 bundles (X.509 public key authorities)
-//! let x509_bundles: X509BundleSet = client.fetch_x509_bundles().await?;
+//! // Inspect the certificate chain and private key
+//! let cert_chain = svid.cert_chain();
+//! let private_key = svid.private_key();
 //!
-//! // fetch all the X.509 materials (SVIDs and bundles)
-//! let x509_context: X509Context = client.fetch_x509_context().await?;
-//!
-//! // get the X.509 chain of certificates from the SVID
-//! let cert_chain: &Vec<Certificate> = x509_svid.cert_chain();
-//!
-//! // get the private key from the SVID
-//! let private_key: &PrivateKey = x509_svid.private_key();
-//!
-//! // parse a SPIFFE trust domain
+//! // Access trust bundles by trust domain
 //! let trust_domain = TrustDomain::try_from("example.org")?;
+//! let bundle = context.bundles().get_bundle(&trust_domain).unwrap();
 //!
-//! // get the X.509 bundle associated to the trust domain
-//! let x509_bundle: &X509Bundle = x509_bundles.get_bundle(&trust_domain).unwrap();
-//!
-//! // get the X.509 authorities (public keys) in the bundle
-//! let x509_authorities: &Vec<Certificate> = x509_bundle.authorities();
-//!
-//! // parse a SPIFFE ID
-//! let spiffe_id = SpiffeId::try_from("spiffe://example.org/my-service")?;
-//!
-//! let target_audience = &["service1", "service2"];
-//! // fetch a jwt token for the provided SPIFFE-ID and with the target audience `service1.com`
-//! let jwt_token = client
-//!     .fetch_jwt_token(target_audience, Some(&spiffe_id))
-//!     .await?;
-//!
-//! // fetch the jwt token and parses it as a `JwtSvid`
-//! let jwt_svid = client
-//!     .fetch_jwt_svid(target_audience, Some(&spiffe_id))
-//!     .await?;
-//!
-//! // fetch a set of jwt bundles (public keys for validating jwt token)
-//! let jwt_bundles_set = client.fetch_jwt_bundles().await?;
-//!
-//! // get the JWT bundle associated to the trust domain
-//! let jwt_bundle: &JwtBundle = jwt_bundles_set.get_bundle(&trust_domain).unwrap();
-//!
-//! // get the JWT authorities (public keys) in the bundle
-//! let jwt_authority: &Jwk = jwt_bundle.find_jwt_authority("a_key_id").unwrap();
-//!
-//! // parse a `JwtSvid` validating the token signature with a JWT bundle source.
-//! let validated_jwt_svid =
-//!     JwtSvid::parse_and_validate(&jwt_token, &jwt_bundles_set, &["service1.com"])?;
-//!
+//! # source.shutdown().await?;
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! ## JWT SVIDs
+//!
+//! JWT-based identity is supported via [`WorkloadApiClient`] and related types.
+//!
+//! ```no_run
+//! use spiffe::{JwtSvid, WorkloadApiClient};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let mut client = WorkloadApiClient::new().await?;
+//!
+//! let audiences = &["service-a"];
+//! let jwt_svid = client.fetch_jwt_svid(audiences, None).await?;
+//!
+//! let claims = jwt_svid.claims();
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Features
+//!
+//! - **`spiffe-types`**: Core SPIFFE types (IDs, SVIDs, bundles)
+//! - **`workload-api`**: Workload API client and streaming support
+//!
+//! Most users should enable both features (default).
 
 #[cfg(feature = "spiffe-types")]
 pub mod constants;
