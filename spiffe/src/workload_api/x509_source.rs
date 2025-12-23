@@ -34,12 +34,12 @@ use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use thiserror::Error;
-use tokio::sync::{watch, Mutex};
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
@@ -408,13 +408,14 @@ impl X509Source {
                 }
 
                 match stream.next().await {
-                    Some(Ok(ctx)) => {
-                        if let Err(e) = self.set_x509_context(ctx) {
+                    Some(Ok(ctx)) => match self.set_x509_context(ctx) {
+                        Err(e) => {
                             error!("Error updating X509 context: {e}");
-                        } else {
+                        }
+                        _ => {
                             debug!("X509 context updated.");
                         }
-                    }
+                    },
                     Some(Err(e)) => {
                         warn!("Workload API stream error: {e}. Reconnecting...");
                         break;
@@ -494,9 +495,5 @@ async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) -> bool {
 
 fn next_backoff(current: Duration, max: Duration) -> Duration {
     let doubled = current.saturating_mul(2);
-    if doubled > max {
-        max
-    } else {
-        doubled
-    }
+    if doubled > max { max } else { doubled }
 }

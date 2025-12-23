@@ -1,14 +1,18 @@
 name: 'Setup Environment'
-description: 'Install Protoc and Rust toolchain, and set up Rust dependencies cache'
+description: 'Install Protoc and Rust toolchain'
 inputs:
   github_token:
     description: 'GitHub Token for authentication'
     required: true
+
 runs:
   using: 'composite'
   steps:
     - name: Install Protoc
       uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b  #v3.0.0
+      with:
+        version: "25.3"
+        repo-token: ${{ inputs.github_token }}
 
     - name: Setup Rust stable toolchain
       uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6

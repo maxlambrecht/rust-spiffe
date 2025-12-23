@@ -62,12 +62,6 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-cargo
 
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "25.3"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build Rust project
         run: cargo build --all-targets --all-features
 
@@ -78,4 +72,5 @@ jobs:
         run: cargo test --features integration-tests
 
       - name: Clean up SPIRE
+        if: ${{ always() }}
         run: .github/workflows/scripts/cleanup-spire.sh

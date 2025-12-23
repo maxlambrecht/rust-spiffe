@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::{env, fs};
 
-use anyhow::{ensure, Context as _};
+use anyhow::{Context as _, ensure};
 
 fn main() -> anyhow::Result<()> {
     println!("cargo:rerun-if-changed=src/proto");

@@ -1,6 +1,6 @@
+use crate::cert::Certificate;
 use crate::cert::errors::CertificateError;
 use crate::cert::parsing::{get_x509_extension, parse_der_encoded_bytes_as_x509_certificate};
-use crate::cert::Certificate;
 use crate::spiffe_id::SpiffeId;
 use crate::svid::x509::X509SvidError;
 use std::convert::TryFrom;
@@ -43,7 +43,7 @@ fn validate_signing_certificate(cert: &X509Certificate<'_>) -> Result<(), X509Sv
     let basic_constraints = get_x509_extension(cert, oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
     match basic_constraints {
         ParsedExtension::BasicConstraints(b) if !b.ca => {
-            return Err(X509SvidError::SigningCertificatedNoCa)
+            return Err(X509SvidError::SigningCertificatedNoCa);
         }
         _ => {}
     };

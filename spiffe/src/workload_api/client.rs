@@ -293,7 +293,8 @@ impl WorkloadApiClient {
     /// Streams X.509 context updates from the Workload API.
     pub async fn stream_x509_contexts(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<X509Context, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<X509Context, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = X509svidRequest::default();
         let response = self.client.fetch_x509svid(request).await?;
         let stream = response.into_inner().map(|message| {
@@ -307,7 +308,8 @@ impl WorkloadApiClient {
     /// Streams X.509 SVID updates from the Workload API.
     pub async fn stream_x509_svids(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = X509svidRequest::default();
         let response = self.client.fetch_x509svid(request).await?;
         let stream = response.into_inner().map(|message| {
@@ -321,7 +323,8 @@ impl WorkloadApiClient {
     /// Streams X.509 bundle set updates from the Workload API.
     pub async fn stream_x509_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = X509BundlesRequest::default();
         let response = self.client.fetch_x509_bundles(request).await?;
         let stream = response.into_inner().map(|message| {
@@ -335,7 +338,8 @@ impl WorkloadApiClient {
     /// Streams JWT bundle set updates from the Workload API.
     pub async fn stream_jwt_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = JwtBundlesRequest::default();
         let response = self.client.fetch_jwt_bundles(request).await?;
         let stream = response.into_inner().map(|message| {

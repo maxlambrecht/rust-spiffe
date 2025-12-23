@@ -352,7 +352,7 @@ mod spiffe_id_tests {
     use super::*;
 
     macro_rules! spiffe_id_success_tests {
-        ($($name:ident: $value:expr,)*) => {
+        ($($name:ident: $value:expr_2021,)*) => {
         $(
             #[test]
             fn $name() {
@@ -429,7 +429,7 @@ mod spiffe_id_tests {
     }
 
     macro_rules! spiffe_id_error_tests {
-        ($($name:ident: $value:expr,)*) => {
+        ($($name:ident: $value:expr_2021,)*) => {
         $(
             #[test]
             fn $name() {
@@ -577,7 +577,7 @@ mod trust_domain_tests {
     use std::str::FromStr;
 
     macro_rules! trust_domain_success_tests {
-        ($($name:ident: $value:expr,)*) => {
+        ($($name:ident: $value:expr_2021,)*) => {
         $(
             #[test]
             fn $name() {
@@ -596,7 +596,7 @@ mod trust_domain_tests {
     }
 
     macro_rules! trust_domain_error_tests {
-        ($($name:ident: $value:expr,)*) => {
+        ($($name:ident: $value:expr_2021,)*) => {
         $(
             #[test]
             fn $name() {

@@ -1,5 +1,5 @@
-use crate::cert::errors::CertificateError;
 use crate::cert::Certificate;
+use crate::cert::errors::CertificateError;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::der_parser::oid::Oid;
 use x509_parser::error::X509Error;
@@ -35,7 +35,7 @@ pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
                 Incomplete(_) => X509Error::InvalidCertificate,
                 Err::Error(e) => e,
                 Err::Failure(e) => e,
-            }))
+            }));
         }
     };
     Ok(x509)

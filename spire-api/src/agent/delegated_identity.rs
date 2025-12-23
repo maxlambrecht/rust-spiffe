@@ -194,7 +194,8 @@ impl DelegatedIdentityClient {
     pub async fn stream_x509_svids(
         &mut self,
         attest_type: DelegateAttestationRequest,
-    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = match attest_type {
             DelegateAttestationRequest::Selectors(selectors) => SubscribeToX509sviDsRequest {
                 selectors: selectors.into_iter().map(|s| s.into()).collect(),
@@ -255,7 +256,8 @@ impl DelegatedIdentityClient {
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_x509_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = SubscribeToX509BundlesRequest::default();
 
         let response: tonic::Response<tonic::Streaming<SubscribeToX509BundlesResponse>> =
@@ -328,7 +330,8 @@ impl DelegatedIdentityClient {
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
     pub async fn stream_jwt_bundles(
         &mut self,
-    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>>, GrpcClientError> {
+    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + use<>, GrpcClientError>
+    {
         let request = SubscribeToJwtBundlesRequest::default();
         let response = self.client.subscribe_to_jwt_bundles(request).await?;
         Ok(response.into_inner().map(|message| {
