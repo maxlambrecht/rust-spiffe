@@ -18,7 +18,7 @@ use helloworld::greeter_client::GreeterClient;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
+
     let socket = std::env::var("SPIFFE_ENDPOINT_SOCKET")
         .unwrap_or_else(|_| "unix:///tmp/spire-agent/public/api.sock".to_string());
     unsafe { std::env::set_var("SPIFFE_ENDPOINT_SOCKET", socket) };
