@@ -12,8 +12,10 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           submodules: recursive
+
       - name: Cache Project
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5  # v2.8.2
+
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
@@ -22,15 +24,23 @@ jobs:
       - name: Cargo Login
         run: cargo login ${{ secrets.CRATES_IO_TOKEN }}
 
-      # Conditional step for spiffe crate
+      # Publish spiffe crate
       - name: Publish spiffe
         if: startsWith(github.ref, 'refs/tags/spiffe-')
         run: |
           cd spiffe
           cargo publish
-      # Conditional step for spire-api crate
+
+      # Publish spire-api crate
       - name: Publish spire-api
         if: startsWith(github.ref, 'refs/tags/spire-api-')
         run: |
           cd spire-api
+          cargo publish
+
+      # Publish spiffe-rustls crate
+      - name: Publish spiffe-rustls
+        if: startsWith(github.ref, 'refs/tags/spiffe-rustls-')
+        run: |
+          cd spiffe-rustls
           cargo publish
