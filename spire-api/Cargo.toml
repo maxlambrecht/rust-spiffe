@@ -4,7 +4,7 @@ name = "spire-api"
 # - Update CHANGELOG.md.
 # - Create a new tag
 version = "0.3.6"
-edition = "2021"
+edition = "2024"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
 description = "Rust library for the SPIRE APIs"
 license = "Apache-2.0"

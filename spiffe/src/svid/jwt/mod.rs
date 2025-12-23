@@ -4,12 +4,12 @@ use std::str::FromStr;
 
 use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use serde::{de, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use thiserror::Error;
 use zeroize::Zeroize;
 
-use crate::bundle::jwt::JwtBundle;
 use crate::bundle::BundleRefSource;
+use crate::bundle::jwt::JwtBundle;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 use crate::svid::Svid;
 use std::error::Error;

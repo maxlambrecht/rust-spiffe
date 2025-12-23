@@ -6,8 +6,8 @@ use crate::cert::errors::{CertificateError, PrivateKeyError};
 use crate::cert::parsing::to_certificate_vec;
 use crate::cert::{Certificate, PrivateKey};
 use crate::spiffe_id::{SpiffeId, SpiffeIdError};
-use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
 use crate::svid::Svid;
+use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
 use std::convert::TryFrom;
 
 /// This type represents a [SPIFFE X509-SVID](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md).

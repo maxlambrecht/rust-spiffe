@@ -76,9 +76,11 @@ impl JwtBundle {
     /// let trust_domain = TrustDomain::new("example.org").unwrap();
     /// let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, jwt_authorities).unwrap();
     ///
-    /// assert!(jwt_bundle
-    ///     .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
-    ///     .is_some());
+    /// assert!(
+    ///     jwt_bundle
+    ///         .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
+    ///         .is_some()
+    /// );
     /// ```
     pub fn from_jwt_authorities(
         trust_domain: TrustDomain,
@@ -181,9 +183,11 @@ mod jwt_bundle_test {
         .as_bytes();
         let trust_domain = TrustDomain::new("example.org").unwrap();
         let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes).unwrap();
-        assert!(jwt_bundle
-            .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
-            .is_some());
+        assert!(
+            jwt_bundle
+                .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
+                .is_some()
+        );
     }
 
     #[test]
@@ -210,12 +214,16 @@ mod jwt_bundle_test {
 
         let trust_domain = TrustDomain::new("example.org").unwrap();
         let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes).unwrap();
-        assert!(jwt_bundle
-            .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
-            .is_some());
-        assert!(jwt_bundle
-            .find_jwt_authority("gHTCunJbefYtnZnTctd84xeRWyMrEsWD")
-            .is_some());
+        assert!(
+            jwt_bundle
+                .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
+                .is_some()
+        );
+        assert!(
+            jwt_bundle
+                .find_jwt_authority("gHTCunJbefYtnZnTctd84xeRWyMrEsWD")
+                .is_some()
+        );
     }
 
     #[test]
