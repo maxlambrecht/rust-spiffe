@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.7] - 2025-12-23
+
+### What's Changed
+
+* Update spiffe requirement to 0.7.0
+
 ## [0.3.6] - 2025-07-30
 
 ### What's Changed
