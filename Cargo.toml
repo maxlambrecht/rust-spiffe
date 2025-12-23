@@ -2,5 +2,7 @@
 members = [
     "spiffe",
     "spire-api",
+    "spiffe-rustls",
 ]
+
 resolver = "2"
