@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0] - 2025-12-23
+
+### Added
+- Automatic reconnection handling in `X509Source` when the SPIRE agent becomes unavailable and later recovers.
+
+### Changed
+- `X509Source::default()` has been replaced by `X509Source::new()` for clearer and more explicit construction.
+- `X509Context` now includes federated bundles in addition to the trust domain bundle (#175).
+- Updated `x509-parser` dependency from `0.17` to `0.18` (#171).
+- Updated `jsonwebkey` dependency from `0.3` to `0.4` (#182).
+
+### Breaking Changes
+- The `X509Source` construction API has changed from `default()` to `new()`.
+
+### Migration Notes
+- Replace any usage of `X509Source::default()` with `X509Source::new()` when upgrading to v0.7.0.
+
+
 ## [0.6.7] - 2025-07-30
 
 ### What's Changed
