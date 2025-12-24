@@ -1,6 +1,6 @@
 [package]
 name = "spiffe"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2024"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
 description = "Rust client library implementation for SPIFFE"
@@ -61,6 +61,7 @@ spiffe-types = []
 
 # SPIRE Workload API client implementation.
 workload-api = [
+    "spiffe-types",
     "dep:prost",
     "dep:prost-types",
     "dep:tokio",

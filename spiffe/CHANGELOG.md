@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.3] – 2025-12-24
+
+### Fixed
+
+* Fixed compilation when building with --no-default-features.
+* Correctly feature-gated public re-exports and error variants tied to optional dependencies.
+* Prevented optional dependencies from being required in minimal builds.
+
 ## [0.7.2] – 2025-12-24
 
 ### Changed

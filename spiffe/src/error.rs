@@ -41,10 +41,12 @@ pub enum GrpcClientError {
     SpiffeId(#[from] SpiffeIdError),
 
     /// gRPC status returned by the Workload API.
+    #[cfg(feature = "workload-api")]
     #[error("gRPC status: {0}")]
     Grpc(#[from] tonic::Status),
 
     /// Transport error while connecting to the Workload API.
+    #[cfg(feature = "workload-api")]
     #[error("gRPC transport error: {0}")]
     Transport(#[from] tonic::transport::Error),
 }
