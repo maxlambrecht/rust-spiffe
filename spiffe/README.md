@@ -26,7 +26,7 @@ Add `spiffe` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.7.3"
+spiffe = "0.7.4"
 ````
 
 ---
