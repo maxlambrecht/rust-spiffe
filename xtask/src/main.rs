@@ -78,7 +78,7 @@ fn gen_spiffe_protos() -> anyhow::Result<()> {
     fs::remove_dir_all(&tmp_dir)
         .with_context(|| format!("failed to remove temp dir {}", tmp_dir.display()))?;
 
-    try_rustfmt(&final_path, "2024", None);
+    try_rustfmt(&final_path, "2021", None);
     println!("Generated {}", final_path.display());
     Ok(())
 }

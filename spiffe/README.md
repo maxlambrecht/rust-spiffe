@@ -1,22 +1,22 @@
-# Rust SPIFFE
+# spiffe
+
+[![Crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
+[![Docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
+![MSRV](https://img.shields.io/badge/MSRV-1.83-blue)
+
 
 A Rust library for interacting with the **SPIFFE Workload API**.
 
-It provides idiomatic access to SPIFFE identities and trust material, including:
+It provides idiomatic, standards-compliant access to SPIFFE identities and trust material, including:
 
-- X.509 SVIDs and bundles
-- JWT SVIDs and bundles
+- X.509 SVIDs and trust bundles
+- JWT SVIDs and JWT bundles
 - Streaming updates (watch semantics)
-- Strongly typed SPIFFE primitives compliant with the SPIFFE standards
+- Strongly typed SPIFFE primitives aligned with the SPIFFE specifications
 
-For background on SPIFFE, see <https://spiffe.io>.  
-For the Workload API specification, see the
-[SPIFFE Workload API standard](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
-
-[![crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
-[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml)
-[![docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+For an introduction to SPIFFE, see <https://spiffe.io>.  
+For the protocol definition, see the
+[SPIFFE Workload API specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 
 ---
 
@@ -28,8 +28,6 @@ Add `spiffe` to your `Cargo.toml`:
 [dependencies]
 spiffe = "0.7.3"
 ````
-
-This includes both core SPIFFE types and a Workload API client.
 
 ---
 
@@ -59,7 +57,7 @@ let client = WorkloadApiClient::default().await?;
 
 ## X.509 identities
 
-The Workload API client provides **direct, low-level access** to X.509 materials.
+The Workload API client exposes low-level access to X.509 materials.
 
 ```rust
 use spiffe::{TrustDomain, X509Context};
@@ -81,26 +79,25 @@ let mut stream = client.stream_x509_contexts().await?;
 
 while let Some(update) = stream.next().await {
     let context = update?;
-    // react to updated SVIDs / bundles
+    // react to updated SVIDs and bundles
 }
 ```
 
 ---
 
-## X509Source (recommended)
+## `X509Source` (recommended)
 
-`X509Source` provides a **higher-level abstraction** over the Workload API for
-X.509-based workloads.
+`X509Source` is a higher-level abstraction built on top of the Workload API.
 
-It maintains a locally cached, automatically refreshed view of SVIDs and bundles,
-and transparently handles reconnections and rotations.
+It maintains a locally cached, automatically refreshed view of X.509 SVIDs and bundles,
+handling reconnections and rotations transparently.
 
 ```rust
 use spiffe::{TrustDomain, X509Source};
 
 let source = X509Source::new().await?;
 
-// Snapshot of the current X.509 materials
+// Snapshot of current materials
 let context = source.x509_context();
 
 // Default SVID
@@ -111,18 +108,18 @@ let trust_domain = TrustDomain::try_from("example.org")?;
 let bundle = context.bundles().get_bundle(&trust_domain)?;
 ```
 
-For most applications that rely on X.509 identities, **`X509Source` is the preferred API**.
+For most X.509-based workloads, **`X509Source` is the preferred API**.
 
 ---
 
 ## JWT identities
 
-JWT-based identity is accessed via the Workload API client.
+JWT-based identity is accessed directly via the Workload API client.
 
 ### Fetch JWT SVIDs
 
 ```rust
-use spiffe::{JwtSvid, SpiffeId};
+use spiffe::SpiffeId;
 
 let spiffe_id = SpiffeId::try_from("spiffe://example.org/my-service")?;
 
@@ -131,23 +128,17 @@ let jwt = client
     .await?;
 ```
 
-### Fetch JWT bundles
+### Fetch and watch JWT bundles
 
 ```rust
+use futures_util::StreamExt;
 use spiffe::TrustDomain;
 
 let bundles = client.fetch_jwt_bundles().await?;
 let trust_domain = TrustDomain::try_from("example.org")?;
 let bundle = bundles.get_bundle(&trust_domain)?;
-```
-
-### Watch JWT bundle updates
-
-```rust
-use futures_util::StreamExt;
 
 let mut stream = client.stream_jwt_bundles().await?;
-
 while let Some(update) = stream.next().await {
     let bundles = update?;
     // react to updated JWT authorities
@@ -158,7 +149,8 @@ while let Some(update) = stream.next().await {
 
 ## Documentation
 
-API documentation and additional examples are available on [docs.rs](https://docs.rs/spiffe).
+Full API documentation and additional examples are available on
+[docs.rs](https://docs.rs/spiffe).
 
 ---
 

@@ -1,48 +1,76 @@
-# Rust SPIRE API Library
+# spire-api
 
-This library provides support for SPIRE specific APIs in Rust.
+[![Crates.io](https://img.shields.io/crates/v/spire-api.svg)](https://crates.io/crates/spire-api)
+[![Docs.rs](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api)
+![MSRV](https://img.shields.io/badge/MSRV-1.83-blue)
 
-[![crates.io](https://img.shields.io/crates/v/spire-api.svg)](https://crates.io/crates/spire-api)
-[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml)
-[![docs.rs](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/maxlambrecht/rust-spiffe/blob/main/LICENSE)
+A Rust library providing access to **SPIRE-specific gRPC APIs** that are not part of the core SPIFFE
+standards.
 
-## Features
+This crate is intended for applications and services that need to interact directly with SPIRE agent
+or server APIs beyond the Workload API.
 
-- **Delegated Identity API support**: Facilitates authorized workloads to obtain SVIDs (SPIFFE Verifiable Identity
-  Documents) and bundles on behalf of others that cannot be directly attested by SPIRE Agent. This feature enhances
-  identity support for complex scenarios, including those where workloads cannot be directly recognized by SPIRE.
+---
+
+## Scope
+
+Currently supported APIs include:
+
+- **Delegated Identity API**  
+  Allows authorized workloads to obtain X.509 and JWT SVIDs (and bundles) on behalf of other workloads
+  that cannot be directly attested by the SPIRE agent.
+
+This is particularly useful in advanced or constrained environments where direct workload
+attestation is not feasible.
+
+---
 
 ## Installation
 
-Include this line in your `Cargo.toml`:
+Add `spire-api` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
 spire-api = "0.3.8"
-```
+````
 
-## Usage
+---
 
-Fetch a delegated X.509 and JWT SVIDs providing a set of selectors:
+## Quick start
+
+Fetch a delegated X.509 SVID using selector-based attestation:
 
 ```rust
 use spire_api::DelegatedIdentityClient;
+use spire_api::selectors;
 
 let client = DelegatedIdentityClient::default().await?;
 
-let x509_svid = client.fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
-  selectors::Selector::Unix(selectors::Unix::Uid(1000)),
-])).await?;
+let x509_svid = client
+    .fetch_x509_svid(spire_api::DelegateAttestationRequest::Selectors(vec![
+        selectors::Selector::Unix(selectors::Unix::Uid(1000)),
+    ]))
+    .await?;
 ```
 
-For more documentation, refer to the `spire-api` [crate documentation](https://docs.rs/spire-api/).
+JWT SVIDs and trust bundles can be fetched using the corresponding client methods.
+
+---
 
 ## Delegated Identity API
 
-For more information about the SPIRE Delegated Identity API, refer to
-the [official documentation](https://spiffe.io/docs/latest/spire/using/getting-started/).
+For background and protocol-level details, see the
+[SPIRE Delegated Identity API documentation](https://spiffe.io/docs/latest/spire/using/getting-started/).
+
+---
+
+## Documentation
+
+Full API documentation is available on [docs.rs](https://docs.rs/spire-api).
+
+---
 
 ## License
 
-This library is licensed under the Apache License. See the [LICENSE.md](../LICENSE) file for details.
+Licensed under the Apache License, Version 2.0.
+See [LICENSE](../LICENSE) for details.

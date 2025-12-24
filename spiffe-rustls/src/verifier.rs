@@ -17,10 +17,10 @@ pub fn extract_spiffe_id(leaf: &CertificateDer<'_>) -> Result<String> {
         .ok_or(Error::MissingSpiffeId)?;
 
     for name in san.value.general_names.iter() {
-        if let x509_parser::extensions::GeneralName::URI(uri) = name
-            && uri.starts_with("spiffe://")
-        {
-            return Ok(uri.to_string());
+        if let x509_parser::extensions::GeneralName::URI(uri) = name {
+            if uri.starts_with("spiffe://") {
+                return Ok(uri.to_string());
+            }
         }
     }
 
@@ -202,10 +202,10 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rustls::RootCertStore;
     use rustls::client::danger::ServerCertVerifier;
     use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
     use rustls::server::danger::ClientCertVerifier;
+    use rustls::RootCertStore;
     use std::sync::Arc;
 
     fn ensure_provider() {

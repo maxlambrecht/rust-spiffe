@@ -3,89 +3,68 @@
 [![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
 
-This repository contains a set of Rust libraries focused on supporting **SPIFFE** and **SPIRE**
-functionality across different layers of the stack.
-
-The workspace is organized as multiple crates, each targeting a specific concern: standards-compliant
-identity types, SPIRE-specific APIs, and TLS/mTLS integration.
+A collection of Rust libraries for working with **SPIFFE** and **SPIRE**, covering identity
+representation, SPIRE-specific APIs, and TLS/mTLS integration.
 
 ---
 
-## Crates Overview
+## Crates
 
-### [spiffe](./spiffe)
-[![Docs: spiffe](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
+### [`spiffe`](./spiffe)
 
-The `spiffe` crate provides a Rust implementation of the
-[SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
+Standards-compliant SPIFFE primitives and a client for the **SPIFFE Workload API**.
 
-It supports:
+**Use this crate if you need:**
+- X.509 and JWT SVIDs
+- Trust bundles
+- Streaming identity updates
+- Strongly typed SPIFFE identifiers and trust domains
 
-* Fetching X.509 and JWT SVIDs
-* Fetching trust bundles
-* Watching and streaming identity updates via the Workload API
-
-All types and behaviors are compliant with the official
-[SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
-General information about SPIFFE is available at [spiffe.io](https://spiffe.io/).
-
-* See the [spiffe README](./spiffe/README.md) for usage and API details.
+See the [spiffe README](./spiffe/README.md) for usage and API details.
 
 ---
 
-### [spire-api](./spire-api)
-[![Docs: spire-api](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api/)
+### [`spire-api`](./spire-api)
 
-The `spire-api` crate provides Rust bindings for **SPIRE-specific gRPC APIs** that are not part of the
-core SPIFFE standards.
+Rust bindings for **SPIRE-specific gRPC APIs** that are not part of the SPIFFE standards.
 
-This includes:
+**Use this crate if you need:**
+- The SPIRE Delegated Identity API
+- Direct interaction with SPIRE agent or server extensions
 
-* The SPIRE Delegated Identity API
-* Other SPIRE agent and server extensions
-
-This crate is intended for applications or services that need to interact directly with SPIRE’s
-gRPC APIs beyond the Workload API.
-
-* See the [spire-api README](./spire-api/README.md) for details.
+See the [spire-api README](./spire-api/README.md) for details.
 
 ---
 
-### [spiffe-rustls](./spiffe-rustls)
-[![Docs: spiffe-rustls](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
+### [`spiffe-rustls`](./spiffe-rustls)
 
-The `spiffe-rustls` crate integrates SPIFFE identity with
-[`rustls`](https://crates.io/crates/rustls) using the `spiffe` crate’s `X509Source`
-(SPIRE Workload API).
+Integration between SPIFFE identities and [`rustls`](https://crates.io/crates/rustls).
 
-It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a **live**
-`X509Source`, ensuring that:
+**Use this crate if you need:**
+- Mutual TLS (mTLS) based on SPIFFE identities
+- Automatic handling of SVID and bundle rotation
+- Connection-level authorization using SPIFFE IDs
 
-* Rotated SVIDs and trust bundles are automatically used for new TLS handshakes
-* Mutual TLS (mTLS) authentication is enforced using SPIFFE identities
-* Connection-level authorization is performed via SPIFFE ID checks
-
-Cryptographic primitives and TLS mechanics are delegated entirely to `rustls`.
-
-* See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration details and examples.
+See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration and examples.
 
 ---
 
-## Which crate should I use?
+## Choosing a crate
 
-* **You want SPIFFE identity types or Workload API access** → use `spiffe`
-* **You need direct access to SPIRE gRPC APIs** → use `spire-api`
-* **You want mTLS with SPIFFE identities over rustls** → use `spiffe-rustls`
+- **SPIFFE identities or Workload API access** → `spiffe`
+- **SPIRE gRPC APIs** → `spire-api`
+- **mTLS with SPIFFE over rustls** → `spiffe-rustls`
 
 ---
 
-## Getting Started
+## Getting started
 
-Refer to the README of each individual crate for detailed setup instructions, examples, and API
-documentation.
+Each crate is independently versioned and documented. Refer to the corresponding crate README for
+installation instructions, examples, and API documentation.
 
 ---
 
 ## License
 
-This project is licensed under the [Apache License 2.0](./LICENSE).
+Licensed under the Apache License, Version 2.0.  
+See [LICENSE](./LICENSE) for details.

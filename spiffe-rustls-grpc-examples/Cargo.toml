@@ -1,11 +1,12 @@
 [package]
 name = "spiffe-rustls-grpc-examples"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
+rust-version = "1.83"
 publish = false
 
 [dependencies]
-spiffe = "0.7.1"
+spiffe = { version = "0.7", path = "../spiffe" }
 spiffe-rustls = { path = "../spiffe-rustls", features = ["ring"] }
 
 # gRPC stack
