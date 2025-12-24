@@ -196,16 +196,14 @@ RUST_LOG=debug cargo run --features tcp-examples --example mtls_tcp_server
 
 ### gRPC (tonic + tonic-rustls)
 
-gRPC integration using `tonic` and `tonic-rustls`.
+gRPC examples are provided in a **separate crate** `spiffe-rustls-grpc-examples` to avoid pulling gRPC and
+protobuf build dependencies into the library.
 
-* `grpc_server_mtls.rs`
-* `grpc_client_mtls.rs`
-
-Run with:
+To run the gRPC examples:
 
 ```bash
-cargo run --features grpc-examples --example grpc_server_mtls
-cargo run --features grpc-examples --example grpc_client_mtls
+cargo run -p spiffe-rustls-grpc-examples --bin grpc_server_mtls
+cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 ```
 
 ---

@@ -9,16 +9,16 @@ pub(crate) fn ensure_crypto_provider_installed() {
     static INSTALLED: OnceLock<()> = OnceLock::new();
     INSTALLED.get_or_init(|| {
         // Best-effort: ignore error if already installed by the application.
-        let _ = provider().install_default();
+        let _ = crypto_provider().install_default();
     });
 }
 
-#[cfg(all(feature = "ring", not(feature = "aws-lc-rs")))]
-fn provider() -> rustls::crypto::CryptoProvider {
+#[cfg(feature = "ring")]
+fn crypto_provider() -> rustls::crypto::CryptoProvider {
     rustls::crypto::ring::default_provider()
 }
 
-#[cfg(all(feature = "aws-lc-rs", not(feature = "ring")))]
-fn provider() -> rustls::crypto::CryptoProvider {
+#[cfg(feature = "aws-lc-rs")]
+fn crypto_provider() -> rustls::crypto::CryptoProvider {
     rustls::crypto::aws_lc_rs::default_provider()
 }

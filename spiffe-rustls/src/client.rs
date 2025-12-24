@@ -52,16 +52,17 @@ impl ClientConfigBuilder {
 
     /// Builds the `rustls::ClientConfig`.
     pub async fn build(self) -> Result<ClientConfig> {
-        // crate::crypto::ensure_crypto_provider_installed();
+        crate::crypto::ensure_crypto_provider_installed();
 
         let watcher = MaterialWatcher::new(self.source, self.opts.trust_domain).await?;
-        let mat = watcher.current();
 
         let resolver: Arc<dyn ResolvesClientCert> =
-            Arc::new(resolve_client::SpiffeClientCertResolver { watcher });
+            Arc::new(resolve_client::SpiffeClientCertResolver {
+                watcher: watcher.clone(),
+            });
 
         let verifier = Arc::new(SpiffeServerCertVerifier::new(
-            mat.roots.clone(),
+            Arc::new(watcher.clone()),
             self.opts.authorize_server,
         )?);
 

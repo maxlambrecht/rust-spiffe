@@ -9,65 +9,35 @@ readme = "README.md"
 keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 categories = ["network-programming", "cryptography", "authentication"]
 
-# ----------------------------
-# Features
-# ----------------------------
 [features]
 default = ["ring"]
 
-# Crypto backend selection
+# Crypto backend selection (rustls feature passthrough)
 ring = ["rustls/ring"]
 aws-lc-rs = ["rustls/aws_lc_rs"]
 
-# Examples
-grpc-examples = [
-    "dep:tonic",
-    "dep:tonic-rustls",
-    "dep:tonic-prost",
-    "dep:prost",
-    "dep:prost-types",
-]
 tcp-examples = ["dep:tokio-rustls"]
 
+# Internal: enables deps used by integration tests
 integration-tests = ["dep:tokio-rustls"]
 
-# ----------------------------
-# Library dependencies
-# ----------------------------
 [dependencies]
-spiffe = { version = "0.7.0", path = "../spiffe" }
-
-# rustls with std needed for builder APIs + Error impls
-rustls = { version = "0.23.35", default-features = false, features = ["std"] }
-
-# Minimal Tokio for the library itself
+spiffe = "0.7"
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
-
-# Optional, enabled via ring/aws-lc-rs pull-in
-tokio-rustls = { version = "0.26.4", default-features = false, optional = true }
-
+tokio-util = "0.7"
 log = "0.4"
 thiserror = "2"
-x509-parser = "0.18.0"
-tokio-util = "0.7.10"
+x509-parser = "0.18"
 
-# gRPC stack, only when grpc-examples enabled
-tonic = { version = "0.14", optional = true, features = ["transport"] }
-tonic-rustls = { version = "0.3.0", optional = true }
-tonic-prost = { version = "0.14", optional = true }
-prost = { version = "0.14", optional = true }
-prost-types = { version = "0.14", optional = true }
+# Optional: TCP/TLS example support
+tokio-rustls = { version = "0.26", default-features = false, optional = true }
 
-# ----------------------------
-# Build-time: proto generation
-# ----------------------------
-[build-dependencies]
-tonic-prost-build = "0.14"
-
-# ----------------------------
-# Dev deps (tests, examples)
-# ----------------------------
 [dev-dependencies]
+anyhow = "1"
+env_logger = "0.11"
+
+# Tokio for tests/examples
 tokio = { version = "1", default-features = false, features = [
     "macros",
     "rt-multi-thread",
@@ -76,22 +46,6 @@ tokio = { version = "1", default-features = false, features = [
     "io-util",
     "sync",
 ] }
-
-anyhow = "1"
-env_logger = "0.11.8"
-
-# ----------------------------
-# Examples (feature-gated)
-# ----------------------------
-[[example]]
-name = "grpc_server_mtls"
-path = "examples/grpc_server_mtls.rs"
-required-features = ["grpc-examples"]
-
-[[example]]
-name = "grpc_client_mtls"
-path = "examples/grpc_client_mtls.rs"
-required-features = ["grpc-examples"]
 
 [[example]]
 name = "mtls_tcp_server"
@@ -102,4 +56,3 @@ required-features = ["tcp-examples"]
 name = "mtls_tcp_client"
 path = "examples/mtls_tcp_client.rs"
 required-features = ["tcp-examples"]
-

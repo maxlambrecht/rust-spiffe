@@ -1,5 +1,3 @@
-#![cfg(feature = "grpc-examples")]
-
 use spiffe::X509Source;
 use spiffe_rustls::{ServerConfigBuilder, ServerConfigOptions};
 use tonic::{Request, Response, Status};
@@ -51,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut server = Server::builder().tls_config(server_cfg)?;
 
     server
-        .add_service(GreeterServer::new(MyGreeter::default()))
+        .add_service(GreeterServer::new(MyGreeter))
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;
         })

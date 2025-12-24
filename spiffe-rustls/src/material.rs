@@ -1,4 +1,3 @@
-use crate::crypto::ensure_crypto_provider_installed;
 use crate::error::{Error, Result};
 use log::debug;
 use rustls::RootCertStore;
@@ -16,11 +15,19 @@ pub(crate) fn roots_from_bundle_der(bundle_authorities: &[Vec<u8>]) -> Result<Ar
 
     let ders: Vec<CertificateDer<'static>> = bundle_authorities
         .iter()
-        .map(|b| CertificateDer::from(b.clone()))
+        .cloned()
+        .map(CertificateDer::from)
         .collect();
 
-    let _added = store.add_parsable_certificates(ders);
-    debug!("loaded root cert(s) into RootCertStore");
+    let added = store.add_parsable_certificates(ders);
+
+    debug!("loaded root cert(s): {:?}", added);
+
+    if store.is_empty() {
+        return Err(Error::Internal(
+            "no root certificates were accepted into RootCertStore".into(),
+        ));
+    }
 
     Ok(Arc::new(store))
 }
@@ -29,8 +36,6 @@ pub(crate) fn certified_key_from_der(
     cert_chain_der: &[Vec<u8>],
     private_key_pkcs8_der: &[u8],
 ) -> Result<Arc<rustls::sign::CertifiedKey>> {
-    ensure_crypto_provider_installed();
-
     let certs: Vec<rustls::pki_types::CertificateDer<'static>> = cert_chain_der
         .iter()
         .map(|c| rustls::pki_types::CertificateDer::from(c.clone()))
