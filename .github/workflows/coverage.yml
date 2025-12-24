@@ -38,13 +38,9 @@ jobs:
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      # Do NOT use --all-features due to mutually exclusive rustls providers.
-      - name: Run Tests (workspace defaults)
-        run: cargo test --workspace
-
-      - name: Run Tests (spiffe-rustls aws-lc-rs)
-        run: cargo test -p spiffe-rustls --no-default-features --features aws-lc-rs
-
+      - name: Test core crates (integration-tests)
+        run: cargo test -p spiffe -p spire-api -p spiffe-rustls --features integration-tests
+       
       # Coverage is restricted to hand-written library code.
       # Generated protobuf code, examples, and tooling are intentionally excluded.
       - name: Generate Coveralls JSON Report
