@@ -45,6 +45,8 @@ jobs:
       - name: Run Tests (spiffe-rustls aws-lc-rs)
         run: cargo test -p spiffe-rustls --no-default-features --features aws-lc-rs
 
+      # Coverage is restricted to hand-written library code.
+      # Generated protobuf code, examples, and tooling are intentionally excluded.
       - name: Generate Coveralls JSON Report
         run: |
           grcov . \
@@ -55,10 +57,13 @@ jobs:
           -s . \
           --ignore-not-existing \
           --ignore "$HOME/.cargo/**" \
-          --ignore "*/proto/*" \
-          --ignore "*/spire-api-sdk/*" \
+          --ignore "*/proto/**" \
+          --ignore "*/pb/**" \
+          --ignore "*/spire-api-sdk/**" \
           --ignore "*/build.rs" \
-          --keep-only '*/src/*' > coveralls.json
+          --ignore "*/spiffe-rustls-grpc-examples/src/**" \
+          --ignore "*/xtask/src/**" \
+          --keep-only '*/src/**' > coveralls.json
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7
