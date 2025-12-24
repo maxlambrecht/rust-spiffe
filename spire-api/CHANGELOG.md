@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.9] – 2025-12-24
+
+* Migrated to the Rust 2021 edition.
+* Minimum supported Rust version (MSRV) is now 1.83.
+
 ## [0.3.8] - 2025-12-24
 
 ### What's Changed

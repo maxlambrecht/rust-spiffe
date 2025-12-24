@@ -1,6 +1,6 @@
 [package]
 name = "spire-api"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 rust-version = "1.83"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
@@ -13,7 +13,7 @@ categories = ["cryptography"]
 keywords = ["SPIFFE", "SPIRE"]
 
 [dependencies]
-spiffe = { version = "0.7", path = "../spiffe" }
+spiffe = "0.7.4"
 tonic = { version = "0.14.0", default-features = false, features = ["codegen", "transport"]}
 prost = { version = "0.14.0" }
 tonic-prost = "0.14"
