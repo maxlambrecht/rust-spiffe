@@ -1,17 +1,17 @@
 use spiffe::X509Source;
 use spiffe_rustls::{ClientConfigBuilder, ClientConfigOptions};
 use std::sync::Arc;
-use tonic::Request;
 use tonic::transport::Uri;
-use tonic_rustls::Endpoint;
+use tonic::Request;
 use tonic_rustls::channel::Channel;
+use tonic_rustls::Endpoint;
 
 pub mod helloworld {
     tonic::include_proto!("helloworld");
 }
 
-use helloworld::HelloRequest;
 use helloworld::greeter_client::GreeterClient;
+use helloworld::HelloRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -1,9 +1,9 @@
 //! X.509 bundle types.
 
 use crate::bundle::{Bundle, BundleRefSource};
-use crate::cert::Certificate;
 use crate::cert::errors::CertificateError;
 use crate::cert::parsing::{parse_der_encoded_bytes_as_x509_certificate, to_certificate_vec};
+use crate::cert::Certificate;
 use crate::spiffe_id::TrustDomain;
 use std::collections::HashMap;
 use std::convert::TryFrom;

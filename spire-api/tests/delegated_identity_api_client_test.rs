@@ -7,7 +7,7 @@ mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleRefSource;
     use spiffe::{JwtBundleSet, TrustDomain};
-    use spire_api::{DelegateAttestationRequest, DelegatedIdentityClient, selectors};
+    use spire_api::{selectors, DelegateAttestationRequest, DelegatedIdentityClient};
     use std::process::Command;
     use tokio_stream::StreamExt;
 

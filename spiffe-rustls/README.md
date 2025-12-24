@@ -1,20 +1,24 @@
 # spiffe-rustls
 
+[![Crates.io](https://img.shields.io/crates/v/spiffe-rustls.svg)](https://crates.io/crates/spiffe-rustls)
+[![Docs.rs](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
+![MSRV](https://img.shields.io/badge/MSRV-1.83-blue)
+
 `spiffe-rustls` integrates [`rustls`](https://crates.io/crates/rustls) with SPIFFE/SPIRE using the
-[`spiffe`](https://crates.io/crates/spiffe) crate’s `X509Source` (SPIRE Workload API).
+[`spiffe`](https://crates.io/crates/spiffe) crate’s `X509Source` (SPIFFE Workload API).
 
 It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a **live**
 `X509Source`. When the SPIRE agent rotates SVIDs or trust bundles, **new TLS handshakes automatically
 use the updated material**, without restarting the application.
 
-This crate focuses on **TLS authentication and connection-level authorization via SPIFFE IDs**, while
-delegating cryptography and TLS mechanics to `rustls`.
+The crate focuses on **TLS authentication and connection-level authorization via SPIFFE IDs**, while
+delegating all cryptography and TLS mechanics to `rustls`.
 
 ---
 
 ## Features
 
-`spiffe-rustls` supports multiple `rustls` crypto providers.
+`spiffe-rustls` supports multiple `rustls` crypto providers:
 
 ```toml
 [features]
@@ -26,28 +30,16 @@ aws-lc-rs = ["rustls/aws_lc_rs"]
 * **Default:** `ring`
 * **Optional:** `aws-lc-rs`
 
-Exactly **one** provider must be enabled. Enabling both results in a compile-time error.
+Exactly **one** provider must be enabled. Enabling more than one results in a compile-time error.
 
-To enable `aws-lc-rs`:
+Example (AWS-LC):
 
 ```bash
 cargo add spiffe-rustls --no-default-features --features aws-lc-rs
 ```
 
----
-
-## Crypto providers
-
-* **`ring`**
-  Follows `rustls` defaults and is recommended for general use.
-
-* **`aws-lc-rs`**
-  Targets environments that require AWS-LC–based cryptography (for example, FIPS-aligned systems).
-
-Provider selection affects only cryptographic primitives; **SPIFFE semantics and API behavior are
+Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior are
 identical** across providers.
-`spiffe-rustls` is crypto-provider agnostic and delegates all cryptographic primitives to the selected
-`rustls` crypto provider.
 
 ---
 
@@ -58,13 +50,16 @@ The public API is intentionally small:
 * `ClientConfigBuilder`, `ClientConfigOptions`
 * `ServerConfigBuilder`, `ServerConfigOptions`
 
+Both builders retain an `Arc<X509Source>` and always use the **latest SVIDs and bundles** for new TLS
+handshakes.
+
 ---
 
 ## Builders
 
 ### ClientConfigBuilder
 
-Constructs a `rustls::ClientConfig` that:
+Builds a `rustls::ClientConfig` that:
 
 * presents the current SPIFFE X.509 SVID as the client certificate
 * validates the server certificate chain against the trust domain bundle
@@ -72,14 +67,11 @@ Constructs a `rustls::ClientConfig` that:
 
 ### ServerConfigBuilder
 
-Constructs a `rustls::ServerConfig` that:
+Builds a `rustls::ServerConfig` that:
 
 * presents the current SPIFFE X.509 SVID as the server certificate
 * requires and validates client certificates (mTLS)
 * authorizes the client by SPIFFE ID (URI SAN)
-
-Both builders retain an `Arc<X509Source>` and always use the **latest SVIDs and bundles** for new TLS
-handshakes.
 
 ---
 
@@ -149,8 +141,8 @@ let client_cfg = ClientConfigBuilder::new(source.clone(), opts)
     .await?;
 ```
 
-The resulting `ClientConfig` can be used directly with `rustls`, or integrated into higher-level
-libraries such as `tokio-rustls` or `tonic-rustls`.
+The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
+`tokio-rustls`, `tonic-rustls`, or similar libraries.
 
 ---
 
@@ -160,11 +152,11 @@ libraries such as `tokio-rustls` or `tonic-rustls`.
 
 All examples require:
 
-* A **running SPIRE agent**
-* A valid SPIFFE Workload API socket (`SPIFFE_ENDPOINT_SOCKET`)
-* Local DNS resolution for `example.org`
+* a running **SPIRE agent**
+* a valid Workload API socket (`SPIFFE_ENDPOINT_SOCKET`)
+* local DNS resolution for `example.org`
 
-For local testing, add the following entry to `/etc/hosts`:
+For local testing, add to `/etc/hosts`:
 
 ```text
 127.0.0.1 example.org
@@ -174,32 +166,24 @@ For local testing, add the following entry to `/etc/hosts`:
 
 ### Raw TLS (tokio-rustls)
 
-Direct integration with `rustls` using `tokio-rustls`.
+Direct TLS integration using `tokio-rustls`.
+
+Examples:
 
 * `mtls_tcp_server.rs`
 * `mtls_tcp_client.rs`
-
-Run with:
 
 ```bash
 cargo run --features tcp-examples --example mtls_tcp_server
 cargo run --features tcp-examples --example mtls_tcp_client
 ```
 
-(Optional debug logging)
-
-```bash
-RUST_LOG=debug cargo run --features tcp-examples --example mtls_tcp_server
-```
-
 ---
 
 ### gRPC (tonic + tonic-rustls)
 
-gRPC examples are provided in a **separate crate** `spiffe-rustls-grpc-examples` to avoid pulling gRPC and
+gRPC examples live in a **separate crate** (`spiffe-rustls-grpc-examples`) to avoid pulling gRPC and
 protobuf build dependencies into the library.
-
-To run the gRPC examples:
 
 ```bash
 cargo run -p spiffe-rustls-grpc-examples --bin grpc_server_mtls
@@ -210,12 +194,12 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 
 ## Notes
 
-* All examples rely on the SPIFFE Workload API and do not start or configure SPIRE.
-* TLS name (SNI) verification still applies; the DNS name must match the certificate SAN.
+* Examples rely exclusively on the SPIFFE Workload API; they do not start or configure SPIRE.
+* Standard TLS name (SNI) verification still applies; the DNS name must match the certificate SAN.
 
 ---
 
 ## License
 
-Licensed under the Apache License 2.0.
-See [LICENSE.md](../LICENSE) for details.
+Licensed under the Apache License, Version 2.0.
+See [LICENSE](../LICENSE) for details.

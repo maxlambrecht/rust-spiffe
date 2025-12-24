@@ -34,12 +34,12 @@ use std::error::Error as StdError;
 use std::fmt::Debug;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
-use tokio::time::{Duration, sleep};
+use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
@@ -513,5 +513,9 @@ async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) -> bool {
 
 fn next_backoff(current: Duration, max: Duration) -> Duration {
     let doubled = current.saturating_mul(2);
-    if doubled > max { max } else { doubled }
+    if doubled > max {
+        max
+    } else {
+        doubled
+    }
 }

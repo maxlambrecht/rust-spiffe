@@ -1,4 +1,5 @@
 [workspace]
+resolver = "2"
 members = [
     "spiffe",
     "spire-api",
@@ -6,5 +7,3 @@ members = [
     "spiffe-rustls-grpc-examples",
     "xtask",
 ]
-
-resolver = "2"

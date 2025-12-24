@@ -1,9 +1,9 @@
 use crate::error::Result;
 use crate::resolve::MaterialWatcher;
-use crate::types::{AuthorizeSpiffeId, authorize_any};
+use crate::types::{authorize_any, AuthorizeSpiffeId};
 use crate::verifier::SpiffeClientCertVerifier;
-use rustls::ServerConfig;
 use rustls::server::ResolvesServerCert;
+use rustls::ServerConfig;
 use spiffe::{TrustDomain, X509Source};
 use std::sync::Arc;
 
