@@ -1,6 +1,6 @@
 [package]
 name = "spiffe-rustls"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.83"
 license = "Apache-2.0"
@@ -23,7 +23,7 @@ tcp-examples = ["dep:tokio-rustls"]
 integration-tests = ["dep:tokio-rustls"]
 
 [dependencies]
-spiffe = { version = "0.7", path = "../spiffe" }
+spiffe = "0.7.4"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
