@@ -78,9 +78,6 @@ jobs:
       - name: Build spiffe-rustls examples (tcp)
         run: cargo build -p spiffe-rustls --features tcp-examples --examples
 
-      - name: Build spiffe-rustls examples (grpc)
-        run: cargo build -p spiffe-rustls --features grpc-examples --examples
-
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
