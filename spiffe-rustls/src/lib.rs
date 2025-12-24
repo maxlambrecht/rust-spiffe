@@ -14,7 +14,7 @@
 compile_error!("Enable only one crypto provider feature: `ring` or `aws-lc-rs`.");
 
 #[cfg(not(any(feature = "ring", feature = "aws-lc-rs")))]
-compile_error!("No crypto provider selected. Enable `ring` (default) or `aws-lc-rs`.");
+compile_error!("Enable one crypto provider feature: `ring` (default) or `aws-lc-rs`.");
 
 mod crypto;
 

@@ -1,7 +1,8 @@
 use crate::error::{Error, Result};
+use crate::resolve::MaterialWatcher;
 use crate::types::AuthorizeSpiffeId;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
-use rustls::{DigitallySignedStruct, SignatureScheme};
+use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
 use std::fmt::Debug;
 use std::sync::Arc;
 use x509_parser::prelude::{FromDer, X509Certificate};
@@ -33,18 +34,38 @@ where
     rustls::Error::Other(rustls::OtherError(Arc::new(e)))
 }
 
+/// Provides the current set of trusted root certificates for TLS verification.
+///
+/// This abstraction exists to support dynamic trust bundle rotation (e.g. SPIFFE
+/// bundle updates) without rebuilding `rustls::ClientConfig` / `ServerConfig`
+/// or forcing transport reconnections.
+pub(crate) trait RootsProvider: Send + Sync {
+    fn current_roots(&self) -> Arc<RootCertStore>;
+}
+
+impl RootsProvider for MaterialWatcher {
+    fn current_roots(&self) -> Arc<RootCertStore> {
+        self.current().roots.clone()
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct SpiffeServerCertVerifier {
-    inner: Arc<dyn rustls::client::danger::ServerCertVerifier>,
+    roots: Arc<dyn RootsProvider>,
     authorize: AuthorizeSpiffeId,
 }
 
 impl SpiffeServerCertVerifier {
-    pub fn new(roots: Arc<rustls::RootCertStore>, authorize: AuthorizeSpiffeId) -> Result<Self> {
+    pub fn new(roots: Arc<dyn RootsProvider>, authorize: AuthorizeSpiffeId) -> Result<Self> {
+        Ok(Self { roots, authorize })
+    }
+
+    fn inner(&self) -> Result<Arc<dyn rustls::client::danger::ServerCertVerifier>> {
+        let roots = self.roots.current_roots();
         let inner = rustls::client::WebPkiServerVerifier::builder(roots)
             .build()
             .map_err(|e| Error::VerifierBuilder(format!("{e:?}")))?;
-        Ok(Self { inner, authorize })
+        Ok(inner)
     }
 }
 
@@ -63,13 +84,9 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        let ok = self.inner.verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            ocsp_response,
-            now,
-        )?;
+        let inner = self.inner().map_err(other_err)?;
+        let ok =
+            inner.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)?;
 
         let spiffe_id = extract_spiffe_id(end_entity).map_err(other_err)?;
         if !(self.authorize)(&spiffe_id) {
@@ -85,7 +102,8 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls12_signature(message, cert, dss)
+        let inner = self.inner().map_err(other_err)?;
+        inner.verify_tls12_signature(message, cert, dss)
     }
 
     fn verify_tls13_signature(
@@ -94,26 +112,35 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls13_signature(message, cert, dss)
+        let inner = self.inner().map_err(other_err)?;
+        inner.verify_tls13_signature(message, cert, dss)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.inner.supported_verify_schemes()
+        // If verifier build fails here, returning empty is safer than panicking.
+        self.inner()
+            .map(|v| v.supported_verify_schemes())
+            .unwrap_or_default()
     }
 }
 
 #[derive(Clone)]
 pub(crate) struct SpiffeClientCertVerifier {
-    inner: Arc<dyn rustls::server::danger::ClientCertVerifier>,
+    roots: Arc<dyn RootsProvider>,
     authorize: AuthorizeSpiffeId,
 }
 
 impl SpiffeClientCertVerifier {
-    pub fn new(roots: Arc<rustls::RootCertStore>, authorize: AuthorizeSpiffeId) -> Result<Self> {
+    pub fn new(roots: Arc<dyn RootsProvider>, authorize: AuthorizeSpiffeId) -> Result<Self> {
+        Ok(Self { roots, authorize })
+    }
+
+    fn inner(&self) -> Result<Arc<dyn rustls::server::danger::ClientCertVerifier>> {
+        let roots = self.roots.current_roots();
         let inner = rustls::server::WebPkiClientVerifier::builder(roots)
             .build()
             .map_err(|e| Error::VerifierBuilder(format!("{e:?}")))?;
-        Ok(Self { inner, authorize })
+        Ok(inner)
     }
 }
 
@@ -125,7 +152,7 @@ impl Debug for SpiffeClientCertVerifier {
 
 impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
     fn root_hint_subjects(&self) -> &[rustls::DistinguishedName] {
-        self.inner.root_hint_subjects()
+        &[]
     }
 
     fn verify_client_cert(
@@ -134,9 +161,8 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         intermediates: &[CertificateDer<'_>],
         now: UnixTime,
     ) -> std::result::Result<rustls::server::danger::ClientCertVerified, rustls::Error> {
-        let ok = self
-            .inner
-            .verify_client_cert(end_entity, intermediates, now)?;
+        let inner = self.inner().map_err(other_err)?;
+        let ok = inner.verify_client_cert(end_entity, intermediates, now)?;
 
         let spiffe_id = extract_spiffe_id(end_entity).map_err(other_err)?;
         if !(self.authorize)(&spiffe_id) {
@@ -152,7 +178,8 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls12_signature(message, cert, dss)
+        let inner = self.inner().map_err(other_err)?;
+        inner.verify_tls12_signature(message, cert, dss)
     }
 
     fn verify_tls13_signature(
@@ -161,23 +188,30 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        self.inner.verify_tls13_signature(message, cert, dss)
+        let inner = self.inner().map_err(other_err)?;
+        inner.verify_tls13_signature(message, cert, dss)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.inner.supported_verify_schemes()
+        self.inner()
+            .map(|v| v.supported_verify_schemes())
+            .unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::crypto::ensure_crypto_provider_installed;
     use rustls::RootCertStore;
     use rustls::client::danger::ServerCertVerifier;
     use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
     use rustls::server::danger::ClientCertVerifier;
     use std::sync::Arc;
+
+    fn ensure_provider() {
+        static ONCE: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        ONCE.get_or_init(crate::crypto::ensure_crypto_provider_installed);
+    }
 
     fn cert_with_spiffe() -> CertificateDer<'static> {
         let bytes = include_bytes!(concat!(
@@ -193,6 +227,15 @@ mod tests {
             "/tests/fixtures/no_spiffe_leaf.der"
         ));
         CertificateDer::from(bytes.as_slice())
+    }
+
+    #[derive(Clone)]
+    struct StaticRoots(Arc<RootCertStore>);
+
+    impl RootsProvider for StaticRoots {
+        fn current_roots(&self) -> Arc<RootCertStore> {
+            self.0.clone()
+        }
     }
 
     fn roots_with_ca() -> Arc<RootCertStore> {
@@ -222,9 +265,13 @@ mod tests {
 
     #[test]
     fn server_verifier_rejects_unauthorized_spiffe_id() {
-        ensure_crypto_provider_installed();
+        ensure_provider();
 
-        let verifier = SpiffeServerCertVerifier::new(roots_with_ca(), Arc::new(|_| false)).unwrap();
+        let verifier = SpiffeServerCertVerifier::new(
+            Arc::new(StaticRoots(roots_with_ca())),
+            Arc::new(|_| false),
+        )
+        .unwrap();
 
         let err = verifier
             .verify_server_cert(
@@ -242,9 +289,13 @@ mod tests {
 
     #[test]
     fn client_verifier_rejects_unauthorized_spiffe_id() {
-        ensure_crypto_provider_installed();
+        ensure_provider();
 
-        let verifier = SpiffeClientCertVerifier::new(roots_with_ca(), Arc::new(|_| false)).unwrap();
+        let verifier = SpiffeClientCertVerifier::new(
+            Arc::new(StaticRoots(roots_with_ca())),
+            Arc::new(|_| false),
+        )
+        .unwrap();
 
         let err = verifier
             .verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now())
@@ -256,10 +307,10 @@ mod tests {
 
     #[test]
     fn server_verifier_accepts_authorized_spiffe_id() {
-        ensure_crypto_provider_installed();
+        ensure_provider();
 
         let verifier = SpiffeServerCertVerifier::new(
-            roots_with_ca(),
+            Arc::new(StaticRoots(roots_with_ca())),
             Arc::new(|id| id == "spiffe://example.org/service"),
         )
         .unwrap();
@@ -277,16 +328,15 @@ mod tests {
 
     #[test]
     fn client_verifier_accepts_authorized_spiffe_id() {
-        ensure_crypto_provider_installed();
+        ensure_provider();
 
         let verifier = SpiffeClientCertVerifier::new(
-            roots_with_ca(),
+            Arc::new(StaticRoots(roots_with_ca())),
             Arc::new(|id| id == "spiffe://example.org/service"),
         )
         .unwrap();
 
         let res = verifier.verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now());
-
         assert!(res.is_ok());
     }
 }

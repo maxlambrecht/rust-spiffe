@@ -2,7 +2,10 @@
 
 [![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
-[![Docs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
+
+[![Docs: spiffe](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
+[![Docs: spire-api](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api/)
+[![Docs: spiffe-rustls](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
 
 This repository contains a set of Rust libraries focused on supporting **SPIFFE** and **SPIRE**
 functionality across different layers of the stack.

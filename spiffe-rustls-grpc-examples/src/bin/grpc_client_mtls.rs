@@ -1,5 +1,3 @@
-#![cfg(feature = "grpc-examples")]
-
 use spiffe::X509Source;
 use spiffe_rustls::{ClientConfigBuilder, ClientConfigOptions};
 use std::sync::Arc;
