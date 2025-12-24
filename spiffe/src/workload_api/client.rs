@@ -49,8 +49,8 @@ use tokio_stream::{Stream, StreamExt};
 
 use crate::constants::DEFAULT_SVID;
 use crate::error::GrpcClientError;
-use crate::proto::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
-use crate::proto::workload::{
+use crate::workload_api::pb::spiffe_workload_api_client::SpiffeWorkloadApiClient;
+use crate::workload_api::pb::{
     JwtBundlesRequest, JwtBundlesResponse, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest,
     ValidateJwtsvidResponse, X509BundlesRequest, X509BundlesResponse, X509svidRequest,
     X509svidResponse,

@@ -1,5 +1,5 @@
 //! Selectors conforming to SPIRE standards.
-use crate::proto::spire::api::types::Selector as SpiffeSelector;
+use crate::pb::spire::api::types::Selector as SpiffeSelector;
 
 const K8S_TYPE: &str = "k8s";
 const UNIX_TYPE: &str = "unix";

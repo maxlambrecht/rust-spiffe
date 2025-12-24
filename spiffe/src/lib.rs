@@ -87,14 +87,6 @@ pub mod error;
 pub mod endpoint;
 
 #[cfg(feature = "workload-api")]
-pub(crate) mod proto {
-    #![allow(clippy::all)]
-    pub(crate) mod workload {
-        include!(concat!(env!("OUT_DIR"), "/workload.rs"));
-    }
-}
-
-#[cfg(feature = "workload-api")]
 pub mod workload_api;
 
 // Core SPIFFE types and utilities re-exported for simplified access.
