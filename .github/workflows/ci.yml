@@ -90,3 +90,35 @@ jobs:
       - name: Clean up SPIRE
         if: ${{ always() }}
         run: .github/workflows/scripts/cleanup-spire.sh
+
+  msrv:
+    name: MSRV (Rust 1.83)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          submodules: recursive
+
+      - name: Install Rust 1.83.0
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.83.0
+
+      - name: Cache Project
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          shared-key: ${{ runner.os }}-cargo-msrv-1.83.0
+
+      - name: Build (MSRV)
+        run: |
+          rm -f Cargo.lock
+          cargo build --manifest-path spiffe/Cargo.toml --all-targets
+          cargo build --manifest-path spire-api/Cargo.toml --all-targets
+          cargo build --manifest-path spiffe-rustls/Cargo.toml --all-targets 
+
+      - name: Test (MSRV)
+        run: |
+          cargo test --manifest-path spiffe/Cargo.toml 
+          cargo test --manifest-path spire-api/Cargo.toml 
+          cargo test --manifest-path spiffe-rustls/Cargo.toml 
