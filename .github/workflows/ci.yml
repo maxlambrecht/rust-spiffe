@@ -82,7 +82,10 @@ jobs:
         run: .github/workflows/scripts/run-spire.sh
 
       - name: Run Integration Tests
-        run: cargo test --features integration-tests
+        run: |
+          cargo test --manifest-path spiffe/Cargo.toml --features integration-tests
+          cargo test --manifest-path spire-api/Cargo.toml --features integration-tests
+          cargo test --manifest-path spiffe-rustls/Cargo.toml --features integration-tests       
 
       - name: Clean up SPIRE
         if: ${{ always() }}
