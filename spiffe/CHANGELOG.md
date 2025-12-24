@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.2] – 2025-12-24
+
+### Changed
+
+* Moved protobuf code generation out of build scripts and into an explicit `xtask` workflow.
+* Committed generated Workload API sources.
+
+### Removed
+
+* Removed build-time protobuf generation (`build.rs`) from the `spiffe` crate.
+
+
 ## [0.7.1] - 2025-12-23
 
 ### Added

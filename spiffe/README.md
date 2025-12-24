@@ -26,7 +26,7 @@ Add `spiffe` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.7.1"
+spiffe = "0.7.2"
 ````
 
 This includes both core SPIFFE types and a Workload API client.
