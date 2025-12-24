@@ -3,10 +3,6 @@
 [![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
 
-[![Docs: spiffe](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
-[![Docs: spire-api](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api/)
-[![Docs: spiffe-rustls](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
-
 This repository contains a set of Rust libraries focused on supporting **SPIFFE** and **SPIRE**
 functionality across different layers of the stack.
 
@@ -18,6 +14,7 @@ identity types, SPIRE-specific APIs, and TLS/mTLS integration.
 ## Crates Overview
 
 ### [spiffe](./spiffe)
+[![Docs: spiffe](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
 
 The `spiffe` crate provides a Rust implementation of the
 [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
@@ -37,6 +34,7 @@ General information about SPIFFE is available at [spiffe.io](https://spiffe.io/)
 ---
 
 ### [spire-api](./spire-api)
+[![Docs: spire-api](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api/)
 
 The `spire-api` crate provides Rust bindings for **SPIRE-specific gRPC APIs** that are not part of the
 core SPIFFE standards.
@@ -54,6 +52,7 @@ gRPC APIs beyond the Workload API.
 ---
 
 ### [spiffe-rustls](./spiffe-rustls)
+[![Docs: spiffe-rustls](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
 
 The `spiffe-rustls` crate integrates SPIFFE identity with
 [`rustls`](https://crates.io/crates/rustls) using the `spiffe` crate’s `X509Source`
