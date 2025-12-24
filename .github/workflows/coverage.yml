@@ -38,9 +38,13 @@ jobs:
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      - name: Test core crates (integration-tests)
-        run: cargo test -p spiffe -p spire-api -p spiffe-rustls --features integration-tests
-       
+      - name: Run Tests
+        run: |
+          cargo test --workspace --all-targets --exclude spiffe-rustls-grpc-examples --exclude xtask
+          cargo test --manifest-path spiffe/Cargo.toml --features integration-tests
+          cargo test --manifest-path spire-api/Cargo.toml --features integration-tests
+          cargo test --manifest-path spiffe-rustls/Cargo.toml --features integration-tests       
+
       # Coverage is restricted to hand-written library code.
       # Generated protobuf code, examples, and tooling are intentionally excluded.
       - name: Generate Coveralls JSON Report
