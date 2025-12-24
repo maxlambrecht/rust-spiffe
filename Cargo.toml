@@ -3,6 +3,7 @@ members = [
     "spiffe",
     "spire-api",
     "spiffe-rustls",
+    "xtask",
 ]
 
 resolver = "2"

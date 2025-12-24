@@ -6,13 +6,13 @@
 //! Most importantly, this API cannot be used over the standard endpoint, it must be used over the admin socket.
 //! The admin socket can be configured in the SPIRE agent configuration document.
 
-use crate::proto::spire::api::agent::delegatedidentity::v1::delegated_identity_client::DelegatedIdentityClient as DelegatedIdentityApiClient;
-use crate::proto::spire::api::agent::delegatedidentity::v1::{
+use crate::pb::spire::api::agent::delegatedidentity::v1::delegated_identity_client::DelegatedIdentityClient as DelegatedIdentityApiClient;
+use crate::pb::spire::api::agent::delegatedidentity::v1::{
     FetchJwtsviDsRequest, SubscribeToJwtBundlesRequest, SubscribeToJwtBundlesResponse,
     SubscribeToX509BundlesRequest, SubscribeToX509BundlesResponse, SubscribeToX509sviDsRequest,
     SubscribeToX509sviDsResponse,
 };
-use crate::proto::spire::api::types::Jwtsvid as ProtoJwtSvid;
+use crate::pb::spire::api::types::Jwtsvid as ProtoJwtSvid;
 use spiffe::endpoint::validate_socket_path;
 use spiffe::{JwtBundle, JwtBundleSet, JwtSvid, TrustDomain, X509Bundle, X509BundleSet, X509Svid};
 use tokio_stream::{Stream, StreamExt};

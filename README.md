@@ -4,45 +4,85 @@
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
 [![Docs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
 
-This repository contains a set of Rust libraries focused on supporting SPIFFE and SPIRE
+This repository contains a set of Rust libraries focused on supporting **SPIFFE** and **SPIRE**
 functionality across different layers of the stack.
 
-## [spiffe](./spiffe)
+The workspace is organized as multiple crates, each targeting a specific concern: standards-compliant
+identity types, SPIRE-specific APIs, and TLS/mTLS integration.
 
-The `spiffe` crate enables interaction with the
+---
+
+## Crates Overview
+
+### [spiffe](./spiffe)
+
+The `spiffe` crate provides a Rust implementation of the
 [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
-It supports fetching X.509 and JWT SVIDs, trust bundles, and watch/stream updates.
 
-The types and behaviors in this crate are compliant with
+It supports:
+
+* Fetching X.509 and JWT SVIDs
+* Fetching trust bundles
+* Watching and streaming identity updates via the Workload API
+
+All types and behaviors are compliant with the official
 [SPIFFE standards](https://github.com/spiffe/spiffe/tree/main/standards).
-More information about SPIFFE can be found at [spiffe.io](https://spiffe.io/).
+General information about SPIFFE is available at [spiffe.io](https://spiffe.io/).
 
-- [Read the README](./spiffe/README.md) for usage and API details.
+* See the [spiffe README](./spiffe/README.md) for usage and API details.
 
-## [spire-api](./spire-api)
+---
 
-The `spire-api` crate provides support for SPIRE-specific APIs, including the
-Delegated Identity API and related SPIRE extensions.
+### [spire-api](./spire-api)
 
-- [Read the README](./spire-api/README.md) for more information.
+The `spire-api` crate provides Rust bindings for **SPIRE-specific gRPC APIs** that are not part of the
+core SPIFFE standards.
 
-## [spiffe-rustls](./spiffe-rustls)
+This includes:
+
+* The SPIRE Delegated Identity API
+* Other SPIRE agent and server extensions
+
+This crate is intended for applications or services that need to interact directly with SPIRE’s
+gRPC APIs beyond the Workload API.
+
+* See the [spire-api README](./spire-api/README.md) for details.
+
+---
+
+### [spiffe-rustls](./spiffe-rustls)
 
 The `spiffe-rustls` crate integrates SPIFFE identity with
 [`rustls`](https://crates.io/crates/rustls) using the `spiffe` crate’s `X509Source`
 (SPIRE Workload API).
 
-It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a
-live `X509Source`, enabling automatic use of rotated SVIDs and trust bundles in new TLS
-handshakes. The crate focuses on authentication and connection-level authorization via SPIFFE IDs, while
-delegating cryptography and TLS mechanics to `rustls`.
+It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a **live**
+`X509Source`, ensuring that:
 
-- [Read the README](./spiffe-rustls/README.md) for details and examples.
+* Rotated SVIDs and trust bundles are automatically used for new TLS handshakes
+* Mutual TLS (mTLS) authentication is enforced using SPIFFE identities
+* Connection-level authorization is performed via SPIFFE ID checks
+
+Cryptographic primitives and TLS mechanics are delegated entirely to `rustls`.
+
+* See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration details and examples.
+
+---
+
+## Which crate should I use?
+
+* **You want SPIFFE identity types or Workload API access** → use `spiffe`
+* **You need direct access to SPIRE gRPC APIs** → use `spire-api`
+* **You want mTLS with SPIFFE identities over rustls** → use `spiffe-rustls`
+
+---
 
 ## Getting Started
 
-Follow the links above to the individual README files for detailed information on how to
-use each library.
+Refer to the README of each individual crate for detailed setup instructions, examples, and API
+documentation.
+
+---
 
 ## License
 

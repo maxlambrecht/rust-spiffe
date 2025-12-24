@@ -1,25 +1,22 @@
 #![deny(missing_docs)]
 #![warn(missing_debug_implementations)]
 
-//! This library provides functions to interact with the SPIRE GRPC APIs as defined in the [SDK](https://github.com/spiffe/spire-api-sdk).
+//! Rust client bindings for SPIRE gRPC APIs.
 
-mod proto {
+mod pb {
     #![allow(clippy::all)]
     pub mod spire {
         pub mod api {
             pub mod agent {
                 pub mod delegatedidentity {
                     pub mod v1 {
-                        include!(concat!(
-                            env!("OUT_DIR"),
-                            "/spire.api.agent.delegatedidentity.v1.rs"
-                        ));
+                        include!("pb/spire.api.agent.delegatedidentity.v1.rs");
                     }
                 }
             }
 
             pub mod types {
-                include!(concat!(env!("OUT_DIR"), "/spire.api.types.rs"));
+                include!("pb/spire.api.types.rs");
             }
         }
     }
@@ -28,5 +25,5 @@ mod proto {
 pub mod agent;
 pub mod selectors;
 
-// Core spire-api crate type re-exported for simplified access.
+// Re-exports
 pub use agent::delegated_identity::{DelegateAttestationRequest, DelegatedIdentityClient};

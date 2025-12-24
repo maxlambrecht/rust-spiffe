@@ -3,7 +3,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! 
+//!
 //! use std::error::Error;
 //! use spiffe::WorkloadApiClient;
 //!
@@ -41,5 +41,6 @@
 //! ```
 #![allow(clippy::result_large_err)]
 pub mod client;
+pub mod pb;
 pub mod x509_context;
 pub mod x509_source;

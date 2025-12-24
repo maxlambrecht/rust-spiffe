@@ -33,10 +33,11 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-cargo
 
-      - name: Lint code with rustfmt and clippy
-        run: |
-          cargo +nightly fmt -- --check
-          cargo clippy --all-targets -- -D warnings
+      - name: Rustfmt (check)
+        run: cargo fmt -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   build-and-test:
     name: Build and Test
