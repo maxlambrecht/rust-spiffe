@@ -96,13 +96,13 @@ pub mod workload_api;
 /// Core SPIFFE types and utilities re-exported for simplified access.
 #[cfg(feature = "spiffe-types")]
 pub use crate::{
-    bundle::BundleSource,
     bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet},
     bundle::x509::{X509Bundle, X509BundleError, X509BundleSet},
+    bundle::BundleSource,
     spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain},
-    svid::SvidSource,
     svid::jwt::{JwtSvid, JwtSvidError},
     svid::x509::{X509Svid, X509SvidError},
+    svid::SvidSource,
 };
 
 #[cfg(feature = "workload-api")]

@@ -1,6 +1,6 @@
-use crate::cert::Certificate;
 use crate::cert::errors::CertificateError;
 use crate::cert::parsing::{get_x509_extension, parse_der_encoded_bytes_as_x509_certificate};
+use crate::cert::Certificate;
 use crate::spiffe_id::SpiffeId;
 use crate::svid::x509::X509SvidError;
 use std::convert::TryFrom;

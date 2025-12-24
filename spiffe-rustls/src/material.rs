@@ -1,7 +1,7 @@
 use crate::error::{Error, Result};
 use log::debug;
-use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
+use rustls::RootCertStore;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]

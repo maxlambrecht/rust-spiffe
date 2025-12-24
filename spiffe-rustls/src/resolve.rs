@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::material::{MaterialSnapshot, certified_key_from_der, roots_from_bundle_der};
+use crate::material::{certified_key_from_der, roots_from_bundle_der, MaterialSnapshot};
 use log::{debug, error, info};
 use spiffe::{BundleSource, SvidSource, TrustDomain, X509Source};
 use std::sync::Arc;

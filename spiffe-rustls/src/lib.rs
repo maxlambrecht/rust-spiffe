@@ -29,4 +29,4 @@ mod verifier;
 pub use client::{ClientConfigBuilder, ClientConfigOptions};
 pub use error::{Error, Result};
 pub use server::{ServerConfigBuilder, ServerConfigOptions};
-pub use types::{AuthorizeSpiffeId, authorize_any, authorize_exact};
+pub use types::{authorize_any, authorize_exact, AuthorizeSpiffeId};

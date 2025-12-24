@@ -1,5 +1,5 @@
-use crate::cert::Certificate;
 use crate::cert::errors::CertificateError;
+use crate::cert::Certificate;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::der_parser::oid::Oid;
 use x509_parser::error::X509Error;
