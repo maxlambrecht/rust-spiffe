@@ -89,18 +89,27 @@ pub mod endpoint;
 #[cfg(feature = "workload-api")]
 pub mod workload_api;
 
-// Core SPIFFE types and utilities re-exported for simplified access.
-pub use bundle::BundleSource;
-pub use bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
-pub use bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
-pub use spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
-pub use svid::SvidSource;
-pub use svid::jwt::{JwtSvid, JwtSvidError};
-pub use svid::x509::{X509Svid, X509SvidError};
+// -----------------------
+// Re-exports
+// -----------------------
+
+/// Core SPIFFE types and utilities re-exported for simplified access.
+#[cfg(feature = "spiffe-types")]
+pub use crate::{
+    bundle::BundleSource,
+    bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet},
+    bundle::x509::{X509Bundle, X509BundleError, X509BundleSet},
+    spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain},
+    svid::SvidSource,
+    svid::jwt::{JwtSvid, JwtSvidError},
+    svid::x509::{X509Svid, X509SvidError},
+};
 
 #[cfg(feature = "workload-api")]
-pub use workload_api::client::WorkloadApiClient;
+pub use crate::workload_api::client::WorkloadApiClient;
+
 #[cfg(feature = "workload-api")]
-pub use workload_api::x509_context::X509Context;
+pub use crate::workload_api::x509_context::X509Context;
+
 #[cfg(feature = "workload-api")]
-pub use workload_api::x509_source::{X509Source, X509SourceBuilder};
+pub use crate::workload_api::x509_source::{X509Source, X509SourceBuilder};
