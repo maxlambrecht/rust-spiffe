@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.8] - 2025-12-24
+
+### What's Changed
+
+* Removed build-time protobuf generation (`build.rs`).
+* Committed generated SPIRE API bindings.
+* Update spiffe requirement to 0.7.3
+
 ## [0.3.7] - 2025-12-23
 
 ### What's Changed

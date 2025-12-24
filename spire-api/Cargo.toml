@@ -16,7 +16,7 @@ keywords = ["SPIFFE", "SPIRE"]
 # - Create a new tag (e.g. spire-api-0.3.7)
 
 [dependencies]
-spiffe = { version = "0.7.0", path = "../spiffe", default-features = false, features = ["spiffe-types"] }
+spiffe = "0.7.3"
 tonic = { version = "0.14.0", default-features = false, features = ["codegen", "transport"]}
 prost = { version = "0.14.0" }
 tonic-prost = "0.14"
