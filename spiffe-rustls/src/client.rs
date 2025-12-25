@@ -7,7 +7,9 @@ use rustls::ClientConfig;
 use spiffe::{TrustDomain, X509Source};
 use std::sync::Arc;
 
-/// Options for building a SPIFFE-aware `rustls::ClientConfig`.
+/// Configuration options for [`ClientConfigBuilder`].
+///
+/// These options control trust bundle selection and server authorization.
 #[derive(Clone)]
 pub struct ClientConfigOptions {
     /// Trust domain whose bundle is used as the verification root set.
@@ -15,14 +17,16 @@ pub struct ClientConfigOptions {
 
     /// Authorization hook invoked with the server SPIFFE ID.
     ///
-    /// Returning `false` rejects the peer even if the certificate chain is valid.
+    /// The hook receives the SPIFFE ID extracted from the server certificate’s
+    /// URI SAN and must return `true` to allow the connection.
     pub authorize_server: AuthorizeSpiffeId,
 }
 
 impl ClientConfigOptions {
-    /// Creates options that accept any server SPIFFE ID for the given trust domain.
+    /// Creates options that authenticate the server but allow any SPIFFE ID.
     ///
-    /// Authentication still happens via bundle verification; only authorization is permissive.
+    /// This disables authorization while retaining full TLS authentication.
+    /// Use only if authorization is performed at another layer.
     pub fn allow_any(trust_domain: TrustDomain) -> Self {
         Self {
             trust_domain,
@@ -31,14 +35,26 @@ impl ClientConfigOptions {
     }
 }
 
-/// Builds a `rustls::ClientConfig` backed by an [`spiffe::X509Source`].
+/// Builds a [`rustls::ClientConfig`] backed by a live SPIFFE `X509Source`.
 ///
-/// The resulting config:
-/// - presents the current SVID as the client certificate
-/// - verifies server certificates using the trust domain bundle
-/// - authorizes the server by SPIFFE ID (URI SAN)
+/// The resulting client configuration:
 ///
-/// New handshakes use the latest SVID/bundle material after rotations.
+/// * presents the current SPIFFE X.509 SVID as the client certificate
+/// * validates the server certificate chain against the trust domain bundle
+/// * authorizes the server by SPIFFE ID (URI SAN)
+///
+/// The builder retains an `Arc<X509Source>`. When the underlying SVID or trust
+/// bundle is rotated by the SPIRE agent, **new TLS handshakes automatically use
+/// the updated material**.
+///
+/// ## Authorization
+///
+/// Server authorization is performed by invoking the provided
+/// [`AuthorizeSpiffeId`] hook with the server’s SPIFFE ID extracted from the
+/// certificate’s URI SAN.
+///
+/// Use [`ClientConfigOptions::allow_any`] to disable authorization while
+/// retaining full TLS authentication.
 pub struct ClientConfigBuilder {
     source: Arc<X509Source>,
     opts: ClientConfigOptions,

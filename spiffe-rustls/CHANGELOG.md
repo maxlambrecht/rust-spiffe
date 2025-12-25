@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.3] – 2025-12-24
+
+* Documentation improvements only. No functional changes.
+
+
 ## [0.1.2] – 2025-12-24
 
 * Migrated to the Rust 2021 edition.

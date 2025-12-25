@@ -16,46 +16,57 @@ delegating all cryptography and TLS mechanics to `rustls`.
 
 ---
 
-## Features
+## Quick start
 
-`spiffe-rustls` supports multiple `rustls` crypto providers:
+### 1. Create an X509Source
 
-```toml
-[features]
-default = ["ring"]
-ring = ["rustls/ring"]
-aws-lc-rs = ["rustls/aws_lc_rs"]
+The source is configured via `SPIFFE_ENDPOINT_SOCKET`:
+
+```rust
+let source = spiffe::X509Source::new().await?;
 ````
 
-* **Default:** `ring`
-* **Optional:** `aws-lc-rs`
+---
 
-Exactly **one** provider must be enabled. Enabling more than one results in a compile-time error.
+### 2. Build a rustls client configuration
 
-Example (AWS-LC):
+```rust
+use spiffe_rustls::{ClientConfigBuilder, ClientConfigOptions};
+use std::sync::Arc;
 
-```bash
-cargo add spiffe-rustls --no-default-features --features aws-lc-rs
+let opts = ClientConfigOptions {
+    trust_domain: "example.org".try_into()?,
+    // Authorize the server by its SPIFFE ID (connection-level authorization)
+    authorize_server: Arc::new(|id: &str| {
+        id == "spiffe://example.org/myservice"
+    }),
+};
+
+let client_cfg = ClientConfigBuilder::new(source.clone(), opts)
+    .build()
+    .await?;
 ```
 
-Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior are
-identical** across providers.
+The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
+`tokio-rustls`, `tonic-rustls`, or similar libraries.
 
 ---
 
-## Public API
+## API overview
 
-The public API is intentionally small:
+The public API is intentionally small and consists of two builders:
 
-* `ClientConfigBuilder`, `ClientConfigOptions`
-* `ServerConfigBuilder`, `ServerConfigOptions`
+* `ClientConfigBuilder`
+* `ServerConfigBuilder`
 
-Both builders retain an `Arc<X509Source>` and always use the **latest SVIDs and bundles** for new TLS
-handshakes.
+Each builder:
+
+* retains an `Arc<X509Source>`
+* builds a `rustls::{ClientConfig, ServerConfig}`
+* always uses the **latest SVIDs and trust bundles**
+* authorizes peers by SPIFFE ID (URI SAN)
 
 ---
-
-## Builders
 
 ### ClientConfigBuilder
 
@@ -64,6 +75,8 @@ Builds a `rustls::ClientConfig` that:
 * presents the current SPIFFE X.509 SVID as the client certificate
 * validates the server certificate chain against the trust domain bundle
 * authorizes the server by SPIFFE ID (URI SAN)
+
+---
 
 ### ServerConfigBuilder
 
@@ -111,38 +124,30 @@ authentication.
 
 ---
 
-## Quick start
+## Features
 
-### 1. Create an X509Source
+`spiffe-rustls` supports multiple `rustls` crypto providers:
 
-The source is configured via `SPIFFE_ENDPOINT_SOCKET`:
-
-```rust
-let source = spiffe::X509Source::new().await?;
+```toml
+[features]
+default = ["ring"]
+ring = ["rustls/ring"]
+aws-lc-rs = ["rustls/aws_lc_rs"]
 ```
 
----
+* **Default:** `ring`
+* **Optional:** `aws-lc-rs`
 
-### 2. Build a rustls client configuration
+Exactly **one** provider must be enabled. Enabling more than one results in a compile-time error.
 
-```rust
-use spiffe_rustls::{ClientConfigBuilder, ClientConfigOptions};
-use std::sync::Arc;
+Example (AWS-LC):
 
-let opts = ClientConfigOptions {
-    trust_domain: "example.org".try_into()?,
-    authorize_server: Arc::new(|id: &str| {
-        id == "spiffe://example.org/myservice"
-    }),
-};
-
-let client_cfg = ClientConfigBuilder::new(source.clone(), opts)
-    .build()
-    .await?;
+```bash
+cargo add spiffe-rustls --no-default-features --features aws-lc-rs
 ```
 
-The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
-`tokio-rustls`, `tonic-rustls`, or similar libraries.
+Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior are
+identical** across providers.
 
 ---
 
