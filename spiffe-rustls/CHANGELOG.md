@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0] – 2025-12-26
+
+### Changed
+- Updated dependency to `spiffe 0.8.0`.
+- Made `ClientConfigBuilder::build()` and `ServerConfigBuilder::build()` synchronous (removed async/await).
+- Refactored material construction to use `rustls::pki_types::CertificateDer` and renamed helpers for clarity.
+- Added generation tracking to material snapshots and implemented verifier caching keyed by generation.
+- Tightened crate linting and documentation policy (`missing_docs`, `unsafe_code`, clippy incl. `pedantic`).
+
+### Fixed
+- Improved internal correctness and performance under trust bundle rotation by avoiding verifier rebuilds on every handshake.
+
+### Notes
+- Building configs now requires a Tokio runtime to spawn the rotation watcher; initialization returns an error if no runtime is available.
+
+
 ## [0.1.3] – 2025-12-24
 
 * Documentation improvements only. No functional changes.
