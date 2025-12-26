@@ -37,8 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         source.clone(),
         ServerConfigOptions::allow_any("example.org".try_into()?),
     )
-    .build()
-    .await?;
+    .build()?;
 
     // gRPC requires HTTP/2 via ALPN.
     server_cfg.alpn_protocols = vec![b"h2".to_vec()];

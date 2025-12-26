@@ -20,9 +20,7 @@ async fn main() -> anyhow::Result<()> {
 
     let opts = ServerConfigOptions::allow_any("example.org".try_into()?);
 
-    let server_cfg = ServerConfigBuilder::new(source.clone(), opts)
-        .build()
-        .await?;
+    let server_cfg = ServerConfigBuilder::new(source.clone(), opts).build()?;
     let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
 
     let addr = "127.0.0.1:8443";
@@ -66,6 +64,6 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    source.shutdown().await?;
+    source.shutdown().await;
     Ok(())
 }

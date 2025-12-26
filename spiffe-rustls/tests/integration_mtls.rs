@@ -17,15 +17,13 @@ async fn integration_mtls() -> Result<(), Box<dyn std::error::Error>> {
         source.clone(),
         ServerConfigOptions::allow_any("example.org".try_into()?),
     )
-    .build()
-    .await?;
+    .build()?;
 
     let client_cfg = ClientConfigBuilder::new(
         source.clone(),
         ClientConfigOptions::allow_any("example.org".try_into()?),
     )
-    .build()
-    .await?;
+    .build()?;
 
     let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
     let connector = TlsConnector::from(Arc::new(client_cfg));
@@ -45,6 +43,6 @@ async fn integration_mtls() -> Result<(), Box<dyn std::error::Error>> {
     let _tls = connector.connect(server_name, tcp).await?;
 
     server.await?;
-    source.shutdown().await?;
+    source.shutdown().await;
     Ok(())
 }

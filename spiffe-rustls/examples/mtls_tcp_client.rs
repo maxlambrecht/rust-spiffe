@@ -20,9 +20,7 @@ async fn main() -> anyhow::Result<()> {
         }),
     };
 
-    let client_cfg = ClientConfigBuilder::new(source.clone(), opts)
-        .build()
-        .await?;
+    let client_cfg = ClientConfigBuilder::new(source.clone(), opts).build()?;
     let connector = TlsConnector::from(Arc::new(client_cfg));
 
     let tcp = TcpStream::connect("127.0.0.1:8443").await?;
@@ -42,6 +40,6 @@ async fn main() -> anyhow::Result<()> {
 
     let _ = tls.shutdown().await;
 
-    source.shutdown().await?;
+    source.shutdown().await;
     Ok(())
 }

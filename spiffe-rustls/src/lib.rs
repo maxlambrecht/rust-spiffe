@@ -1,3 +1,11 @@
+#![deny(missing_docs)]
+#![deny(unsafe_code)]
+#![warn(missing_debug_implementations)]
+#![warn(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::must_use_candidate)]
+
 //! # spiffe-rustls
 //!
 //! `spiffe-rustls` integrates [`rustls`] with SPIFFE/SPIRE using a live
@@ -28,9 +36,7 @@
 //!     }),
 //! };
 //!
-//! let client_config = ClientConfigBuilder::new(source, opts)
-//!     .build()
-//!     .await?;
+//! let client_config = ClientConfigBuilder::new(source, opts).build()?;
 //! # Ok(())
 //! # }
 //! ```

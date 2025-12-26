@@ -6,7 +6,7 @@ rust-version = "1.83"
 publish = false
 
 [dependencies]
-spiffe = "0.7.4"
+spiffe = "0.8.0"
 spiffe-rustls = { path = "../spiffe-rustls", features = ["ring"] }
 
 # gRPC stack

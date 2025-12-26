@@ -32,9 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     // Build rustls client config backed by SPIFFE X509Source.
-    let mut client_cfg = ClientConfigBuilder::new(source.clone(), opts)
-        .build()
-        .await?;
+    let mut client_cfg = ClientConfigBuilder::new(source.clone(), opts).build()?;
 
     // gRPC requires HTTP/2 via ALPN.
     client_cfg.alpn_protocols = vec![b"h2".to_vec()];
