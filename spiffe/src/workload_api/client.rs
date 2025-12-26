@@ -439,8 +439,10 @@ impl WorkloadApiClient {
     /// stream item fails to be received or parsed.
     pub async fn stream_x509_svids(
         &self,
-    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + Send + 'static, GrpcClientError>
-    {
+    ) -> Result<
+        impl Stream<Item = Result<X509Svid, GrpcClientError>> + Send + 'static,
+        GrpcClientError,
+    > {
         let request = X509svidRequest::default();
 
         let mut client = self.client.clone();
@@ -462,8 +464,10 @@ impl WorkloadApiClient {
     /// established or the initial request fails.
     pub async fn stream_x509_bundles(
         &self,
-    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + Send + 'static, GrpcClientError>
-    {
+    ) -> Result<
+        impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + Send + 'static,
+        GrpcClientError,
+    > {
         let request = X509BundlesRequest::default();
 
         let mut client = self.client.clone();
@@ -485,8 +489,10 @@ impl WorkloadApiClient {
     /// established or the initial request fails.
     pub async fn stream_jwt_bundles(
         &self,
-    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + Send + 'static, GrpcClientError>
-    {
+    ) -> Result<
+        impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + Send + 'static,
+        GrpcClientError,
+    > {
         let request = JwtBundlesRequest::default();
 
         let mut client = self.client.clone();
