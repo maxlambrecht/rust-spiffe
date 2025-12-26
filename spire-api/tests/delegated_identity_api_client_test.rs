@@ -2,7 +2,7 @@
 // In addition it requires the admin endpoint to be exposed, and the running user to registered
 // as an authorized_delegate.
 
-// #[cfg(feature = "integration-tests")]
+#[cfg(feature = "integration-tests")]
 mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleSource;
