@@ -1,6 +1,17 @@
 // Generated protobuf bindings.
 // Regenerate with: `cargo run -p xtask -- gen spiffe` from the repo root.
-#![allow(clippy::all)]
-#![allow(missing_docs)]
+#![cfg(feature = "workload-api")]
 
-include!("workload.rs");
+#[allow(
+    missing_docs,
+    clippy::all,
+    clippy::pedantic,
+    clippy::module_name_repetitions,
+    dead_code,
+    non_camel_case_types,
+    non_snake_case,
+    non_upper_case_globals,
+    unused_imports,
+    unused_qualifications
+)]
+pub mod workload;

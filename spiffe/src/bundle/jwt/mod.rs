@@ -1,26 +1,24 @@
 //! JWT bundle types.
 
-use std::collections::HashMap;
-
-use jsonwebtoken::jwk::{Jwk, JwkSet};
-use thiserror::Error;
-
-use crate::bundle::{Bundle, BundleRefSource};
 use crate::spiffe_id::TrustDomain;
+use crate::BundleSource;
+use jsonwebtoken::jwk::{Jwk, JwkSet};
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::sync::Arc;
+use thiserror::Error;
 
 /// This type contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundle {
     trust_domain: TrustDomain,
-    jwt_authorities: HashMap<String, Jwk>,
+    jwt_authorities: HashMap<String, Arc<Jwk>>,
 }
-
-impl Bundle for JwtBundle {}
 
 /// This type contains a set of [`JwtBundle`], keyed by [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundleSet {
-    bundles: HashMap<TrustDomain, JwtBundle>,
+    bundles: HashMap<TrustDomain, Arc<JwtBundle>>,
 }
 
 /// An error that can arise creating a new [`JwtBundle`].
@@ -54,7 +52,7 @@ impl JwtBundle {
     ///
     /// # Errors
     ///
-    /// If the function cannot parse the bytes into a JSON WebKey Set, a [`JwtBundleError`] variant will be returned.
+    /// If the function cannot parse the bytes into a JSON `WebKey` Set, a [`JwtBundleError`] variant will be returned.
     ///
     /// # Examples
     ///
@@ -86,15 +84,17 @@ impl JwtBundle {
         trust_domain: TrustDomain,
         jwt_authorities: &[u8],
     ) -> Result<Self, JwtBundleError> {
-        let mut authorities = HashMap::new();
         let jwk_set: JwkSet = serde_json::from_slice(jwt_authorities)?;
 
-        for key in jwk_set.keys.into_iter() {
-            let key_id = match &key.common.key_id {
-                Some(k) => k,
-                None => return Err(JwtBundleError::MissingKeyId),
-            };
-            authorities.insert(key_id.to_owned(), key);
+        let mut authorities: HashMap<String, Arc<Jwk>> = HashMap::new();
+        for key in jwk_set.keys {
+            let key_id = key
+                .common
+                .key_id
+                .as_deref()
+                .ok_or(JwtBundleError::MissingKeyId)?;
+
+            authorities.insert(key_id.to_owned(), Arc::new(key));
         }
 
         Ok(Self {
@@ -102,19 +102,27 @@ impl JwtBundle {
             jwt_authorities: authorities,
         })
     }
+
     /// Returns the [`JwtAuthority`] with the given key ID.
-    pub fn find_jwt_authority(&self, key_id: &str) -> Option<&Jwk> {
+    pub fn find_jwt_authority(&self, key_id: &str) -> Option<&Arc<Jwk>> {
         self.jwt_authorities.get(key_id)
     }
 
     /// Adds a [`JwtAuthority`] to the bundle.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`JwtBundleError::MissingKeyId`] if the authority does not contain
+    /// a key ID.
     pub fn add_jwt_authority(&mut self, authority: Jwk) -> Result<(), JwtBundleError> {
-        let key_id = match &authority.common.key_id {
-            Some(k) => k.to_owned(),
-            None => return Err(JwtBundleError::MissingKeyId),
-        };
+        let key_id = authority
+            .common
+            .key_id
+            .as_deref()
+            .ok_or(JwtBundleError::MissingKeyId)?
+            .to_owned();
 
-        self.jwt_authorities.insert(key_id, authority);
+        self.jwt_authorities.insert(key_id, Arc::new(authority));
         Ok(())
     }
 
@@ -135,11 +143,12 @@ impl JwtBundleSet {
     /// Adds a new [`JwtBundle`] into the set. If a bundle already exists for the
     /// trust domain, the existing bundle is replaced.
     pub fn add_bundle(&mut self, bundle: JwtBundle) {
-        self.bundles.insert(bundle.trust_domain().clone(), bundle);
+        let trust_domain = bundle.trust_domain().clone();
+        self.bundles.insert(trust_domain, Arc::new(bundle));
     }
 
-    /// Returns the [`JwtBundle`] associated to the given [`TrustDomain`].
-    pub fn get_bundle(&self, trust_domain: &TrustDomain) -> Option<&JwtBundle> {
+    /// Returns the [`JwtBundle`] associated with the given [`TrustDomain`].
+    pub fn bundle_for(&self, trust_domain: &TrustDomain) -> Option<&Arc<JwtBundle>> {
         self.bundles.get(trust_domain)
     }
 }
@@ -150,15 +159,15 @@ impl Default for JwtBundleSet {
     }
 }
 
-impl BundleRefSource for JwtBundleSet {
+impl BundleSource for JwtBundleSet {
     type Item = JwtBundle;
+    type Error = Infallible;
 
-    /// Returns the [`JwtBundle`] associated to the given [`TrustDomain`].
-    fn get_bundle_for_trust_domain(
+    fn bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn std::error::Error + Send + Sync + 'static>> {
-        Ok(self.bundles.get(trust_domain))
+    ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
+        Ok(self.bundles.get(trust_domain).cloned())
     }
 }
 

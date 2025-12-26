@@ -1,31 +1,32 @@
-//! Certificate and PrivateKey types and functions.
+//! `Certificate` and `PrivateKey` types and helpers.
+//!
+//! These types wrap DER-encoded bytes and validate them at construction time.
 
-use crate::cert::errors::{CertificateError, PrivateKeyError};
+use crate::cert::error::{CertificateError, PrivateKeyError};
 use crate::cert::parsing::parse_der_encoded_bytes_as_x509_certificate;
 use pkcs8::PrivateKeyInfo;
 use std::convert::TryFrom;
 use zeroize::Zeroize;
 
-pub mod errors;
+pub mod error;
 pub(crate) mod parsing;
 
-/// This type contains a single certificate by value.
+/// A single DER-encoded X.509 certificate.
 ///
-/// The certificate is a DER-encoded (binary format) X.509.
-///
-/// When an instance is created, it is checked that the bytes
-/// represent a parseable DER-encoded X.509 certificate.
+/// Invariant: instances are always validated as parseable DER-encoded X.509.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Certificate(Vec<u8>);
 
 impl Certificate {
-    /// Returns the content of the certificate as a slice of bytes.
-    pub fn content(&self) -> &[u8] {
+    /// Returns the certificate bytes.
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 
-    pub(crate) fn from_der_bytes(bytes: Vec<u8>) -> Self {
-        Self(bytes)
+    /// Constructs a certificate from DER bytes, validating them.
+    pub(crate) fn from_der_bytes(bytes: Vec<u8>) -> Result<Self, CertificateError> {
+        parse_der_encoded_bytes_as_x509_certificate(&bytes)?;
+        Ok(Self(bytes))
     }
 }
 impl AsRef<[u8]> for Certificate {
@@ -52,18 +53,18 @@ impl TryFrom<Vec<u8>> for Certificate {
     }
 }
 
-/// This type contains a private key by value.
+/// A DER-encoded private key in PKCS#8 format.
 ///
-/// The private key is be DER-encoded (binary format) ASN.1 in PKCS#8 format.
+/// Invariant: instances are always validated as parseable PKCS#8.
 ///
-/// The struct is zeroized on drop.
+/// This type is zeroized on drop.
 #[derive(Debug, Clone, Eq, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct PrivateKey(Vec<u8>);
 
 impl PrivateKey {
-    /// Returns the content of the private key as a slice of bytes.
-    pub fn content(&self) -> &[u8] {
+    /// Returns the private key bytes.
+    pub fn as_bytes(&self) -> &[u8] {
         &self.0
     }
 }
@@ -78,7 +79,7 @@ impl TryFrom<&[u8]> for PrivateKey {
     type Error = PrivateKeyError;
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-        // validate that the bytes are a valid private key
+        // Validate that the bytes are a valid PKCS#8 private key.
         PrivateKeyInfo::try_from(bytes).map_err(PrivateKeyError::DecodePkcs8)?;
         Ok(Self(Vec::from(bytes)))
     }
@@ -88,7 +89,7 @@ impl TryFrom<Vec<u8>> for PrivateKey {
     type Error = PrivateKeyError;
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
-        // validate that the bytes are a valid private key
+        // Validate that the bytes are a valid PKCS#8 private key.
         PrivateKeyInfo::try_from(bytes.as_slice()).map_err(PrivateKeyError::DecodePkcs8)?;
         Ok(Self(bytes))
     }

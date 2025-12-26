@@ -2,26 +2,25 @@
 
 mod validations;
 
-use crate::cert::errors::{CertificateError, PrivateKeyError};
+use crate::cert::error::{CertificateError, PrivateKeyError};
 use crate::cert::parsing::to_certificate_vec;
 use crate::cert::{Certificate, PrivateKey};
 use crate::spiffe_id::{SpiffeId, SpiffeIdError};
 use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
-use crate::svid::Svid;
 use std::convert::TryFrom;
+use std::sync::Arc;
 
-/// This type represents a [SPIFFE X509-SVID](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md).
+/// This type represents a SPIFFE X.509-SVID.
 ///
-/// Contains a [`SpiffeId`], a certificate chain as a vec of DER-encoded X.509 certificates,
-/// and a private key as a DER-encoded ASN.1 in PKCS#8 format.
+/// Contains a [`SpiffeId`], a certificate chain as DER-encoded X.509 certificates,
+/// and a private key as DER-encoded PKCS#8.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Svid {
     spiffe_id: SpiffeId,
     cert_chain: Vec<Certificate>,
     private_key: PrivateKey,
+    hint: Option<Arc<str>>,
 }
-
-impl Svid for X509Svid {}
 
 /// An error that may arise trying to parse a [`X509Svid`] from a `DER` encoded
 /// chain of certificates and private key.
@@ -46,15 +45,15 @@ pub enum X509SvidError {
 
     /// 'digitalSignature' as key usage must be present in leaf certificate.
     #[error("leaf certificate must have 'digitalSignature' set as key usage")]
-    LeafCertificatedNoDigitalSignature,
+    LeafCertificateMissingDigitalSignature,
 
     /// 'CA' flag must be set in intermediate certificate.
     #[error("signing certificate must have CA flag set to true")]
-    SigningCertificatedNoCa,
+    SigningCertificateMissingCaFlag,
 
     /// 'keyCertSign' as key usage must be present in intermediate certificate.
     #[error("signing certificate must have 'keyCertSign' set as key usage")]
-    SigningCertificatedNoKeyCertSign,
+    SigningCertificateMissingKeyCertSign,
 
     /// No URI Subject Alternative Names found.
     #[error("leaf certificate misses the SPIFFE-ID in the URI SAN")]
@@ -74,27 +73,48 @@ pub enum X509SvidError {
 }
 
 impl X509Svid {
-    /// Creates a `X509Svid` from certificate chain and key ASN.1 DER-encoded data (binary format).
+    /// Creates a `X509Svid` from certificate chain and private key DER-encoded data.
     ///
     /// # Arguments
-    ///
-    /// * `cert_chain_der` - Slice of bytes representing a chain of certificates as ASN.1 DER-encoded (concatenated
-    ///   with no intermediate padding if there are more than one certificate).
-    ///
-    /// * `private_key_der` - Slice of bytes representing a private key as ASN.1 DER in PKCS#8 format.
+    /// * `cert_chain_der` - DER-encoded (concatenated) certificate chain (no padding between certs).
+    /// * `private_key_der` - DER-encoded PKCS#8 private key.
     ///
     /// # Errors
-    ///
-    /// If the function cannot parse the inputs, a [`X509SvidError`] variant will be returned.
+    /// Returns [`X509SvidError`] if parsing or validation fails.
     pub fn parse_from_der(
         cert_chain_der: &[u8],
         private_key_der: &[u8],
     ) -> Result<Self, X509SvidError> {
+        Self::parse_from_der_with_hint(cert_chain_der, private_key_der, None)
+    }
+
+    /// Creates a [`X509Svid`] from a certificate chain and private key, with an optional usage hint.
+    ///
+    /// The `hint` is an operator-provided string supplied by the SPIFFE Workload API
+    /// to convey guidance on how the SVID should be used when multiple SVIDs are
+    /// available (e.g. `"internal"`, `"external"`). The hint is optional and may be
+    /// absent.
+    ///
+    /// # Arguments
+    ///
+    /// * `cert_chain_der` - DER-encoded (concatenated) X.509 certificate chain
+    ///   (no padding between certificates).
+    /// * `private_key_der` - DER-encoded PKCS#8 private key.
+    /// * `hint` - Optional usage hint associated with this SVID.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`X509SvidError`] if parsing or validation of the certificate chain
+    /// or private key fails.
+    pub fn parse_from_der_with_hint(
+        cert_chain_der: &[u8],
+        private_key_der: &[u8],
+        hint: Option<Arc<str>>,
+    ) -> Result<Self, X509SvidError> {
         let cert_chain = to_certificate_vec(cert_chain_der)?;
 
-        let leaf = match cert_chain.first() {
-            None => return Err(X509SvidError::EmptyChain),
-            Some(c) => c,
+        let Some(leaf) = cert_chain.first() else {
+            return Err(X509SvidError::EmptyChain);
         };
 
         let spiffe_id = validate_leaf_certificate(leaf)?;
@@ -105,6 +125,7 @@ impl X509Svid {
             spiffe_id,
             cert_chain,
             private_key,
+            hint,
         })
     }
 
@@ -113,19 +134,23 @@ impl X509Svid {
         &self.spiffe_id
     }
 
-    /// Returns the chain of [`Certificate`] of the `X509Svid`. The first certificate in the
-    /// chain is the leaf certificate.
-    pub fn cert_chain(&self) -> &Vec<Certificate> {
+    /// Returns the certificate chain. The first certificate is the leaf certificate.
+    pub fn cert_chain(&self) -> &[Certificate] {
         &self.cert_chain
     }
 
-    /// Returns the leaf certificate of the chain.
+    /// Returns the leaf certificate.
     pub fn leaf(&self) -> &Certificate {
         &self.cert_chain[0]
     }
 
-    /// Returns the private key of the `X509Svid`.
+    /// Returns the private key.
     pub fn private_key(&self) -> &PrivateKey {
         &self.private_key
+    }
+
+    /// Returns the optional hint provided by the Workload API.
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
     }
 }

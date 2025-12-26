@@ -1,5 +1,10 @@
 #![deny(missing_docs)]
+#![deny(unsafe_code)]
 #![warn(missing_debug_implementations)]
+#![warn(clippy::all)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::must_use_candidate)]
 
 //! This crate provides Rust bindings for the
 //! [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
@@ -15,9 +20,10 @@
 //! ## X.509 (recommended)
 //!
 //! ```no_run
+//! # #[cfg(feature = "workload-api")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use spiffe::{TrustDomain, X509Source};
 //!
-//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Connect to the Workload API using SPIFFE_ENDPOINT_SOCKET
 //! let source = X509Source::new().await?;
 //!
@@ -33,22 +39,21 @@
 //!
 //! // Access trust bundles by trust domain
 //! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let bundle = context.bundle_set().get_bundle(&trust_domain).unwrap();
+//! let _bundle = context.bundle_set().bundle_for(&trust_domain).unwrap();
 //!
-//! # source.shutdown().await?;
+//! source.shutdown().await;
 //! # Ok(())
 //! # }
 //! ```
 //!
 //! ## JWT SVIDs
 //!
-//! JWT-based identity is supported via [`WorkloadApiClient`] and related types.
-//!
 //! ```no_run
-//! use spiffe::{JwtSvid, WorkloadApiClient};
-//!
+//! # #[cfg(feature = "workload-api")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let mut client = WorkloadApiClient::default().await?;
+//! use spiffe::WorkloadApiClient;
+//!
+//! let mut client = WorkloadApiClient::connect_env().await?;
 //!
 //! let audiences = &["service-a"];
 //! let jwt_svid = client.fetch_jwt_svid(audiences, None).await?;
@@ -57,48 +62,27 @@
 //! # Ok(())
 //! # }
 //! ```
-//!
-//! ## Features
-//!
-//! - **`spiffe-types`**: Core SPIFFE types (IDs, SVIDs, bundles)
-//! - **`workload-api`**: Workload API client and streaming support
-//!
-//! Most users should enable both features (default).
 
-#[cfg(feature = "spiffe-types")]
-pub mod constants;
-
-#[cfg(feature = "spiffe-types")]
 pub mod bundle;
-
-#[cfg(feature = "spiffe-types")]
 pub mod cert;
-
-#[cfg(feature = "spiffe-types")]
-pub mod spiffe_id;
-
-#[cfg(feature = "spiffe-types")]
-pub mod svid;
-
-#[cfg(feature = "spiffe-types")]
-pub mod error;
-
-#[cfg(feature = "spiffe-types")]
+pub mod constants;
 pub mod endpoint;
+pub mod error;
+pub mod spiffe_id;
+pub mod svid;
 
 #[cfg(feature = "workload-api")]
 pub mod workload_api;
 
-// -----------------------
-// Re-exports
-// -----------------------
+#[cfg(feature = "grpc")]
+pub mod grpc;
 
-/// Core SPIFFE types and utilities re-exported for simplified access.
-#[cfg(feature = "spiffe-types")]
+// Re-exports
 pub use crate::{
     bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet},
     bundle::x509::{X509Bundle, X509BundleError, X509BundleSet},
     bundle::BundleSource,
+    endpoint::{Endpoint, EndpointError},
     spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain},
     svid::jwt::{JwtSvid, JwtSvidError},
     svid::x509::{X509Svid, X509SvidError},
@@ -106,10 +90,8 @@ pub use crate::{
 };
 
 #[cfg(feature = "workload-api")]
-pub use crate::workload_api::client::WorkloadApiClient;
-
-#[cfg(feature = "workload-api")]
-pub use crate::workload_api::x509_context::X509Context;
-
-#[cfg(feature = "workload-api")]
-pub use crate::workload_api::x509_source::{X509Source, X509SourceBuilder};
+pub use crate::workload_api::{
+    client::WorkloadApiClient,
+    x509_context::X509Context,
+    x509_source::{X509Source, X509SourceBuilder},
+};

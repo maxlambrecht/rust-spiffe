@@ -2,37 +2,28 @@
 
 use crate::spiffe_id::TrustDomain;
 use std::error::Error;
+use std::sync::Arc;
 
 pub mod jwt;
 pub mod x509;
 
-/// Represents a collection of public keys.
-pub trait Bundle {}
-
-/// Represents a source of bundles queryable by [`TrustDomain`].
-pub trait BundleRefSource {
-    /// The type of the bundles provided by the source.
-    type Item: Bundle;
-
-    /// Returns the reference to bundle (set of public keys authorities) associated to the [`TrustDomain`].
-    /// If it cannot be found a bundle associated to the trust domain, it returns `Ok(None)`.
-    /// If there's is an error in source fetching the bundle, it returns an `Err<Box<dyn Error + Send + Sync + 'static>>`.
-    fn get_bundle_for_trust_domain(
-        &self,
-        trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + Sync + 'static>>;
-}
-
 /// Represents a source of bundles queryable by [`TrustDomain`].
 pub trait BundleSource {
-    /// The type of the bundles provided by the source.
-    type Item: Bundle;
+    /// The bundle type provided by the source.
+    type Item: Send + Sync + 'static;
 
-    /// Returns a owned bundle (set of public keys authorities) associated to the [`TrustDomain`].
-    /// If it cannot be found a bundle associated to the trust domain, it returns `Ok(None)`.
-    /// If there's is an error in source fetching the bundle, it returns an `Err<Box<dyn Error + Send + Sync + 'static>>`.
-    fn get_bundle_for_trust_domain(
+    /// The error type returned by the source.
+    type Error: Error + Send + Sync + 'static;
+
+    /// Returns the bundle associated with the given [`TrustDomain`].
+    ///
+    /// If no bundle is associated with the trust domain, returns `Ok(None)`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(Self::Error)` if the bundle cannot be retrieved from the underlying source.
+    fn bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<Self::Item>, Box<dyn Error + Send + Sync + 'static>>;
+    ) -> Result<Option<Arc<Self::Item>>, Self::Error>;
 }

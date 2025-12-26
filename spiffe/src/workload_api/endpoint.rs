@@ -1,0 +1,26 @@
+//! Workload API endpoint handling.
+//!
+//! SPIFFE Workload API clients discover the endpoint via the
+//! `SPIFFE_ENDPOINT_SOCKET` environment variable.
+//!
+//! This module wires that environment variable to the shared
+//! [`Endpoint`] parser.
+
+use crate::endpoint::Endpoint;
+use crate::error::GrpcClientError;
+
+/// Environment variable holding the Workload API endpoint.
+pub const WORKLOAD_API_ENDPOINT_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
+
+/// Load and parse the Workload API endpoint from `SPIFFE_ENDPOINT_SOCKET`.
+///
+/// ## Errors
+///
+/// Returns a [`GrpcClientError`] if:
+/// - the `SPIFFE_ENDPOINT_SOCKET` environment variable is not set, or
+/// - the value of `SPIFFE_ENDPOINT_SOCKET` is not a valid SPIFFE endpoint URI.
+pub fn from_env() -> Result<Endpoint, GrpcClientError> {
+    let raw = std::env::var(WORKLOAD_API_ENDPOINT_ENV)
+        .map_err(|_| GrpcClientError::MissingEndpointSocket)?;
+    Ok(Endpoint::parse(&raw)?)
+}

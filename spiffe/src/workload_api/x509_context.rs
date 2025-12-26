@@ -2,32 +2,48 @@
 
 use crate::constants::DEFAULT_SVID;
 use crate::{X509BundleSet, X509Svid};
+use std::sync::Arc;
 
 /// Represents all X.509 materials fetched from the Workload API.
+///
+/// An `X509Context` contains the set of X.509 SVIDs issued to the workload
+/// along with the corresponding trust bundles.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Context {
-    svids: Vec<X509Svid>,
-    bundle_set: X509BundleSet,
+    svids: Vec<Arc<X509Svid>>,
+    bundle_set: Arc<X509BundleSet>,
 }
 
 impl X509Context {
     /// Creates a new [`X509Context`].
-    pub fn new(svids: Vec<X509Svid>, bundle_set: X509BundleSet) -> Self {
-        Self { svids, bundle_set }
+    ///
+    /// The provided SVIDs are collected and stored internally.
+    /// The bundle set is shared internally via `Arc`.
+    #[must_use]
+    pub fn new(
+        svids: impl IntoIterator<Item = Arc<X509Svid>>,
+        bundle_set: impl Into<Arc<X509BundleSet>>,
+    ) -> Self {
+        Self {
+            svids: svids.into_iter().collect(),
+            bundle_set: bundle_set.into(),
+        }
     }
 
-    /// Returns the default [`X509Svid`], i.e. the first in the list.
-    pub fn default_svid(&self) -> Option<&X509Svid> {
+    /// Returns the default [`X509Svid`], if present.
+    ///
+    /// The default SVID is the first SVID returned by the Workload API.
+    pub fn default_svid(&self) -> Option<&Arc<X509Svid>> {
         self.svids.get(DEFAULT_SVID)
     }
 
-    /// Returns the list of [`X509Svid`] in the context.
-    pub fn svids(&self) -> &Vec<X509Svid> {
-        &self.svids
+    /// Returns all X.509 SVIDs in this context.
+    pub fn svids(&self) -> &[Arc<X509Svid>] {
+        self.svids.as_slice()
     }
 
-    /// Returns the [`X509BundleSet`] in the context.
-    pub fn bundle_set(&self) -> &X509BundleSet {
+    /// Returns the set of X.509 bundles associated with this context.
+    pub fn bundle_set(&self) -> &Arc<X509BundleSet> {
         &self.bundle_set
     }
 }

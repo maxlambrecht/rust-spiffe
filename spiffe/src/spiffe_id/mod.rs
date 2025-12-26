@@ -1,4 +1,4 @@
-//! SPIFFE-ID and TrustDomain types compliant with the SPIFFE standard.
+//! SPIFFE-ID and `TrustDomain` types compliant with the SPIFFE standard.
 
 use std::convert::TryFrom;
 use std::fmt;
@@ -74,7 +74,7 @@ impl SpiffeId {
     ///
     /// # Arguments
     ///
-    /// * `id` - A SPIFFE ID, e.g. 'spiffe://trustdomain/path/other'
+    /// * `id` - A SPIFFE ID, e.g. `spiffe://trustdomain/path/other`
     ///
     /// # Errors
     ///
@@ -126,7 +126,7 @@ impl SpiffeId {
     /// Returns a new SPIFFE ID in the given trust domain with joined
     /// path segments. The path segments must be valid according to the SPIFFE
     /// specification and must not contain path separators.
-    /// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+    /// See `https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path`
     ///
     /// # Arguments
     ///
@@ -173,7 +173,7 @@ impl SpiffeId {
         &self.path
     }
 
-    /// Returns `true` if this SPIFFE ID has the given TrustDomain.
+    /// Returns `true` if this SPIFFE ID has the given `TrustDomain`.
     pub fn is_member_of(&self, trust_domain: &TrustDomain) -> bool {
         &self.trust_domain == trust_domain
     }
@@ -207,8 +207,13 @@ impl TryFrom<&str> for SpiffeId {
     }
 }
 
-/// Validates that a path string is a conformant path for a SPIFFE ID.
-/// See https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path
+/// Validates that a path string is a conformant SPIFFE ID path.
+///
+/// See `<https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#22-path>`.
+///
+/// # Errors
+///
+/// Returns a [`SpiffeIdError`] if the path is not a valid SPIFFE ID path.
 pub fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
         return Err(SpiffeIdError::Empty);
@@ -247,7 +252,7 @@ fn is_valid_path_segment_char(c: char) -> bool {
 }
 
 impl TrustDomain {
-    /// Attempts to parse a TrustDomain instance from the given name or spiffe_id string.
+    /// Attempts to parse a `TrustDomain` instance from the given name or `spiffe_id` string.
     ///
     /// # Arguments
     ///
@@ -276,22 +281,19 @@ impl TrustDomain {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        match id_or_name.find(":/") {
-            Some(_) => {
-                let spiffe_id = SpiffeId::try_from(id_or_name)?;
-                Ok(spiffe_id.trust_domain)
-            }
-            None => {
-                validate_trust_domain_name(id_or_name)?;
-                Ok(TrustDomain {
-                    name: id_or_name.to_string(),
-                })
-            }
+        if id_or_name.contains(":/") {
+            let spiffe_id = SpiffeId::try_from(id_or_name)?;
+            Ok(spiffe_id.trust_domain)
+        } else {
+            validate_trust_domain_name(id_or_name)?;
+            Ok(TrustDomain {
+                name: id_or_name.to_string(),
+            })
         }
     }
 
     /// Returns a string representation of the SPIFFE ID of the trust domain,
-    /// e.g. "spiffe://example.org".
+    /// e.g. `spiffe://example.org`.
     pub fn id_string(&self) -> String {
         format!("{}://{}", SPIFFE_SCHEME, self.name)
     }
@@ -369,7 +371,7 @@ mod spiffe_id_tests {
             "spiffe://trustdomain",
             SpiffeId {
                 trust_domain: TrustDomain::from_str("trustdomain").unwrap(),
-                path: "".to_string(),
+                path: String::new(),
             }
         ),
         from_valid_uri_str: (
@@ -485,8 +487,12 @@ mod spiffe_id_tests {
             "spiffe://test.org/",
             SpiffeIdError::TrailingSlash,
         ),
-        from_str_uri_str_with_emtpy_segment: (
+        from_str_uri_str_with_trailing_emtpy_segment: (
             "spiffe://test.org//",
+            SpiffeIdError::EmptySegment,
+        ),
+        from_str_uri_str_with_emtpy_segment_: (
+            "spiffe://test.org/path//other",
             SpiffeIdError::EmptySegment,
         ),
         from_str_uri_str_with_path_with_trailing_slash: (
@@ -514,12 +520,12 @@ mod spiffe_id_tests {
                 continue;
             }
 
-            let path = format!("/path{}", c);
-            let id = format!("spiffe://trustdomain{}", path);
+            let path = format!("/path{c}");
+            let id = format!("spiffe://trustdomain{path}");
 
             if VALID_PATH_SEGMENT_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::new(&id).unwrap();
-                assert_eq!(spiffe_id.to_string(), id)
+                assert_eq!(spiffe_id.to_string(), id);
             } else {
                 assert_eq!(
                     SpiffeId::new(&id).unwrap_err(),
@@ -527,11 +533,11 @@ mod spiffe_id_tests {
                 );
             }
 
-            let td = format!("spiffe://trustdomain{}", c);
+            let td = format!("spiffe://trustdomain{c}");
 
             if VALID_TRUST_DOMAIN_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::new(&td).unwrap();
-                assert_eq!(spiffe_id.to_string(), td)
+                assert_eq!(spiffe_id.to_string(), td);
             } else {
                 assert_eq!(
                     SpiffeId::new(&td).unwrap_err(),
@@ -547,15 +553,15 @@ mod spiffe_id_tests {
         for i in 0..=255_u8 {
             let c = i as char;
 
-            let path = format!("path{}", c);
+            let path = format!("path{c}");
             let trust_domain = TrustDomain::new("trustdomain").unwrap();
 
             if VALID_PATH_SEGMENT_CHARS.contains(c) {
                 let spiffe_id = SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap();
                 assert_eq!(
                     spiffe_id.to_string(),
-                    format!("spiffe://trustdomain/{}", path)
-                )
+                    format!("spiffe://trustdomain/{path}")
+                );
             } else if c == '/' {
                 assert_eq!(
                     SpiffeId::from_segments(trust_domain, &[path.as_str()]).unwrap_err(),
@@ -662,11 +668,11 @@ mod trust_domain_tests {
         // Go all the way through 255, which ensures we reject UTF-8 appropriately
         for i in 0..=255_u8 {
             let c = i as char;
-            let td = format!("trustdomain{}", c);
+            let td = format!("trustdomain{c}");
 
             if VALID_TRUST_DOMAIN_CHARS.contains(c) {
                 let trust_domain = TrustDomain::new(&td).unwrap();
-                assert_eq!(trust_domain.to_string(), td)
+                assert_eq!(trust_domain.to_string(), td);
             } else {
                 assert_eq!(
                     TrustDomain::new(&td).unwrap_err(),

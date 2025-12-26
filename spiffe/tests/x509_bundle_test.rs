@@ -1,4 +1,4 @@
-use spiffe::cert::errors::CertificateError;
+use spiffe::cert::error::CertificateError;
 use spiffe::{TrustDomain, X509Bundle, X509BundleError};
 
 #[test]

@@ -15,7 +15,7 @@
 //!
 //! // create a new Workload API client connecting to an socket path defined by the environment variable:
 //! // `export SPIFFE_ENDPOINT_SOCKET = "unix:/tmp/spire-agent/api/public.sock"`
-//! let mut client = WorkloadApiClient::default().await?;
+//! let mut client = WorkloadApiClient::connect_env().await?;
 //!
 //! let target_audience = &["service1", "service2"];
 //! // fetch a jwt token for the default identity with target audience
@@ -40,7 +40,10 @@
 //! # }
 //! ```
 #![allow(clippy::result_large_err)]
+
+pub(crate) mod pb;
+
 pub mod client;
-pub mod pb;
+pub mod endpoint;
 pub mod x509_context;
 pub mod x509_source;

@@ -3,8 +3,7 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_workload_api_client {
     use once_cell::sync::Lazy;
-    use spiffe::bundle::BundleRefSource;
-    use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
+    use spiffe::{BundleSource, SpiffeId, TrustDomain, WorkloadApiClient};
     use tokio_stream::StreamExt;
 
     static SPIFFE_ID_1: Lazy<SpiffeId> =
@@ -18,7 +17,7 @@ mod integration_tests_workload_api_client {
         Lazy::new(|| TrustDomain::new("example-federated.org").unwrap());
 
     async fn get_client() -> WorkloadApiClient {
-        WorkloadApiClient::default()
+        WorkloadApiClient::connect_env()
             .await
             .expect("Failed to create client")
     }
@@ -61,6 +60,44 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    async fn fetch_all_jwt_svids_includes_hints() {
+        let mut client = get_client().await;
+
+        let svids = client
+            .fetch_all_jwt_svids(&["my_audience"], None)
+            .await
+            .expect("Failed to fetch all JWT SVIDs");
+
+        assert!(
+            svids.len() >= 2,
+            "Expected at least two JWT-SVIDs (configure two workload entries with hints)"
+        );
+
+        let hints: Vec<_> = svids.iter().filter_map(|s| s.hint()).collect();
+        assert!(
+            hints.len() >= 2,
+            "Expected hints to be present on returned JWT-SVIDs"
+        );
+
+        assert!(hints.contains(&"myservice"));
+        assert!(hints.contains(&"myservice2"));
+    }
+
+    #[tokio::test]
+    async fn fetch_jwt_svid_by_hint_selects_correct_one() {
+        let mut client = get_client().await;
+
+        let svid = client
+            .fetch_jwt_svid_by_hint(&["my_audience"], None, "myservice2")
+            .await
+            .expect("Failed to fetch JWT-SVID by hint");
+
+        assert_eq!(svid.hint(), Some("myservice2"));
+
+        assert_eq!(svid.spiffe_id(), &*SPIFFE_ID_2);
+    }
+
+    #[tokio::test]
     async fn fetch_jwt_bundles() {
         let mut client = get_client().await;
         let bundles = client
@@ -68,7 +105,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT bundles");
 
-        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
+        let bundle = bundles.bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
@@ -156,7 +193,7 @@ mod integration_tests_workload_api_client {
 
         let bundle = x509_context
             .bundle_set()
-            .get_bundle_for_trust_domain(&TRUST_DOMAIN);
+            .bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
@@ -166,7 +203,7 @@ mod integration_tests_workload_api_client {
 
         let federated_bundle = x509_context
             .bundle_set()
-            .get_bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
+            .bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
         let federated_bundle = federated_bundle
             .expect("Federated bundle was None")
             .expect("Failed to unwrap federated bundle");
@@ -179,6 +216,31 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    async fn fetch_x509_context_includes_hints_on_all_svids() {
+        let mut client = get_client().await;
+
+        let ctx = client
+            .fetch_x509_context()
+            .await
+            .expect("Failed to fetch X509 context");
+
+        let svids = ctx.svids();
+        assert!(
+            svids.len() >= 2,
+            "Expected at least two X509-SVIDs (configure two workload entries with hints)"
+        );
+
+        let hints: Vec<_> = svids.iter().filter_map(|s| s.hint()).collect();
+        assert!(
+            hints.len() >= 2,
+            "Expected hints to be present on returned X509-SVIDs"
+        );
+
+        assert!(hints.contains(&"myservice"));
+        assert!(hints.contains(&"myservice2"));
+    }
+
+    #[tokio::test]
     async fn fetch_x509_bundles() {
         let mut client = get_client().await;
         let bundles = client
@@ -186,7 +248,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch X509 bundles");
 
-        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
+        let bundle = bundles.bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
@@ -220,7 +282,7 @@ mod integration_tests_workload_api_client {
 
                         let bundle = x509_context
                             .bundle_set()
-                            .get_bundle_for_trust_domain(&TRUST_DOMAIN);
+                            .bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
@@ -230,7 +292,7 @@ mod integration_tests_workload_api_client {
 
                         let federated_bundle = x509_context
                             .bundle_set()
-                            .get_bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
+                            .bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
                         let federated_bundle = federated_bundle
                             .expect("Federated bundle was None")
                             .expect("Failed to unwrap federated bundle");
@@ -314,7 +376,7 @@ mod integration_tests_workload_api_client {
             if let Some(update) = stream.next().await {
                 match update {
                     Ok(bundles) => {
-                        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
+                        let bundle = bundles.bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
@@ -347,7 +409,7 @@ mod integration_tests_workload_api_client {
             if let Some(update) = stream.next().await {
                 match update {
                     Ok(bundles) => {
-                        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
+                        let bundle = bundles.bundle_for_trust_domain(&TRUST_DOMAIN);
                         let bundle = bundle
                             .expect("Bundle was None")
                             .expect("Failed to unwrap bundle");
