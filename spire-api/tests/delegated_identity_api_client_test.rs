@@ -2,10 +2,10 @@
 // In addition it requires the admin endpoint to be exposed, and the running user to registered
 // as an authorized_delegate.
 
-#[cfg(feature = "integration-tests")]
+// #[cfg(feature = "integration-tests")]
 mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
-    use spiffe::bundle::BundleRefSource;
+    use spiffe::bundle::BundleSource;
     use spiffe::{JwtBundleSet, TrustDomain};
     use spire_api::{selectors, DelegateAttestationRequest, DelegatedIdentityClient};
     use std::process::Command;
@@ -27,14 +27,14 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     async fn get_client() -> DelegatedIdentityClient {
-        DelegatedIdentityClient::default()
+        DelegatedIdentityClient::connect_env()
             .await
             .expect("failed to create client")
     }
 
     #[tokio::test]
     async fn fetch_delegate_jwt_svid() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let svid = client
             .fetch_jwt_svids(
                 &["my_audience"],
@@ -50,7 +50,7 @@ mod integration_tests_delegate_identity_api_client {
 
     #[tokio::test]
     async fn fetch_delegate_x509_svid() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let response: spiffe::svid::x509::X509Svid = client
             .fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
                 selectors::Selector::Unix(selectors::Unix::Uid(get_uid() + 1)),
@@ -69,7 +69,7 @@ mod integration_tests_delegate_identity_api_client {
     #[tokio::test]
     async fn stream_delegate_x509_svid() {
         let test_duration = std::time::Duration::from_secs(60);
-        let mut client = get_client().await;
+        let client = get_client().await;
         let mut stream = client
             .stream_x509_svids(DelegateAttestationRequest::Selectors(vec![
                 selectors::Selector::Unix(selectors::Unix::Uid(get_uid() + 1)),
@@ -92,20 +92,20 @@ mod integration_tests_delegate_identity_api_client {
 
     #[tokio::test]
     async fn fetch_delegated_x509_trust_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let response = client
             .fetch_x509_bundles()
             .await
             .expect("Failed to fetch trust bundles");
         response
-            .get_bundle(&TRUST_DOMAIN)
+            .bundle_for(&TRUST_DOMAIN)
             .expect("Failed to get bundle");
     }
 
     #[tokio::test]
     async fn stream_delegated_x509_trust_bundles() {
         let test_duration = std::time::Duration::from_secs(60);
-        let mut client = get_client().await;
+        let client = get_client().await;
         let mut stream = client
             .stream_x509_bundles()
             .await
@@ -116,7 +116,7 @@ mod integration_tests_delegate_identity_api_client {
             .expect("Test did not complete in the expected duration");
         let response = result.expect("empty result").expect("error in stream");
         response
-            .get_bundle(&TRUST_DOMAIN)
+            .bundle_for(&TRUST_DOMAIN)
             .expect("Failed to get bundle");
     }
 
@@ -133,7 +133,7 @@ mod integration_tests_delegate_identity_api_client {
         let svid = svids.first().expect("no items in jwt bundle list");
         let key_id = svid.key_id();
 
-        let bundle = bundles.get_bundle_for_trust_domain(&TRUST_DOMAIN);
+        let bundle = bundles.bundle_for_trust_domain(&TRUST_DOMAIN);
         let bundle = bundle
             .expect("Bundle was None")
             .expect("Failed to unwrap bundle");
