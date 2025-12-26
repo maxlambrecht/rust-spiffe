@@ -1,13 +1,13 @@
 //! X.509 bundle types.
 
-use crate::bundle::{Bundle, BundleRefSource};
-use crate::cert::errors::CertificateError;
-use crate::cert::parsing::{parse_der_encoded_bytes_as_x509_certificate, to_certificate_vec};
+use crate::cert::error::CertificateError;
+use crate::cert::parsing::to_certificate_vec;
 use crate::cert::Certificate;
 use crate::spiffe_id::TrustDomain;
+use crate::BundleSource;
 use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::error::Error;
+use std::convert::Infallible;
+use std::sync::Arc;
 
 /// This type contains a collection of trusted X.509 authorities for a [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -16,16 +16,14 @@ pub struct X509Bundle {
     x509_authorities: Vec<Certificate>,
 }
 
-impl Bundle for X509Bundle {}
-
 /// This type contains a set of [`X509Bundle`], keyed by [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509BundleSet {
-    bundles: HashMap<TrustDomain, X509Bundle>,
+    bundles: HashMap<TrustDomain, Arc<X509Bundle>>,
 }
 
 /// An error that can arise trying to parse a [`X509Bundle`] from bytes
-/// representing `DER` encoded X.509 authorities.
+/// representing DER-encoded X.509 authorities.
 #[derive(Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
 pub enum X509BundleError {
@@ -35,49 +33,37 @@ pub enum X509BundleError {
 }
 
 impl X509Bundle {
-    /// Creates an emtpy `X509Bundle` for the given [`TrustDomain`].
+    /// Creates an empty `X509Bundle` for the given [`TrustDomain`].
     pub fn new(trust_domain: TrustDomain) -> Self {
-        X509Bundle {
+        Self {
             trust_domain,
             x509_authorities: Vec::new(),
         }
     }
 
-    /// Creates a bundle from a slice of X.509 authorities as ASN.1 DER-encoded data (binary format).
+    /// Creates a bundle from a list of DER-encoded X.509 authorities.
     ///
-    /// # Arguments
-    ///
-    /// * `authorities` - ASN.1 DER-encoded data (binary format) representing a list X.509 authorities.
-    ///
-    /// # Error
+    /// # Errors
     ///
     /// If the function cannot parse the inputs, a [`X509BundleError`] variant will be returned.
     pub fn from_x509_authorities(
         trust_domain: TrustDomain,
         authorities: &[&[u8]],
     ) -> Result<Self, X509BundleError> {
-        let mut x509_authorities = vec![];
-        for authority in authorities
+        let x509_authorities = authorities
             .iter()
-            .map(|&bytes| Certificate::try_from(bytes))
-        {
-            x509_authorities.push(authority?);
-        }
+            .map(|b| Certificate::try_from(*b))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(X509Bundle {
+        Ok(Self {
             trust_domain,
             x509_authorities,
         })
     }
 
-    /// Parses a bundle from ASN.1 DER-encoded data (binary format) representing a list of X.509 authorities.
+    /// Parses a bundle from ASN.1 DER-encoded data representing a concatenated list of certificates.
     ///
-    /// # Arguments
-    ///
-    /// * `trust_domain` - A [`TrustDomain`] to associate to the bundle.
-    /// * `bundle_der` - ASN.1 DER-encoded data (binary format) representing a list of X.509 authorities.
-    ///
-    /// # Error
+    /// # Errors
     ///
     /// If the function cannot parse the inputs, a [`X509BundleError`] variant will be returned.
     pub fn parse_from_der(
@@ -86,12 +72,7 @@ impl X509Bundle {
     ) -> Result<Self, X509BundleError> {
         let x509_authorities = to_certificate_vec(bundle_der)?;
 
-        // validate that all authorities are valid X.509 certificates
-        for authority in x509_authorities.iter() {
-            parse_der_encoded_bytes_as_x509_certificate(authority.content())?;
-        }
-
-        Ok(X509Bundle {
+        Ok(Self {
             trust_domain,
             x509_authorities,
         })
@@ -104,7 +85,7 @@ impl X509Bundle {
     ///
     /// * `authority_bytes` - ASN.1 DER-encoded data (binary format) representing a X.509 authority.
     ///
-    /// # Error
+    /// # Errors
     ///
     /// If the function cannot parse the inputs, a [`X509BundleError`] variant will be returned.
     pub fn add_authority(&mut self, authority_bytes: &[u8]) -> Result<(), X509BundleError> {
@@ -113,13 +94,13 @@ impl X509Bundle {
         Ok(())
     }
 
-    /// Returns the [`TrustDomain`]associated to the bundle.
+    /// Returns the [`TrustDomain`] associated with the bundle.
     pub fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
     /// Returns the X.509 authorities in the bundle.
-    pub fn authorities(&self) -> &Vec<Certificate> {
+    pub fn authorities(&self) -> &[Certificate] {
         &self.x509_authorities
     }
 }
@@ -127,7 +108,7 @@ impl X509Bundle {
 impl X509BundleSet {
     /// Creates a new empty `X509BundleSet`.
     pub fn new() -> Self {
-        X509BundleSet {
+        Self {
             bundles: HashMap::new(),
         }
     }
@@ -135,11 +116,12 @@ impl X509BundleSet {
     /// Adds a new [`X509Bundle`] into the set. If a bundle already exists for the
     /// trust domain, the existing bundle is replaced.
     pub fn add_bundle(&mut self, bundle: X509Bundle) {
-        self.bundles.insert(bundle.trust_domain().clone(), bundle);
+        let trust_domain = bundle.trust_domain().clone();
+        self.bundles.insert(trust_domain, Arc::new(bundle));
     }
 
-    /// Returns the [`X509Bundle`] associated to the given [`TrustDomain`].
-    pub fn get_bundle(&self, trust_domain: &TrustDomain) -> Option<&X509Bundle> {
+    /// Returns the [`X509Bundle`] associated with the given [`TrustDomain`].
+    pub fn bundle_for(&self, trust_domain: &TrustDomain) -> Option<&Arc<X509Bundle>> {
         self.bundles.get(trust_domain)
     }
 }
@@ -150,14 +132,14 @@ impl Default for X509BundleSet {
     }
 }
 
-impl BundleRefSource for X509BundleSet {
+impl BundleSource for X509BundleSet {
     type Item = X509Bundle;
+    type Error = Infallible;
 
-    /// Returns the [`X509Bundle`] associated to the given [`TrustDomain`].
-    fn get_bundle_for_trust_domain(
+    fn bundle_for_trust_domain(
         &self,
         trust_domain: &TrustDomain,
-    ) -> Result<Option<&Self::Item>, Box<dyn Error + Send + Sync + 'static>> {
-        Ok(self.bundles.get(trust_domain))
+    ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
+        Ok(self.bundles.get(trust_domain).cloned())
     }
 }

@@ -7,9 +7,6 @@ help:
 	@echo "  make clippy        Clippy (default workspace)"
 	@echo "  make test          Test (default workspace)"
 	@echo "  make build         Build (default workspace)"
-	@echo "  make clippy-all    Clippy: workspace + spiffe-rustls (ring + aws-lc-rs)"
-	@echo "  make test-all      Test: workspace + spiffe-rustls (ring + aws-lc-rs)"
-	@echo "  make build-all     Build: workspace + spiffe-rustls (ring + aws-lc-rs)"
 	@echo "  make gen           Generate all codegen"
 
 fmt:
@@ -23,18 +20,6 @@ test:
 
 build:
 	cargo build --workspace
-
-clippy-all: clippy
-	cargo clippy -p spiffe-rustls --all-targets --no-default-features --features ring -- -D warnings
-	cargo clippy -p spiffe-rustls --all-targets --no-default-features --features aws-lc-rs -- -D warnings
-
-test-all: test
-	cargo test -p spiffe-rustls --all-targets --no-default-features --features ring
-	cargo test -p spiffe-rustls --all-targets --no-default-features --features aws-lc-rs
-
-build-all: build
-	cargo build -p spiffe-rustls --all-targets --no-default-features --features ring
-	cargo build -p spiffe-rustls --all-targets --no-default-features --features aws-lc-rs
 
 clean:
 	cargo clean

@@ -39,6 +39,12 @@ pub struct X509svid {
     /// Required. ASN.1 DER encoded X.509 bundle for the trust domain.
     #[prost(bytes = "bytes", tag = "4")]
     pub bundle: ::prost::bytes::Bytes,
+    /// Optional. An operator-specified string used to provide guidance on how this
+    /// identity should be used by a workload when more than one SVID is returned.
+    /// For example, `internal` and `external` to indicate an SVID for internal or
+    /// external use, respectively.
+    #[prost(string, tag = "5")]
+    pub hint: ::prost::alloc::string::String,
 }
 /// The X509BundlesRequest message conveys parameters for requesting X.509
 /// bundles. There are currently no such parameters.
@@ -83,6 +89,12 @@ pub struct Jwtsvid {
     /// Required. Encoded JWT using JWS Compact Serialization.
     #[prost(string, tag = "2")]
     pub svid: ::prost::alloc::string::String,
+    /// Optional. An operator-specified string used to provide guidance on how this
+    /// identity should be used by a workload when more than one SVID is returned.
+    /// For example, `internal` and `external` to indicate an SVID for internal or
+    /// external use, respectively.
+    #[prost(string, tag = "3")]
+    pub hint: ::prost::alloc::string::String,
 }
 /// The JWTBundlesRequest message conveys parameters for requesting JWT bundles.
 /// There are currently no such parameters.

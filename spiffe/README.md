@@ -40,9 +40,10 @@ Using an explicit socket path:
 ```rust
 use spiffe::WorkloadApiClient;
 
-let client = WorkloadApiClient::new_from_path(
+let client = WorkloadApiClient::connect_to(
     "unix:///tmp/spire-agent/public/api.sock",
 ).await?;
+
 ```
 
 Or via the `SPIFFE_ENDPOINT_SOCKET` environment variable:
@@ -50,7 +51,7 @@ Or via the `SPIFFE_ENDPOINT_SOCKET` environment variable:
 ```rust
 use spiffe::WorkloadApiClient;
 
-let client = WorkloadApiClient::default().await?;
+let client = WorkloadApiClient::connect_env().await?;
 ```
 
 ---
@@ -62,12 +63,13 @@ The Workload API client exposes low-level access to X.509 materials.
 ```rust
 use spiffe::{TrustDomain, X509Context};
 
-let svid = client.fetch_x509_svid().await?;
-let bundles = client.fetch_x509_bundles().await?;
 let context: X509Context = client.fetch_x509_context().await?;
 
-let trust_domain = TrustDomain::try_from("example.org")?;
-let bundle = bundles.get_bundle(&trust_domain)?;
+let trust_domain = TrustDomain::new("example.org")?;
+let bundle = context
+    .bundle_set()
+    .bundle_for_trust_domain(&trust_domain)?
+    .ok_or("missing bundle")?;
 ```
 
 ### Watch for updates
@@ -98,17 +100,36 @@ use spiffe::{TrustDomain, X509Source};
 let source = X509Source::new().await?;
 
 // Snapshot of current materials
-let context = source.x509_context();
+let context = source.x509_context()?;
 
-// Default SVID
-let svid = context.default_svid()?;
+// Selected SVID (default or picker)
+let svid = source.svid()?;
 
 // Bundle for a trust domain
-let trust_domain = TrustDomain::try_from("example.org")?;
-let bundle = context.bundles().get_bundle(&trust_domain)?;
+let trust_domain = TrustDomain::new("example.org")?;
+let bundle = source
+    .bundle_for_trust_domain(&trust_domain)?
+    .ok_or("missing bundle")?;
 ```
 
 For most X.509-based workloads, **`X509Source` is the preferred API**.
+
+---
+
+## SVID hints
+
+When multiple SVIDs are returned by the Workload API, SPIRE may attach an
+**operator-defined hint** (for example, `internal` or `external`) to guide
+selection.
+
+Hints are **not part of the cryptographic identity**. They are metadata
+returned by the Workload API and are exposed by this crate for convenience.
+
+- X.509 hints are attached to `X509Svid`
+- JWT hints are attached to `JwtSvid`
+
+Higher-level abstractions like `X509Source` preserve hints and allow custom
+selection logic via `SvidPicker`.
 
 ---
 
@@ -136,7 +157,7 @@ use spiffe::TrustDomain;
 
 let bundles = client.fetch_jwt_bundles().await?;
 let trust_domain = TrustDomain::try_from("example.org")?;
-let bundle = bundles.get_bundle(&trust_domain)?;
+let bundle = bundles.bundle_for(&trust_domain)?;
 
 let mut stream = client.stream_jwt_bundles().await?;
 while let Some(update) = stream.next().await {
@@ -144,6 +165,37 @@ while let Some(update) = stream.next().await {
     // react to updated JWT authorities
 }
 ```
+
+## Features
+
+### `workload-api` (default)
+
+Enables the gRPC-based SPIFFE Workload API client.
+
+This feature provides:
+- `WorkloadApiClient` and streaming APIs
+- X.509 and JWT SVID and bundle retrieval
+- Streaming watch semantics over the Workload API
+- gRPC transport and connection management
+
+This feature is enabled by default.
+
+### Disabling default features
+
+The crate can be built without the Workload API client:
+
+```toml
+spiffe = { version = "0.7.4", default-features = false }
+```
+
+With default features disabled, the crate provides:
+
+* Core SPIFFE types (`SpiffeId`, `TrustDomain`, etc.)
+* X.509 and JWT SVID and bundle parsing and validation
+* No networking or gRPC dependencies
+
+This mode is useful when SPIFFE material is obtained out-of-band
+or when networking support is not required.
 
 ---
 

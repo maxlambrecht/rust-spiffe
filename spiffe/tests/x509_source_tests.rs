@@ -6,8 +6,7 @@ mod integration_tests_x509_source {
     use spiffe::error::GrpcClientError;
     use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
     use spiffe::{
-        BundleSource, SpiffeId, SvidSource, TrustDomain, WorkloadApiClient, X509Bundle, X509Source,
-        X509Svid,
+        BundleSource, SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509Source, X509Svid,
     };
     use std::error::Error;
     use std::future::Future;
@@ -26,7 +25,7 @@ mod integration_tests_x509_source {
     struct SecondSvidPicker;
 
     impl SvidPicker for SecondSvidPicker {
-        fn pick_svid<'a>(&self, svids: &'a [X509Svid]) -> Option<&'a X509Svid> {
+        fn pick_svid<'a>(&self, svids: &'a [Arc<X509Svid>]) -> Option<&'a Arc<X509Svid>> {
             svids.get(1)
         }
     }
@@ -40,10 +39,7 @@ mod integration_tests_x509_source {
     #[tokio::test]
     async fn get_x509_svid() {
         let source = get_source().await;
-        let svid = source
-            .get_svid()
-            .expect("Failed to get X509Svid")
-            .expect("No X509Svid found");
+        let svid = source.svid().expect("Failed to get X509Svid");
 
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(
@@ -56,8 +52,8 @@ mod integration_tests_x509_source {
     #[tokio::test]
     async fn get_bundle_for_trust_domain() {
         let source = get_source().await;
-        let bundle: X509Bundle = source
-            .get_bundle_for_trust_domain(&TRUST_DOMAIN)
+        let bundle: Arc<X509Bundle> = source
+            .bundle_for_trust_domain(&TRUST_DOMAIN)
             .expect("Failed to get X509Bundle")
             .expect("No X509Bundle found");
 
@@ -98,24 +94,19 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     async fn test_x509_source_with_custom_picker_and_client() -> Result<(), Box<dyn Error>> {
-        let picker = Box::new(SecondSvidPicker);
-
         let factory = Arc::new(|| -> Pin<Box<dyn Future<Output = Result<WorkloadApiClient, GrpcClientError>> + Send>> {
             Box::pin(async {
-                WorkloadApiClient::default().await
+                WorkloadApiClient::connect_env().await
             })
         });
 
         let source = X509SourceBuilder::new()
             .with_client_factory(factory)
-            .with_picker(picker)
+            .with_picker(SecondSvidPicker)
             .build()
             .await?;
 
-        let svid = source
-            .get_svid()
-            .expect("Failed to get X509Svid")
-            .expect("No X509Svid found");
+        let svid = source.svid().expect("Failed to get X509Svid");
 
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
         assert!(

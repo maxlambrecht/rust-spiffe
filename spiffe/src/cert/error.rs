@@ -1,4 +1,4 @@
-//! Type error for X.509 certificate parsing and validations.
+//! Error types for certificate and private key parsing/validation.
 
 use asn1::{ASN1DecodeErr, ASN1EncodeErr};
 use x509_parser::error::X509Error;
@@ -15,13 +15,13 @@ pub enum CertificateError {
     #[error("unexpected X.509 extension: {0}")]
     UnexpectedExtension(String),
 
-    /// Error returned by the ASN.1/DER processing library.
+    /// Failed decoding a concatenated chain of DER certificates.
     #[error("failed decoding chain of DER certificates")]
     ChainDecode(#[from] ASN1DecodeErr),
 
-    /// Error returned by the ASN.1/DER processing library.
-    #[error("failed parsing DER certificate")]
-    ParseDer(#[from] ASN1EncodeErr),
+    /// Failed re-encoding a parsed certificate back into DER.
+    #[error("failed encoding DER certificate")]
+    CertEncode(#[from] ASN1EncodeErr),
 
     /// Error returned by the X.509 parsing library.
     #[error("failed parsing X.509 certificate")]

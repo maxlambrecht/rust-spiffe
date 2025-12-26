@@ -9,13 +9,12 @@ use thiserror::Error;
 use zeroize::Zeroize;
 
 use crate::bundle::jwt::JwtBundle;
-use crate::bundle::BundleRefSource;
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
-use crate::svid::Svid;
-use std::error::Error;
+use crate::BundleSource;
 use std::fmt;
 use std::marker::PhantomData;
-use time::{Date, OffsetDateTime};
+use std::sync::Arc;
+use time::OffsetDateTime;
 
 const SUPPORTED_ALGORITHMS: &[Algorithm; 8] = &[
     Algorithm::RS256,
@@ -28,22 +27,19 @@ const SUPPORTED_ALGORITHMS: &[Algorithm; 8] = &[
     Algorithm::PS512,
 ];
 
-/// This type represents a [SPIFFE JWT-SVID](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md).
+/// This type represents a SPIFFE JWT-SVID.
 ///
-/// The token field is zeroized on drop.
+/// The serialized token is zeroized on drop.
 #[derive(Debug, Clone, PartialEq)]
 pub struct JwtSvid {
     spiffe_id: SpiffeId,
-    expiry: Date,
-    // expiry: DateTime<Utc>,
+    hint: Option<Arc<str>>,
+    expiry: OffsetDateTime,
     claims: Claims,
     kid: String,
     alg: Algorithm,
-
     token: Token,
 }
-
-impl Svid for JwtSvid {}
 
 /// An error that can arise trying to parse a [`JwtSvid`] from a JWT token. It also represents
 /// errors that can happen validating the token signature or the token audience.
@@ -63,19 +59,15 @@ pub enum JwtSvidError {
     InvalidTyp,
 
     /// The header 'alg' contains an algorithm that is not supported.
-    /// Supported algorithms are ['RS256', 'RS384', 'RS512', 'ES256', 'ES384', 'PS256', 'PS384', 'PS512'].
+    /// Supported algorithms are [`RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `PS256`, `PS384`, `PS512`].
     #[error("algorithm in 'alg' header is not supported")]
     UnsupportedAlgorithm,
-
-    /// One of the required claims is missing. "aud", "sub" and "exp" must be present.
-    #[error("one of the required claims ({0}) is missing")]
-    RequiredClaimMissing(String),
 
     /// Cannot find a JWT bundle for the trust domain, to validate the token signature.
     #[error("cannot find JWT bundle for trust domain: {0}")]
     BundleNotFound(TrustDomain),
 
-    /// Cannot find the JWT authority with key_id, to validate the token signature.
+    /// Cannot find the JWT authority with `key_id`, to validate the token signature.
     #[error("cannot find JWT authority for key_id: {0}")]
     AuthorityNotFound(String),
 
@@ -87,9 +79,19 @@ pub enum JwtSvidError {
     #[error("cannot decode token")]
     InvalidToken(#[from] jsonwebtoken::errors::Error),
 
-    /// Other errors that can arise.
-    #[error("error parsing JWT-SVID")]
-    Other(#[from] Box<dyn Error + Send + Sync + 'static>),
+    /// Invalid 'exp' claim value.
+    #[error("invalid token expiration ('exp') claim")]
+    InvalidExpiration,
+
+    /// Error returned by the bundle source while fetching the bundle.
+    #[error("bundle source error")]
+    BundleSourceError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
+}
+
+impl From<std::convert::Infallible> for JwtSvidError {
+    fn from(_never: std::convert::Infallible) -> Self {
+        unreachable!()
+    }
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Zeroize)]
@@ -112,182 +114,214 @@ impl AsRef<str> for Token {
     }
 }
 
+/// Required JWT-SVID claims.
 #[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
-/// Representation of the required
-/// [claims](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#3-jwt-claims) in a SPIFFE JWT-SVID.
 pub struct Claims {
     sub: String,
     #[serde(deserialize_with = "string_or_seq_string")]
     aud: Vec<String>,
-    exp: u32,
+    exp: i64,
 }
 
 impl Claims {
-    /// Get the sub claim.
+    /// Returns the SPIFFE ID (from the `sub` claim).
     pub fn sub(&self) -> &str {
         &self.sub
     }
 
-    /// Get the aud claim.
-    pub fn aud(&self) -> &Vec<String> {
+    /// Returns the audience (from the `aud` claim).
+    pub fn aud(&self) -> &[String] {
         &self.aud
     }
 
-    /// Get the exp claim.
-    pub fn exp(&self) -> u32 {
+    /// Returns the expiration timestamp (from the `exp` claim).
+    pub fn exp(&self) -> i64 {
         self.exp
     }
 }
 
 impl JwtSvid {
-    /// Parses the given token verifying the token signature using the provided [`BundleSource`] as
-    /// a source of [`JwtBundle`], validating the audience in the token with the expected audience,
-    /// and validating the expiration datetime.
-    ///
-    /// Returns a validated instance of `JwtSvid`.
-    ///
-    /// # Arguments
-    ///
-    /// * `token`: JWT token to parse.
-    /// * `bundle_source`: Struct that implements a [`BundleSource`] for the type [`JwtBundle`].
-    /// * `expected_audience`: List of audience strings that should be present in the token 'aud' claim.
+    /// Parses and validates `token`:
+    /// - verifies the signature using the provided bundle source,
+    /// - validates the audience against `expected_audience`,
+    /// - validates expiration (`exp`).
     ///
     /// # Errors
     ///
-    /// If the function cannot parse or verify the signature of the token, a [`JwtSvidError`] variant will be returned.
-    pub fn parse_and_validate<T: AsRef<str> + ToString + std::fmt::Debug>(
+    /// Returns [`JwtSvidError`] if:
+    /// - the token is malformed or cannot be decoded,
+    /// - required headers/claims are missing or invalid (e.g. `kid`, `sub`, `exp`),
+    /// - the token uses an unsupported signature algorithm,
+    /// - the trust domain bundle or authority (`kid`) cannot be found,
+    /// - the signature verification fails,
+    /// - the token is expired, or the audience does not match `expected_audience`,
+    /// - the bundle source returns an error while fetching bundles.
+    pub fn parse_and_validate<B, T>(
         token: &str,
-        bundle_source: &impl BundleRefSource<Item = JwtBundle>,
+        bundle_source: &B,
         expected_audience: &[T],
-    ) -> Result<Self, JwtSvidError> {
-        let jwt_svid = JwtSvid::parse_insecure(token)?;
+    ) -> Result<Self, JwtSvidError>
+    where
+        B: BundleSource<Item = JwtBundle>,
+        B::Error: std::error::Error + Send + Sync + 'static,
+        T: AsRef<str> + fmt::Debug,
+    {
+        // Parse untrusted token to extract trust domain, kid, and alg.
+        let untrusted = JwtSvid::parse_insecure(token)?;
 
         let jwt_authority = JwtSvid::find_jwt_authority(
             bundle_source,
-            jwt_svid.spiffe_id.trust_domain(),
-            &jwt_svid.kid,
+            untrusted.spiffe_id.trust_domain(),
+            &untrusted.kid,
         )?;
 
-        let mut validation = jsonwebtoken::Validation::new(jwt_svid.alg.to_owned());
+        let mut validation = Validation::new(untrusted.alg);
         validation.validate_exp = true;
-        validation.set_audience(expected_audience);
-        let dec_key = DecodingKey::from_jwk(jwt_authority)?;
+
+        let aud: Vec<&str> = expected_audience.iter().map(AsRef::as_ref).collect();
+        validation.set_audience(&aud);
+
+        let dec_key = DecodingKey::from_jwk(&jwt_authority)?;
+        // Perform a validating decode (signature, exp, aud).
         jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)?;
-        Ok(jwt_svid)
+
+        Ok(untrusted)
     }
 
-    /// Creates a new [`JwtSvid`] with the given token without signature verification.
+    /// Creates a new [`JwtSvid`] from `token` without signature verification.
     ///
-    /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
+    /// IMPORTANT: For parsing and validating the signature of untrusted tokens,
+    /// use [`JwtSvid::parse_and_validate`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`JwtSvidError`] if:
+    /// - the token is not a valid JWT,
+    /// - required claims are missing or malformed,
+    /// - the `sub` claim is not a valid SPIFFE ID,
+    /// - the `alg` header is unsupported,
+    /// - the `typ` header is present but not `JWT` or `JOSE`,
+    /// - the `exp` claim is invalid.
     pub fn parse_insecure(token: &str) -> Result<Self, JwtSvidError> {
         JwtSvid::from_str(token)
     }
 
-    /// Returns the serialized JWT token.
+    /// Returns a copy of this JWT-SVID with the given Workload API hint attached.
+    ///
+    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload API.
+    #[must_use]
+    pub fn with_hint(mut self, hint: impl Into<Arc<str>>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    /// Returns the serialized token.
     pub fn token(&self) -> &str {
         self.token.as_ref()
     }
 
-    /// Returns the SPIFFE ID ('aud' claim) of the token.
+    /// Returns the SPIFFE ID (from the `sub` claim).
     pub fn spiffe_id(&self) -> &SpiffeId {
         &self.spiffe_id
     }
 
-    /// Returns the audience as present in the 'aud' claim.
-    pub fn audience(&self) -> &Vec<String> {
+    /// Returns the audience (from the `aud` claim).
+    pub fn audience(&self) -> &[String] {
         &self.claims.aud
     }
 
-    /// Returns the expiration date of the JWT token.
-    pub fn expiry(&self) -> &Date {
-        &self.expiry
+    /// Returns the token expiration timestamp (from the `exp` claim).
+    pub fn expiry(&self) -> OffsetDateTime {
+        self.expiry
     }
 
-    /// Returns the key id header of the JWT token.
+    /// Returns the `kid` header.
     pub fn key_id(&self) -> &str {
         &self.kid
     }
 
-    /// Returns the parsed JWT claims (untrusted unless this JWT-SVID was validated).
+    /// Returns the parsed claims (untrusted unless validated).
     pub fn claims(&self) -> &Claims {
         &self.claims
     }
 
-    // Get the bundle associated to the trust_domain in the bundle_source, then from the bundle
-    // return the jwt_authority with the key_id
-    fn find_jwt_authority<'a>(
-        bundle_source: &'a impl BundleRefSource<Item = JwtBundle>,
+    /// Returns the Workload API hint (if any).
+    ///
+    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload API
+    /// when more than one SVID is available.]
+    pub fn hint(&self) -> Option<&str> {
+        self.hint.as_deref()
+    }
+
+    fn find_jwt_authority<B>(
+        bundle_source: &B,
         trust_domain: &TrustDomain,
         key_id: &str,
-    ) -> Result<&'a Jwk, JwtSvidError> {
-        let bundle = match bundle_source.get_bundle_for_trust_domain(trust_domain)? {
-            None => return Err(JwtSvidError::BundleNotFound(trust_domain.to_owned())),
-            Some(b) => b,
-        };
+    ) -> Result<Arc<Jwk>, JwtSvidError>
+    where
+        B: BundleSource<Item = JwtBundle>,
+        B::Error: std::error::Error + Send + Sync + 'static,
+    {
+        let bundle = bundle_source
+            .bundle_for_trust_domain(trust_domain)
+            .map_err(|e| JwtSvidError::BundleSourceError(Box::new(e)))?
+            .ok_or_else(|| JwtSvidError::BundleNotFound(trust_domain.clone()))?;
 
-        let jwt_authority = bundle
-            .find_jwt_authority(key_id)
-            .ok_or_else(|| JwtSvidError::AuthorityNotFound(key_id.to_owned()))?;
-
-        Ok(jwt_authority)
+        bundle
+            .find_jwt_authority(key_id) // Option<&Arc<Jwk>>
+            .cloned() // Option<Arc<Jwk>>
+            .ok_or_else(|| JwtSvidError::AuthorityNotFound(key_id.to_owned()))
     }
 }
 
 impl FromStr for JwtSvid {
     type Err = JwtSvidError;
 
-    /// Creates a new [`JwtSvid`] with the given token without signature verification.
+    /// Creates a new [`JwtSvid`] from `token` without signature verification.
     /// Any result from this function is untrusted.
-    ///
-    /// IMPORTANT: For parsing and validating the signature of untrusted tokens, use `parse_and_validate` method.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
-        // decode token without signature or expiration validation
+        // Decode token without signature or expiration validation.
         let mut validation = Validation::default();
-        // We later on validate audience separately with `parse_and_validate`
         validation.validate_aud = false;
         validation.insecure_disable_signature_validation();
+
         let token_data =
             jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
 
         let claims = token_data.claims;
         let spiffe_id = SpiffeId::from_str(&claims.sub)?;
 
-        let expiry = OffsetDateTime::from_unix_timestamp(claims.exp as i64).unwrap();
-        let expiry = expiry.date();
+        let expiry = OffsetDateTime::from_unix_timestamp(claims.exp)
+            .map_err(|_| JwtSvidError::InvalidExpiration)?;
 
-        let kid = match token_data.header.kid {
-            None => return Err(JwtSvidError::MissingKeyId),
-            Some(k) => k,
-        };
+        let kid = token_data.header.kid.ok_or(JwtSvidError::MissingKeyId)?;
 
-        match token_data.header.typ {
-            None => return Err(JwtSvidError::InvalidTyp),
-            Some(t) => match t.as_str() {
-                "JWT" => {}
-                "JOSE" => {}
+        // `typ` is optional; if present, validate it.
+        if let Some(t) = token_data.header.typ.as_deref() {
+            match t {
+                "JWT" | "JOSE" => {}
                 _ => return Err(JwtSvidError::InvalidTyp),
-            },
+            }
         }
 
         if !SUPPORTED_ALGORITHMS.contains(&token_data.header.alg) {
             return Err(JwtSvidError::UnsupportedAlgorithm);
         }
 
-        let alg = token_data.header.alg;
-
         Ok(Self {
             spiffe_id,
+            hint: None,
             expiry,
             claims,
             kid,
-            alg,
-
+            alg: token_data.header.alg,
             token: Token::from(token),
         })
     }
 }
 
 // Used to deserialize 'aud' claim being either a String or a sequence of strings.
+// Used to deserialize the 'aud' claim being either a String or a sequence of strings.
 fn string_or_seq_string<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -347,7 +381,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             Some(test_key_id.to_string()),
-            4294967295,
+            4_294_967_295,
             jsonwebtoken::Algorithm::ES256,
             &encoding_key,
         );
@@ -385,7 +419,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             Some("some_key_id".to_string()),
-            4294967295,
+            4_294_967_295,
             jsonwebtoken::Algorithm::default(),
             &EncodingKey::from_secret("secret".as_ref()),
         );
@@ -413,14 +447,14 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             None,
-            4294967295,
+            4_294_967_295,
             jsonwebtoken::Algorithm::ES256,
             &encoding_key,
         );
 
         let result = JwtSvid::parse_insecure(&token).unwrap_err();
 
-        assert!(matches!(result, JwtSvidError::MissingKeyId))
+        assert!(matches!(result, JwtSvidError::MissingKeyId));
     }
 
     #[test]
@@ -441,7 +475,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("OTHER".to_string()),
             Some("kid".to_string()),
-            4294967295,
+            4_294_967_295,
             jsonwebtoken::Algorithm::ES256,
             &encoding_key,
         );
@@ -449,7 +483,7 @@ mod test {
         // parse JWT-SVID from token without validating
         let result = JwtSvid::parse_insecure(&token).unwrap_err();
 
-        assert!(matches!(result, JwtSvidError::InvalidTyp))
+        assert!(matches!(result, JwtSvidError::InvalidTyp));
     }
 
     #[test]
@@ -498,7 +532,7 @@ mod test {
         sub: String,
         typ: Option<String>,
         kid: Option<String>,
-        exp: u32,
+        exp: i64,
         alg: jsonwebtoken::Algorithm,
         encoding_key: &EncodingKey,
     ) -> String {

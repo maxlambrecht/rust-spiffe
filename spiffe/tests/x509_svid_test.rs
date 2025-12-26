@@ -3,7 +3,7 @@ mod x509_svid_tests {
 
     use spiffe::{SpiffeId, X509Svid, X509SvidError};
 
-    use spiffe::cert::errors::{CertificateError, PrivateKeyError};
+    use spiffe::cert::error::{CertificateError, PrivateKeyError};
 
     #[test]
     fn test_x509_svid_parse_from_der_chain() {
@@ -110,7 +110,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::LeafCertificatedNoDigitalSignature
+            X509SvidError::LeafCertificateMissingDigitalSignature
         );
     }
 
@@ -131,7 +131,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(result.unwrap_err(), X509SvidError::SigningCertificatedNoCa);
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::SigningCertificateMissingCaFlag
+        );
     }
 
     #[test]
@@ -144,7 +147,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::SigningCertificatedNoKeyCertSign
+            X509SvidError::SigningCertificateMissingKeyCertSign
         );
     }
 
