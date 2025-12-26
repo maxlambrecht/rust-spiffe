@@ -22,6 +22,15 @@ pub struct ClientConfigOptions {
     pub authorize_server: AuthorizeSpiffeId,
 }
 
+impl std::fmt::Debug for ClientConfigOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConfigOptions")
+            .field("trust_domain", &self.trust_domain)
+            .field("authorize_server", &"<authorize_fn>")
+            .finish()
+    }
+}
+
 impl ClientConfigOptions {
     /// Creates options that authenticate the server but allow any SPIFFE ID.
     ///
@@ -55,6 +64,7 @@ impl ClientConfigOptions {
 ///
 /// Use [`ClientConfigOptions::allow_any`] to disable authorization while
 /// retaining full TLS authentication.
+#[derive(Debug)]
 pub struct ClientConfigBuilder {
     source: Arc<X509Source>,
     opts: ClientConfigOptions,
@@ -67,20 +77,39 @@ impl ClientConfigBuilder {
     }
 
     /// Builds the `rustls::ClientConfig`.
-    pub async fn build(self) -> Result<ClientConfig> {
+    ///
+    /// The returned configuration:
+    ///
+    /// * presents the current SPIFFE X.509 SVID as the client certificate
+    /// * validates the server certificate chain against the configured trust domain
+    /// * authorizes the server by SPIFFE ID (URI SAN)
+    ///
+    /// The configuration is backed by a live [`X509Source`]. When the underlying
+    /// SVID or trust bundle is rotated by the SPIRE agent, **new TLS handshakes
+    /// automatically use the updated material**.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    ///
+    /// * the Rustls crypto provider is not installed
+    /// * no current X.509 SVID is available from the `X509Source`
+    /// * the trust bundle for the configured trust domain is missing
+    /// * building the underlying Rustls certificate verifier fails
+    pub fn build(self) -> Result<ClientConfig> {
         crate::crypto::ensure_crypto_provider_installed();
 
-        let watcher = MaterialWatcher::new(self.source, self.opts.trust_domain).await?;
+        let watcher = MaterialWatcher::new(self.source, self.opts.trust_domain)?;
 
         let resolver: Arc<dyn ResolvesClientCert> =
             Arc::new(resolve_client::SpiffeClientCertResolver {
                 watcher: watcher.clone(),
             });
 
-        let verifier = Arc::new(SpiffeServerCertVerifier::new(
-            Arc::new(watcher.clone()),
+        let verifier = Arc::new(SpiffeServerCertVerifier::from_watcher(
+            watcher.clone(),
             self.opts.authorize_server,
-        )?);
+        ));
 
         let cfg = ClientConfig::builder()
             .dangerous()

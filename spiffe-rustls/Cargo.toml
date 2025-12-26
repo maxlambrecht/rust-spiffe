@@ -10,20 +10,8 @@ readme = "README.md"
 keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 categories = ["network-programming", "cryptography", "authentication"]
 
-[features]
-default = ["ring"]
-
-# Crypto backend selection (rustls feature passthrough)
-ring = ["rustls/ring"]
-aws-lc-rs = ["rustls/aws_lc_rs"]
-
-tcp-examples = ["dep:tokio-rustls"]
-
-# Internal: enables deps used by integration tests
-integration-tests = ["dep:tokio-rustls"]
-
 [dependencies]
-spiffe = "0.7.4"
+spiffe = "0.8.0"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
@@ -47,6 +35,19 @@ tokio = { version = "1", default-features = false, features = [
     "io-util",
     "sync",
 ] }
+
+[features]
+default = ["ring"]
+
+# Crypto backend selection (rustls feature passthrough)
+ring = ["rustls/ring"]
+aws-lc-rs = ["rustls/aws_lc_rs"]
+
+tcp-examples = ["dep:tokio-rustls"]
+
+# Internal: enables deps used by integration tests
+integration-tests = ["dep:tokio-rustls"]
+
 
 [[example]]
 name = "mtls_tcp_server"
