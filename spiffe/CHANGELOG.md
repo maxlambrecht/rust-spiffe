@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.0] – 2025-12-26
+
+### Breaking Changes
+
+* Removed the `spiffe-types` feature; core SPIFFE types are now always enabled.
+* Refactored `WorkloadApiClient` to be non-mutable; all client methods now take `&self`.
+* Removed legacy `Bundle`, `BundleRefSource`, `Svid`, and `SvidRefSource` traits.
+* Introduced `BundleSource` and `SvidSource` returning shared `Arc` values.
+* Standardized bundle lookup APIs (`get_bundle*` → `bundle_for*`).
+* Replaced string-based socket handling with a typed `Endpoint` abstraction.
+* Updated JWT-SVID parsing to use spec-correct `exp` handling.
+* Refined `GrpcClientError` with explicit semantic variants and gRPC status mapping.
+
+### Added
+
+* First-class support for SVID hints for both X.509 and JWT identities.
+* Multi-SVID fetch APIs and hint-based JWT SVID selection.
+* Explicit Unix and TCP endpoint handling with strict validation.
+
+
 ## [0.7.4] – 2025-12-24
 
 * Migrated to the Rust 2021 edition.
