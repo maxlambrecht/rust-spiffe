@@ -438,7 +438,7 @@ impl X509Source {
                 return;
             }
 
-            let mut client = match (self.make_client)().await {
+            let client = match (self.make_client)().await {
                 Ok(c) => {
                     backoff = self.reconnect.min_backoff;
                     c
@@ -535,7 +535,7 @@ async fn try_sync_once(
     make_client: &ClientFactory,
     picker: Option<&dyn SvidPicker>,
 ) -> Result<Arc<X509Context>, X509SourceError> {
-    let mut client = (make_client)().await.map_err(X509SourceError::Grpc)?;
+    let client = (make_client)().await.map_err(X509SourceError::Grpc)?;
     let mut stream = client
         .stream_x509_contexts()
         .await

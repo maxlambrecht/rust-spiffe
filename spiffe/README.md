@@ -40,7 +40,7 @@ Using an explicit socket path:
 ```rust
 use spiffe::WorkloadApiClient;
 
-let mut client = WorkloadApiClient::connect_to(
+let client = WorkloadApiClient::connect_to(
     "unix:///tmp/spire-agent/public/api.sock",
 ).await?;
 
@@ -51,7 +51,7 @@ Or via the `SPIFFE_ENDPOINT_SOCKET` environment variable:
 ```rust
 use spiffe::WorkloadApiClient;
 
-let mut client = WorkloadApiClient::connect_env().await?;
+let client = WorkloadApiClient::connect_env().await?;
 ```
 
 ---

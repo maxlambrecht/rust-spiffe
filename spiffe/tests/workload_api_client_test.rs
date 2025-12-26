@@ -24,7 +24,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_jwt_svid() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let svid = client
             .fetch_jwt_svid(&["my_audience"], None)
             .await
@@ -34,7 +34,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_and_validate_jwt_token() {
-        let mut client = get_client().await;
+        let client = get_client().await;
 
         let token = client
             .fetch_jwt_token(&["my_audience"], Some(&*SPIFFE_ID_1))
@@ -61,7 +61,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_all_jwt_svids_includes_hints() {
-        let mut client = get_client().await;
+        let client = get_client().await;
 
         let svids = client
             .fetch_all_jwt_svids(&["my_audience"], None)
@@ -85,7 +85,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_jwt_svid_by_hint_selects_correct_one() {
-        let mut client = get_client().await;
+        let client = get_client().await;
 
         let svid = client
             .fetch_jwt_svid_by_hint(&["my_audience"], None, "myservice2")
@@ -99,7 +99,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_jwt_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let bundles = client
             .fetch_jwt_bundles()
             .await
@@ -125,7 +125,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_x509_svid() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let svid = client
             .fetch_x509_svid()
             .await
@@ -141,7 +141,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_all_x509_svids() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let svids = client
             .fetch_all_x509_svids()
             .await
@@ -176,7 +176,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_x509_context() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let x509_context = client
             .fetch_x509_context()
             .await
@@ -217,7 +217,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_x509_context_includes_hints_on_all_svids() {
-        let mut client = get_client().await;
+        let client = get_client().await;
 
         let ctx = client
             .fetch_x509_context()
@@ -242,7 +242,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn fetch_x509_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let bundles = client
             .fetch_x509_bundles()
             .await
@@ -259,7 +259,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn stream_x509_contexts() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
@@ -324,7 +324,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn stream_x509_svids() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
@@ -365,7 +365,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn stream_x509_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
 
         let result = tokio::time::timeout(test_duration, async {
@@ -398,7 +398,7 @@ mod integration_tests_workload_api_client {
 
     #[tokio::test]
     async fn stream_jwt_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
 
         let result = tokio::time::timeout(test_duration, async {

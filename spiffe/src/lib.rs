@@ -53,7 +53,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! use spiffe::WorkloadApiClient;
 //!
-//! let mut client = WorkloadApiClient::connect_env().await?;
+//! let client = WorkloadApiClient::connect_env().await?;
 //!
 //! let audiences = &["service-a"];
 //! let jwt_svid = client.fetch_jwt_svid(audiences, None).await?;

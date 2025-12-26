@@ -26,13 +26,13 @@
 //! use tokio_stream::StreamExt;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! let mut client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
+//! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
 //!
-//! let _jwt = client.fetch_jwt_token(&["service1"], None).await?;
-//! let _jwt_svid = client.fetch_jwt_svid(&["service1"], None).await?;
+//! let jwt = client.fetch_jwt_token(&["service1"], None).await?;
+//! let jwt_svid = client.fetch_jwt_svid(&["service1"], None).await?;
 //!
-//! let _x509_svid = client.fetch_x509_svid().await?;
-//! let _x509_ctx = client.fetch_x509_context().await?;
+//! let x509_svid = client.fetch_x509_svid().await?;
+//! let x509_ctx = client.fetch_x509_context().await?;
 //!
 //! let mut updates = client.stream_x509_contexts().await?;
 //! while let Some(update) = updates.next().await {
@@ -177,18 +177,20 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if the gRPC request fails, the response stream
     /// ends unexpectedly, or the received data is invalid.
-    pub async fn fetch_x509_svid(&mut self) -> Result<X509Svid, GrpcClientError> {
+    pub async fn fetch_x509_svid(&self) -> Result<X509Svid, GrpcClientError> {
         let request = X509svidRequest::default();
 
+        let mut client = self.client.clone();
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            self.client.fetch_x509svid(request).await?;
+            client.fetch_x509svid(request).await?;
 
         let resp = grpc_stream_response
             .into_inner()
             .message()
             .await?
             .ok_or(GrpcClientError::EmptyResponse)?;
-        WorkloadApiClient::parse_x509_svid_from_grpc_response(&resp)
+
+        Self::parse_x509_svid_from_grpc_response(&resp)
     }
 
     /// Fetches all X.509 SVIDs available to the calling workload from the SPIFFE Workload API.
@@ -197,11 +199,13 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if the gRPC request fails, the response stream
     /// ends unexpectedly, or the received data is invalid.
-    pub async fn fetch_all_x509_svids(&mut self) -> Result<Vec<X509Svid>, GrpcClientError> {
+    pub async fn fetch_all_x509_svids(&self) -> Result<Vec<X509Svid>, GrpcClientError> {
         let request = X509svidRequest::default();
 
+        let mut client = self.client.clone();
+
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            self.client.fetch_x509svid(request).await?;
+            client.fetch_x509svid(request).await?;
 
         let response = grpc_stream_response
             .into_inner()
@@ -217,18 +221,21 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if the gRPC request fails, the response stream
     /// ends unexpectedly, or the received data is invalid.
-    pub async fn fetch_x509_bundles(&mut self) -> Result<X509BundleSet, GrpcClientError> {
+    pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, GrpcClientError> {
         let request = X509BundlesRequest::default();
 
+        let mut client = self.client.clone();
+
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
-            self.client.fetch_x509_bundles(request).await?;
+            client.fetch_x509_bundles(request).await?;
 
         let response = grpc_stream_response
             .into_inner()
             .message()
             .await?
             .ok_or(GrpcClientError::EmptyResponse)?;
-        WorkloadApiClient::parse_x509_bundle_set_from_grpc_response(response)
+
+        Self::parse_x509_bundle_set_from_grpc_response(response)
     }
 
     /// Fetches the current set of JWT bundles from the SPIFFE Workload API.
@@ -240,11 +247,13 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if the gRPC request fails, the stream
     /// terminates unexpectedly, or an invalid response is received.
-    pub async fn fetch_jwt_bundles(&mut self) -> Result<JwtBundleSet, GrpcClientError> {
+    pub async fn fetch_jwt_bundles(&self) -> Result<JwtBundleSet, GrpcClientError> {
         let request = JwtBundlesRequest::default();
 
+        let mut client = self.client.clone();
+
         let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
-            self.client.fetch_jwt_bundles(request).await?;
+            client.fetch_jwt_bundles(request).await?;
 
         let response = grpc_stream_response
             .into_inner()
@@ -260,11 +269,13 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if the Workload API request fails, the response
     /// stream terminates unexpectedly, or the received data cannot be parsed.
-    pub async fn fetch_x509_context(&mut self) -> Result<X509Context, GrpcClientError> {
+    pub async fn fetch_x509_context(&self) -> Result<X509Context, GrpcClientError> {
         let request = X509svidRequest::default();
 
+        let mut client = self.client.clone();
+
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            self.client.fetch_x509svid(request).await?;
+            client.fetch_x509svid(request).await?;
 
         let response = grpc_stream_response
             .into_inner()
@@ -283,7 +294,7 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the JWT-SVID request fails or the Workload API
     /// returns an invalid or empty response.
     pub async fn fetch_jwt_svid<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<JwtSvid, GrpcClientError> {
@@ -314,7 +325,7 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the JWT-SVID request fails, the Workload API response is
     /// invalid or empty, or any returned token cannot be parsed.
     pub async fn fetch_all_jwt_svids<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<Vec<JwtSvid>, GrpcClientError> {
@@ -348,7 +359,7 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the JWT-SVID request fails, the Workload API response is
     /// invalid, or no JWT-SVID with the requested hint is found.
     pub async fn fetch_jwt_svid_by_hint<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
         hint: &str,
@@ -368,7 +379,7 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the token request fails or the Workload API
     /// returns an invalid or empty response.
     pub async fn fetch_jwt_token<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<String, GrpcClientError> {
@@ -386,7 +397,7 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`GrpcClientError`] if validation fails or the token cannot be parsed.
     pub async fn validate_jwt_token<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: T,
         jwt_token: &str,
     ) -> Result<JwtSvid, GrpcClientError> {
@@ -402,17 +413,20 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the Workload API stream cannot be
     /// established or the initial request fails.
     pub async fn stream_x509_contexts(
-        &mut self,
+        &self,
     ) -> Result<
         impl Stream<Item = Result<X509Context, GrpcClientError>> + Send + 'static,
         GrpcClientError,
     > {
         let request = X509svidRequest::default();
-        let response = self.client.fetch_x509svid(request).await?;
+
+        let mut client = self.client.clone();
+
+        let response = client.fetch_x509svid(request).await?;
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(GrpcClientError::from)
-                .and_then(WorkloadApiClient::parse_x509_context_from_grpc_response)
+                .and_then(Self::parse_x509_context_from_grpc_response)
         });
         Ok(stream)
     }
@@ -424,15 +438,18 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the stream cannot be established or if a
     /// stream item fails to be received or parsed.
     pub async fn stream_x509_svids(
-        &mut self,
-    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + 'static, GrpcClientError>
+        &self,
+    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + Send + 'static, GrpcClientError>
     {
         let request = X509svidRequest::default();
-        let response = self.client.fetch_x509svid(request).await?;
+
+        let mut client = self.client.clone();
+
+        let response = client.fetch_x509svid(request).await?;
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(GrpcClientError::from)
-                .and_then(|resp| WorkloadApiClient::parse_x509_svid_from_grpc_response(&resp))
+                .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
         });
         Ok(stream)
     }
@@ -444,15 +461,18 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the Workload API stream cannot be
     /// established or the initial request fails.
     pub async fn stream_x509_bundles(
-        &mut self,
-    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + 'static, GrpcClientError>
+        &self,
+    ) -> Result<impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + Send + 'static, GrpcClientError>
     {
         let request = X509BundlesRequest::default();
-        let response = self.client.fetch_x509_bundles(request).await?;
+
+        let mut client = self.client.clone();
+
+        let response = client.fetch_x509_bundles(request).await?;
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(GrpcClientError::from)
-                .and_then(WorkloadApiClient::parse_x509_bundle_set_from_grpc_response)
+                .and_then(Self::parse_x509_bundle_set_from_grpc_response)
         });
         Ok(stream)
     }
@@ -464,15 +484,18 @@ impl WorkloadApiClient {
     /// Returns a [`GrpcClientError`] if the Workload API stream cannot be
     /// established or the initial request fails.
     pub async fn stream_jwt_bundles(
-        &mut self,
-    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + 'static, GrpcClientError>
+        &self,
+    ) -> Result<impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + Send + 'static, GrpcClientError>
     {
         let request = JwtBundlesRequest::default();
-        let response = self.client.fetch_jwt_bundles(request).await?;
+
+        let mut client = self.client.clone();
+
+        let response = client.fetch_jwt_bundles(request).await?;
         let stream = response.into_inner().map(|message| {
             message
                 .map_err(GrpcClientError::from)
-                .and_then(WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response)
+                .and_then(Self::parse_jwt_bundle_set_from_grpc_response)
         });
         Ok(stream)
     }
@@ -481,7 +504,7 @@ impl WorkloadApiClient {
 /// private
 impl WorkloadApiClient {
     async fn fetch_jwt<T: AsRef<str> + ToString>(
-        &mut self,
+        &self,
         audience: &[T],
         spiffe_id: Option<&SpiffeId>,
     ) -> Result<JwtsvidResponse, GrpcClientError> {
@@ -490,11 +513,13 @@ impl WorkloadApiClient {
             audience: audience.iter().map(ToString::to_string).collect(),
         };
 
-        Ok(self.client.fetch_jwtsvid(request).await?.into_inner())
+        let mut client = self.client.clone();
+
+        Ok(client.fetch_jwtsvid(request).await?.into_inner())
     }
 
     async fn validate_jwt<T: AsRef<str>>(
-        &mut self,
+        &self,
         audience: T,
         jwt_svid: &str,
     ) -> Result<ValidateJwtsvidResponse, GrpcClientError> {
@@ -503,7 +528,9 @@ impl WorkloadApiClient {
             svid: jwt_svid.into(),
         };
 
-        Ok(self.client.validate_jwtsvid(request).await?.into_inner())
+        let mut client = self.client.clone();
+
+        Ok(client.validate_jwtsvid(request).await?.into_inner())
     }
 
     fn parse_x509_svid_from_grpc_response(
