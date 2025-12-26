@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] – 2025-12-26
+
+### Changed
+
+* Updated dependency to `spiffe` v0.8 with `grpc` enabled.
+* Replaced custom Unix domain socket connector with `spiffe::Endpoint` and the shared gRPC connector.
+* Updated `DelegatedIdentityClient` methods to take `&self` instead of `&mut self`.
+
+### Added
+
+* New client constructors: `connect_env()`, `connect_to(...)`, and `connect(Endpoint)`.
+
+### Removed
+
+* Removed custom transport plumbing and unused dependencies (`tower`, `hyper-util`).
+* Dropped direct socket-path parsing in favor of typed endpoint parsing.
+
+
 ## [0.3.9] – 2025-12-24
 
 * Migrated to the Rust 2021 edition.

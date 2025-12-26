@@ -31,7 +31,7 @@ Add `spire-api` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spire-api = "0.3.9"
+spire-api = "0.4.0"
 ````
 
 ---
@@ -44,7 +44,7 @@ Fetch a delegated X.509 SVID using selector-based attestation:
 use spire_api::DelegatedIdentityClient;
 use spire_api::selectors;
 
-let client = DelegatedIdentityClient::default().await?;
+let client = DelegatedIdentityClient::connect_env().await?;
 
 let x509_svid = client
     .fetch_x509_svid(spire_api::DelegateAttestationRequest::Selectors(vec![
