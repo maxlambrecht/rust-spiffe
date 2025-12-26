@@ -26,7 +26,7 @@ Add `spiffe` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.7.4"
+spiffe = "0.8.0"
 ````
 
 ---
@@ -185,7 +185,7 @@ This feature is enabled by default.
 The crate can be built without the Workload API client:
 
 ```toml
-spiffe = { version = "0.7.4", default-features = false }
+spiffe = { version = "0.8.0", default-features = false }
 ```
 
 With default features disabled, the crate provides:
