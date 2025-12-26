@@ -11,7 +11,7 @@ keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 categories = ["network-programming", "cryptography", "authentication"]
 
 [dependencies]
-spiffe = "0.8.0"
+spiffe = "0.8"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
