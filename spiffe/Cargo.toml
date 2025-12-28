@@ -18,36 +18,39 @@ url = "2"
 asn1 = { package = "simple_asn1", version = "0.6" }
 x509-parser = "0.18"
 pkcs8 = "0.10"
-jsonwebtoken = "9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zeroize = { version = "1", features = ["zeroize_derive"] }
 time = "0.3"
+base64ct = { version = "1.8", features = ["alloc"] }
+
+# Optional backend
+jsonwebtoken = { version = "10", optional = true, default-features = false }
 
 # Workload API
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "sync"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", optional = true }
 log = { version = "0.4", optional = true }
+tracing = { version = "0.1", optional = true }
 arc-swap = { version = "1", optional = true }
+fastrand = { version = "2", optional = true }
 
 # gRPC/Protobuf transport
 tower = { version = "0.5", features = ["util"], optional = true }
 prost = { version = "0.14", optional = true }
 prost-types = { version = "0.14", optional = true }
-tonic = { version = "0.14", optional = true }
+tonic = { version = "0.14", optional = true, default-features = false, features = ["transport", "codegen"] }
 tonic-prost = { version = "0.14", optional = true }
 hyper-util = { version = "0.1.8", optional = true }
 
 [dev-dependencies]
-# jsonwebkey 0.4 pulls jsonwebtoken >=10.2 (edition 2024, Rust 1.85+)
-jsonwebkey = { version = "0.3", features = ["generate", "jwt-convert"] }
+p256 = { version = "0.13", features = ["pkcs8"] }
+base64ct = "1"
+serde_json = "1"
 
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 once_cell = "1"
-
-# Pinned to avoid edition-2024 dependency (base64ct >= 1.8 requires Rust 1.85+)
-base64ct = "=1.7.3"
 
 # Used in tests to validate DER bytes are parseable as OpenSSL X.509 certificates.
 openssl = { version = "0.10", features = ["vendored"] }
@@ -56,7 +59,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 default = ["workload-api"]
 
 # Shared gRPC transport utilities (Channel connector, etc.)
-grpc = [
+transport = [
     "dep:tokio",
     "dep:tokio-util",
     "dep:tonic",
@@ -66,14 +69,22 @@ grpc = [
 
 # Workload API client (depends on grpc + protobuf/runtime bits)
 workload-api = [
-    "grpc",
+    "transport",
     "dep:tokio-stream",
     "dep:log",
     "dep:arc-swap",
+    "dep:fastrand",
     "dep:prost",
     "dep:prost-types",
     "dep:tonic-prost",
 ]
+
+jwt-verify = ["dep:jsonwebtoken"]
+jwt-verify-rust-crypto = ["jwt-verify", "jsonwebtoken/rust_crypto"]
+jwt-verify-aws-lc-rs = ["jwt-verify", "jsonwebtoken/aws_lc_rs"]
+
+# Observability
+tracing = ["dep:tracing"]
 
 integration-tests = []
 

@@ -3,7 +3,8 @@
 #[cfg(feature = "integration-tests")]
 mod integration_tests_workload_api_client {
     use once_cell::sync::Lazy;
-    use spiffe::{BundleSource, SpiffeId, TrustDomain, WorkloadApiClient};
+    use spiffe::bundle::BundleSource;
+    use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
     use tokio_stream::StreamExt;
 
     static SPIFFE_ID_1: Lazy<SpiffeId> =
@@ -118,8 +119,8 @@ mod integration_tests_workload_api_client {
 
         assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
         assert_eq!(
-            bundle.find_jwt_authority(key_id).unwrap().common.key_id,
-            Some(key_id.to_string())
+            bundle.find_jwt_authority(key_id).unwrap().key_id(),
+            key_id.to_string()
         );
     }
 
@@ -422,8 +423,8 @@ mod integration_tests_workload_api_client {
 
                         assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
                         assert_eq!(
-                            bundle.find_jwt_authority(key_id).unwrap().common.key_id,
-                            Some(key_id.to_string())
+                            bundle.find_jwt_authority(key_id).unwrap().key_id(),
+                            key_id.to_string()
                         );
                     }
                     Err(e) => eprintln!("Error in stream: {:?}", e),

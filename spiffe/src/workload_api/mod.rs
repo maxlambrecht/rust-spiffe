@@ -1,40 +1,38 @@
-//! A client to interact with the Workload API to fetch X.509 and JWT materials.
+//! A client to interact with the SPIFFE Workload API to fetch X.509 and JWT materials.
 //!
-//! # Examples
+//! Most users should prefer higher-level types like [`crate::X509Source`] for X.509 workloads,
+//! but [`crate::WorkloadApiClient`] provides direct access to one-shot RPCs and streaming updates.
+//!
+//! # Example
 //!
 //! ```no_run
-//!
-//! use std::error::Error;
+//! # #[cfg(feature = "workload-api")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! use spiffe::WorkloadApiClient;
 //!
-//! use spiffe::X509Svid;
-//! use spiffe::X509BundleSet;
-//! use spiffe::X509Context;
+//! // Connect using SPIFFE_ENDPOINT_SOCKET, e.g.:
+//! // export SPIFFE_ENDPOINT_SOCKET="unix:/tmp/spire-agent/public/api.sock"
+//! let client = WorkloadApiClient::connect_env().await?;
 //!
-//! # async fn example() -> Result<(), Box< dyn Error>> {
+//! let audience = &["service1", "service2"];
 //!
-//! // create a new Workload API client connecting to an socket path defined by the environment variable:
-//! // `export SPIFFE_ENDPOINT_SOCKET = "unix:/tmp/spire-agent/api/public.sock"`
-//! let mut client = WorkloadApiClient::connect_env().await?;
+//! // Fetch a JWT token (string) for the default identity.
+//! let _jwt_token = client.fetch_jwt_token(audience, None).await?;
 //!
-//! let target_audience = &["service1", "service2"];
-//! // fetch a jwt token for the default identity with target audience
-//! let jwt_token = client.fetch_jwt_token(target_audience, None).await?;
+//! // Fetch and parse a JWT-SVID for the default identity.
+//! let _jwt_svid = client.fetch_jwt_svid(audience, None).await?;
 //!
-//! // fetch the jwt token for the default identity and parses it as a `JwtSvid`
-//! let jwt_svid = client.fetch_jwt_svid(target_audience, None).await?;
+//! // Fetch JWT bundles (authorities for validating JWT-SVIDs).
+//! let _jwt_bundles = client.fetch_jwt_bundles().await?;
 //!
-//! // fetch a set of jwt bundles (public keys for validating jwt token)
-//! let jwt_bundles = client.fetch_jwt_bundles().await?;
+//! // Fetch the default X.509 SVID.
+//! let _x509_svid = client.fetch_x509_svid().await?;
 //!
-//! // fetch the default X.509 SVID
-//! let x509_svid: X509Svid = client.fetch_x509_svid().await?;
+//! // Fetch X.509 bundles.
+//! let _x509_bundles = client.fetch_x509_bundles().await?;
 //!
-//! // fetch a set of X.509 bundles (X.509 public key authorities)
-//! let x509_bundles: X509BundleSet = client.fetch_x509_bundles().await?;
-//!
-//! // fetch all the X.509 materials (SVIDs and bundles)
-//! let x509_context: X509Context = client.fetch_x509_context().await?;
+//! // Fetch the full X.509 context (SVIDs + bundles).
+//! let _x509_context = client.fetch_x509_context().await?;
 //!
 //! # Ok(())
 //! # }
@@ -45,5 +43,14 @@ pub(crate) mod pb;
 
 pub mod client;
 pub mod endpoint;
+pub mod error;
 pub mod x509_context;
 pub mod x509_source;
+
+pub use client::WorkloadApiClient;
+pub use error::WorkloadApiError;
+pub use x509_context::X509Context;
+pub use x509_source::{
+    LimitKind, MetricsErrorKind, MetricsRecorder, ResourceLimits, X509Source, X509SourceBuilder,
+    X509SourceUpdates, UNLIMITED,
+};

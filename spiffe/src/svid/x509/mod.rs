@@ -14,6 +14,9 @@ use std::sync::Arc;
 ///
 /// Contains a [`SpiffeId`], a certificate chain as DER-encoded X.509 certificates,
 /// and a private key as DER-encoded PKCS#8.
+///
+/// Use [`X509Svid::parse_from_der`] to create an SVID from DER-encoded data, or
+/// obtain one from the [Workload API](crate::WorkloadApiClient) or [`X509Source`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Svid {
     spiffe_id: SpiffeId,
@@ -60,7 +63,7 @@ pub enum X509SvidError {
     MissingSpiffeId,
 
     /// The URI Subject Alternative Name is not a valid SPIFFE ID.
-    #[error("failed parsing SPIFFE ID from certificate URI SAN")]
+    #[error("failed to parse SPIFFE ID from certificate URI SAN: {0}")]
     InvalidSpiffeId(#[from] SpiffeIdError),
 
     /// Error processing or validating the X.509 certificates.
@@ -140,6 +143,12 @@ impl X509Svid {
     }
 
     /// Returns the leaf certificate.
+    ///
+    /// # Panics
+    ///
+    /// This method will panic if the certificate chain is empty. This should never
+    /// happen with properly constructed `X509Svid` instances, as the constructor
+    /// validates that the chain is non-empty.
     pub fn leaf(&self) -> &Certificate {
         &self.cert_chain[0]
     }

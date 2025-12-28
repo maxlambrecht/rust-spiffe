@@ -103,6 +103,6 @@ fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError>
     }
 
     Err(last_err
-        .expect("invariant: at least one URI was present")
+        .unwrap_or_else(|| unreachable!("guaranteed non-empty here"))
         .into())
 }
