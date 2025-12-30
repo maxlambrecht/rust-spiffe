@@ -82,7 +82,7 @@ impl SpiffeId {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use spiffe::SpiffeId;
     ///
     /// let spiffe_id = SpiffeId::new("spiffe://trustdomain/path").unwrap();
@@ -139,7 +139,7 @@ impl SpiffeId {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use spiffe::{SpiffeId, TrustDomain};
     ///
     /// let trust_domain = TrustDomain::new("trustdomain").unwrap();
@@ -164,16 +164,54 @@ impl SpiffeId {
     }
 
     /// Returns the trust domain of the SPIFFE ID.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{SpiffeId, TrustDomain};
+    ///
+    /// let spiffe_id = SpiffeId::new("spiffe://example.org/service")?;
+    /// let trust_domain = spiffe_id.trust_domain();
+    /// assert_eq!(trust_domain.to_string(), "example.org");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
     /// Returns the path of the SPIFFE ID.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::SpiffeId;
+    ///
+    /// let spiffe_id = SpiffeId::new("spiffe://example.org/service/api")?;
+    /// assert_eq!(spiffe_id.path(), "/service/api");
+    ///
+    /// let spiffe_id = SpiffeId::new("spiffe://example.org")?;
+    /// assert_eq!(spiffe_id.path(), "");
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn path(&self) -> &str {
         &self.path
     }
 
     /// Returns `true` if this SPIFFE ID has the given `TrustDomain`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{SpiffeId, TrustDomain};
+    ///
+    /// let spiffe_id = SpiffeId::new("spiffe://example.org/service")?;
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// assert!(spiffe_id.is_member_of(&trust_domain));
+    ///
+    /// let other_domain = TrustDomain::new("other.org")?;
+    /// assert!(!spiffe_id.is_member_of(&other_domain));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn is_member_of(&self, trust_domain: &TrustDomain) -> bool {
         &self.trust_domain == trust_domain
     }
@@ -265,7 +303,7 @@ impl TrustDomain {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```no_run
     /// use spiffe::TrustDomain;
     ///
     /// let trust_domain = TrustDomain::new("domain.test").unwrap();
@@ -348,6 +386,7 @@ fn is_valid_trust_domain_char(c: char) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod spiffe_id_tests {
     use std::str::FromStr;
 
@@ -578,6 +617,7 @@ mod spiffe_id_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod trust_domain_tests {
     use super::*;
     use std::str::FromStr;

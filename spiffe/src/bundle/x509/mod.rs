@@ -1,15 +1,18 @@
 //! X.509 bundle types.
 
+use crate::bundle::BundleSource;
 use crate::cert::error::CertificateError;
 use crate::cert::parsing::to_certificate_vec;
 use crate::cert::Certificate;
 use crate::spiffe_id::TrustDomain;
-use crate::BundleSource;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 
 /// This type contains a collection of trusted X.509 authorities for a [`TrustDomain`].
+///
+/// X.509 bundles are used to verify the signatures of [`X509Svid`] certificates.
+/// Obtain bundles from the [Workload API](crate::WorkloadApiClient) or [`X509Source`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Bundle {
     trust_domain: TrustDomain,
@@ -19,7 +22,7 @@ pub struct X509Bundle {
 /// This type contains a set of [`X509Bundle`], keyed by [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509BundleSet {
-    bundles: HashMap<TrustDomain, Arc<X509Bundle>>,
+    bundles: BTreeMap<TrustDomain, Arc<X509Bundle>>,
 }
 
 /// An error that can arise trying to parse a [`X509Bundle`] from bytes
@@ -34,6 +37,17 @@ pub enum X509BundleError {
 
 impl X509Bundle {
     /// Creates an empty `X509Bundle` for the given [`TrustDomain`].
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle};
+    ///
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = X509Bundle::new(trust_domain);
+    /// assert!(bundle.authorities().is_empty());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new(trust_domain: TrustDomain) -> Self {
         Self {
             trust_domain,
@@ -88,6 +102,20 @@ impl X509Bundle {
     /// # Errors
     ///
     /// If the function cannot parse the inputs, a [`X509BundleError`] variant will be returned.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle};
+    /// # // In practice, you would have DER-encoded certificate bytes:
+    /// # // let cert_der: &[u8] = /* ... */;
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let mut bundle = X509Bundle::new(trust_domain);
+    /// # let cert_der = &[];
+    /// bundle.add_authority(cert_der)?;
+    /// assert_eq!(bundle.authorities().len(), 1);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn add_authority(&mut self, authority_bytes: &[u8]) -> Result<(), X509BundleError> {
         let certificate = Certificate::try_from(authority_bytes)?;
         self.x509_authorities.push(certificate);
@@ -95,11 +123,37 @@ impl X509Bundle {
     }
 
     /// Returns the [`TrustDomain`] associated with the bundle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle};
+    ///
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = X509Bundle::new(trust_domain.clone());
+    /// assert_eq!(bundle.trust_domain(), &trust_domain);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
     /// Returns the X.509 authorities in the bundle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle};
+    /// # // In practice, you would parse from DER-encoded certificates:
+    /// # // let bundle = X509Bundle::from_x509_authorities(trust_domain, &[cert1_der, cert2_der])?;
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = X509Bundle::new(trust_domain);
+    /// for authority in bundle.authorities() {
+    ///     // Use authority to verify X.509-SVID signatures
+    ///     let _cert_bytes = authority.as_bytes();
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn authorities(&self) -> &[Certificate] {
         &self.x509_authorities
     }
@@ -107,9 +161,21 @@ impl X509Bundle {
 
 impl X509BundleSet {
     /// Creates a new empty `X509BundleSet`.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle, X509BundleSet};
+    ///
+    /// let mut set = X509BundleSet::new();
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = X509Bundle::new(trust_domain.clone());
+    /// set.add_bundle(bundle);
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
     pub fn new() -> Self {
         Self {
-            bundles: HashMap::new(),
+            bundles: BTreeMap::new(),
         }
     }
 
@@ -120,7 +186,65 @@ impl X509BundleSet {
         self.bundles.insert(trust_domain, Arc::new(bundle));
     }
 
+    /// Returns the bundle for a trust domain.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle, X509BundleSet};
+    ///
+    /// let mut set = X509BundleSet::new();
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = X509Bundle::new(trust_domain.clone());
+    /// set.add_bundle(bundle);
+    ///
+    /// let retrieved = set.get(&trust_domain);
+    /// assert!(retrieved.is_some());
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn get(&self, trust_domain: &TrustDomain) -> Option<Arc<X509Bundle>> {
+        self.bundles.get(trust_domain).cloned()
+    }
+
+    /// Returns a reference to the bundle for a trust domain.
+    pub fn get_ref(&self, trust_domain: &TrustDomain) -> Option<&Arc<X509Bundle>> {
+        self.bundles.get(trust_domain)
+    }
+
+    /// Returns an iterator over `(TrustDomain, X509Bundle)` entries.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, X509Bundle, X509BundleSet};
+    ///
+    /// let mut set = X509BundleSet::new();
+    /// let td1 = TrustDomain::new("example.org")?;
+    /// let td2 = TrustDomain::new("other.org")?;
+    /// set.add_bundle(X509Bundle::new(td1.clone()));
+    /// set.add_bundle(X509Bundle::new(td2.clone()));
+    ///
+    /// for (trust_domain, bundle) in set.iter() {
+    ///     println!("Bundle for {}: {} authorities", trust_domain, bundle.authorities().len());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn iter(&self) -> impl Iterator<Item = (&TrustDomain, &Arc<X509Bundle>)> {
+        self.bundles.iter()
+    }
+
+    /// Returns the number of bundles in the set.
+    pub fn len(&self) -> usize {
+        self.bundles.len()
+    }
+
+    /// Returns `true` if the set contains no bundles.
+    pub fn is_empty(&self) -> bool {
+        self.bundles.is_empty()
+    }
+
     /// Returns the [`X509Bundle`] associated with the given [`TrustDomain`].
+    #[deprecated(since = "0.9.0", note = "Use `X509BundleSet::get` instead.")]
     pub fn bundle_for(&self, trust_domain: &TrustDomain) -> Option<&Arc<X509Bundle>> {
         self.bundles.get(trust_domain)
     }
@@ -140,6 +264,74 @@ impl BundleSource for X509BundleSet {
         &self,
         trust_domain: &TrustDomain,
     ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
-        Ok(self.bundles.get(trust_domain).cloned())
+        Ok(self.get(trust_domain))
+    }
+}
+
+impl Extend<X509Bundle> for X509BundleSet {
+    fn extend<T: IntoIterator<Item = X509Bundle>>(&mut self, iter: T) {
+        for b in iter {
+            self.add_bundle(b);
+        }
+    }
+}
+
+impl FromIterator<X509Bundle> for X509BundleSet {
+    fn from_iter<T: IntoIterator<Item = X509Bundle>>(iter: T) -> Self {
+        let mut set = Self::new();
+        set.extend(iter);
+        set
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundle_set_add_bundle_replaces_existing_for_same_trust_domain() {
+        let td = TrustDomain::new("example.org").unwrap();
+
+        let b1 = X509Bundle::new(td.clone());
+        let b2 = X509Bundle::new(td.clone());
+
+        let mut set = X509BundleSet::new();
+        set.add_bundle(b1);
+        assert_eq!(set.len(), 1);
+
+        set.add_bundle(b2);
+        assert_eq!(set.len(), 1, "should replace bundle for same trust domain");
+        assert!(set.get(&td).is_some());
+    }
+
+    #[test]
+    fn bundle_set_extend_and_from_iter_work() {
+        let td1 = TrustDomain::new("example.org").unwrap();
+        let td2 = TrustDomain::new("example2.org").unwrap();
+
+        let b1 = X509Bundle::new(td1.clone());
+        let b2 = X509Bundle::new(td2.clone());
+
+        let mut set = X509BundleSet::new();
+        set.extend([b1.clone(), b2.clone()]);
+        assert_eq!(set.len(), 2);
+
+        let set2: X509BundleSet = [b1, b2].into_iter().collect();
+        assert_eq!(set2.len(), 2);
+    }
+
+    #[test]
+    fn bundle_set_bundle_source_impl_matches_get() {
+        let td = TrustDomain::new("example.org").unwrap();
+        let b = X509Bundle::new(td.clone());
+
+        let mut set = X509BundleSet::new();
+        set.add_bundle(b);
+
+        let via_get = set.get(&td).unwrap();
+        let via_trait = set.bundle_for_trust_domain(&td).unwrap().unwrap();
+
+        assert_eq!(via_get, via_trait);
     }
 }

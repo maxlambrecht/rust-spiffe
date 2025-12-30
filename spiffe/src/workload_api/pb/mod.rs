@@ -1,7 +1,5 @@
 // Generated protobuf bindings.
 // Regenerate with: `cargo run -p xtask -- gen spiffe` from the repo root.
-#![cfg(feature = "workload-api")]
-
 #[allow(
     missing_docs,
     clippy::all,

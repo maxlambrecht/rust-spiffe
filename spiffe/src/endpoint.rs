@@ -149,6 +149,7 @@ fn normalize_endpoint_uri(input: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{Endpoint, EndpointError};
     use std::net::IpAddr;

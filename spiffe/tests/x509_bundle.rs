@@ -64,3 +64,15 @@ fn test_x509_bundle_authorities_parseable_as_openssl_x509_certs() {
         openssl::x509::X509::from_der(cert.as_ref()).unwrap();
     }
 }
+
+#[test]
+fn test_x509_bundle_add_authority() {
+    let trust_domain = TrustDomain::new("domain.test").unwrap();
+    let mut b = X509Bundle::new(trust_domain.clone());
+
+    let authority1: &[u8] = include_bytes!("testdata/bundle/x509/cert1.der");
+    b.add_authority(authority1).unwrap();
+
+    assert_eq!(b.trust_domain(), &trust_domain);
+    assert_eq!(b.authorities().len(), 1);
+}

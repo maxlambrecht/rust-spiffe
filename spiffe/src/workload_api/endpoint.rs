@@ -7,7 +7,7 @@
 //! [`Endpoint`] parser.
 
 use crate::endpoint::Endpoint;
-use crate::error::GrpcClientError;
+use crate::workload_api::error::WorkloadApiError;
 
 /// Environment variable holding the Workload API endpoint.
 pub const WORKLOAD_API_ENDPOINT_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
@@ -16,11 +16,11 @@ pub const WORKLOAD_API_ENDPOINT_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
 ///
 /// ## Errors
 ///
-/// Returns a [`GrpcClientError`] if:
+/// Returns a [`WorkloadApiError`] if:
 /// - the `SPIFFE_ENDPOINT_SOCKET` environment variable is not set, or
 /// - the value of `SPIFFE_ENDPOINT_SOCKET` is not a valid SPIFFE endpoint URI.
-pub fn from_env() -> Result<Endpoint, GrpcClientError> {
+pub fn from_env() -> Result<Endpoint, WorkloadApiError> {
     let raw = std::env::var(WORKLOAD_API_ENDPOINT_ENV)
-        .map_err(|_| GrpcClientError::MissingEndpointSocket)?;
+        .map_err(|_| WorkloadApiError::MissingEndpointSocket)?;
     Ok(Endpoint::parse(&raw)?)
 }
