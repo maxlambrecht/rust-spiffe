@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/spiffe-rustls.svg)](https://crates.io/crates/spiffe-rustls)
 [![Docs.rs](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
-![MSRV](https://img.shields.io/badge/MSRV-1.83-blue)
+![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)
 
 `spiffe-rustls` integrates [`rustls`](https://crates.io/crates/rustls) with SPIFFE/SPIRE using the
 [`spiffe`](https://crates.io/crates/spiffe) crate's `X509Source` (SPIFFE Workload API).
