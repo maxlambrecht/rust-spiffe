@@ -762,9 +762,7 @@ fn advertised_verify_schemes(
 }
 
 fn join_trust_domains<'a>(tds: impl Iterator<Item = &'a spiffe::TrustDomain>) -> String {
-    tds.map(ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(", ")
+    tds.map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 #[cfg(test)]
