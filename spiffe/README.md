@@ -25,7 +25,7 @@ Add `spiffe` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe = "0.8"
+spiffe = "0.9"
 ```
 
 ---
@@ -220,14 +220,14 @@ backend.
 
 ```toml
 [dependencies]
-spiffe = { version = "0.8", features = ["jwt-verify-rust-crypto"] }
+spiffe = { version = "0.9", features = ["jwt-verify-rust-crypto"] }
 ```
 
 #### Using the AWS-LC backend
 
 ```toml
 [dependencies]
-spiffe = { version = "0.8", features = ["jwt-verify-aws-lc-rs"] }
+spiffe = { version = "0.9", features = ["jwt-verify-aws-lc-rs"] }
 ```
 
 This enables local signature verification using JWT authorities from bundles:
@@ -293,7 +293,7 @@ in production environments that use distributed tracing systems.
 
 ```toml
 [dependencies]
-spiffe = { version = "0.8", features = ["tracing"] }
+spiffe = { version = "0.9", features = ["tracing"] }
 ```
 
 **Note:** The `tracing` feature is mutually exclusive with the default `log`-based logging.
@@ -314,24 +314,24 @@ When `tracing` is enabled, all log events are emitted through `tracing` instead 
 
 ### Common Operations
 
-| Task | Code |
-|------|------|
-| Create X.509 source | `X509Source::new().await?` |
-| Get current SVID | `source.svid()?` |
-| Get bundle | `source.bundle_for_trust_domain(&td)?.ok_or("missing")?` |
-| Fetch JWT SVID | `client.fetch_jwt_svid(&["aud"], None).await?` |
-| Parse SPIFFE ID | `SpiffeId::new("spiffe://td/path")?` |
-| Check health | `source.is_healthy()` |
-| Watch for updates | `source.updated()` |
+| Task                | Code                                                     |
+|---------------------|----------------------------------------------------------|
+| Create X.509 source | `X509Source::new().await?`                               |
+| Get current SVID    | `source.svid()?`                                         |
+| Get bundle          | `source.bundle_for_trust_domain(&td)?.ok_or("missing")?` |
+| Fetch JWT SVID      | `client.fetch_jwt_svid(&["aud"], None).await?`           |
+| Parse SPIFFE ID     | `SpiffeId::new("spiffe://td/path")?`                     |
+| Check health        | `source.is_healthy()`                                    |
+| Watch for updates   | `source.updated()`                                       |
 
 ### Error Handling
 
-| Error Type | When It Occurs |
-|-----------|----------------|
-| `X509SourceError::NoSuitableSvid` | Picker rejects all SVIDs |
-| `X509SourceError::Closed` | Source was shut down |
+| Error Type                        | When It Occurs            |
+|-----------------------------------|---------------------------|
+| `X509SourceError::NoSuitableSvid` | Picker rejects all SVIDs  |
+| `X509SourceError::Closed`         | Source was shut down      |
 | `WorkloadApiError::EmptyResponse` | No data from Workload API |
-| `SpiffeIdError::WrongScheme` | Invalid SPIFFE ID format |
+| `SpiffeIdError::WrongScheme`      | Invalid SPIFFE ID format  |
 
 ---
 
