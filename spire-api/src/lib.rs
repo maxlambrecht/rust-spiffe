@@ -25,14 +25,12 @@
 //! use spire_api::{DelegatedIdentityClient, DelegateAttestationRequest};
 //! use spire_api::selectors;
 //!
-//! # async fn demo() -> Result<(), Box<dyn std::error::Error>> {
-//! // Build a tonic Channel (example shown for a standard TCP URI).
-//! // For Unix domain sockets, build the Channel using a custom connector.
-//! let channel = tonic::transport::Channel::from_static("http://127.0.0.1:8081")
-//!     .connect()
-//!     .await?;
+//! # async fn demo() -> Result<(), spire_api::DelegatedIdentityError> {
+//! // Connect using the SPIRE_ADMIN_ENDPOINT_SOCKET environment variable
+//! let client = DelegatedIdentityClient::connect_env().await?;
 //!
-//! let client = DelegatedIdentityClient::new(channel)?;
+//! // Or connect to a specific endpoint
+//! // let client = DelegatedIdentityClient::connect_to("unix:///tmp/spire-agent/public/admin.sock").await?;
 //!
 //! let svid = client
 //!     .fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
@@ -92,15 +90,14 @@ pub mod agent;
 pub mod selectors;
 
 /// Common re-exports for convenience.
-///
-/// This is intentionally small; prefer importing types from their modules for clarity.
 pub mod prelude {
     /// Common imports for SPIRE client usage.
     pub use crate::agent::delegated_identity::{
-        DelegateAttestationRequest, DelegatedIdentityClient,
+        DelegateAttestationRequest, DelegatedIdentityClient, DelegatedIdentityError,
     };
     pub use crate::selectors;
 }
 
-// Re-exports (top-level convenience)
-pub use agent::delegated_identity::{DelegateAttestationRequest, DelegatedIdentityClient};
+pub use agent::delegated_identity::{
+    DelegateAttestationRequest, DelegatedIdentityClient, DelegatedIdentityError,
+};

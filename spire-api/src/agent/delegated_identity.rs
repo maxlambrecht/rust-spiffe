@@ -20,9 +20,11 @@ use crate::pb::spire::api::types::Jwtsvid as ProtoJwtSvid;
 use crate::selectors::Selector;
 
 use spiffe::constants::DEFAULT_SVID;
-use spiffe::error::GrpcClientError;
+use spiffe::endpoint::EndpointError;
+use spiffe::transport::TransportError;
 use spiffe::{
-    Endpoint, JwtBundle, JwtBundleSet, JwtSvid, TrustDomain, X509Bundle, X509BundleSet, X509Svid,
+    Endpoint, JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeIdError,
+    TrustDomain, X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
 };
 
 use std::str::FromStr;
@@ -32,14 +34,55 @@ use tokio_stream::{Stream, StreamExt};
 /// Name of the environment variable that holds the default socket endpoint path.
 pub const ADMIN_SOCKET_ENV: &str = "SPIRE_ADMIN_ENDPOINT_SOCKET";
 
+/// Errors produced by the Delegated Identity API client.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum DelegatedIdentityError {
+    /// The environment variable for the admin endpoint socket is not set.
+    #[error("missing admin endpoint socket path ({ADMIN_SOCKET_ENV})")]
+    MissingEndpointSocket,
+
+    /// Failed to parse the endpoint URI.
+    #[error("invalid endpoint: {0}")]
+    Endpoint(#[from] EndpointError),
+
+    /// Transport error while connecting to the API.
+    #[error(transparent)]
+    Transport(#[from] TransportError),
+
+    /// The API returned an empty response.
+    #[error("empty response")]
+    EmptyResponse,
+
+    /// Failed to parse a JWT SVID.
+    #[error("JWT SVID error: {0}")]
+    JwtSvid(#[from] JwtSvidError),
+
+    /// Failed to parse an X.509 bundle.
+    #[error("X.509 bundle error: {0}")]
+    X509Bundle(#[from] X509BundleError),
+
+    /// Failed to parse an X.509 SVID.
+    #[error("X.509 SVID error: {0}")]
+    X509Svid(#[from] X509SvidError),
+
+    /// Failed to parse a JWT bundle.
+    #[error("JWT bundle error: {0}")]
+    JwtBundle(#[from] JwtBundleError),
+
+    /// Failed to parse a SPIFFE identifier.
+    #[error("SPIFFE ID error: {0}")]
+    SpiffeId(#[from] SpiffeIdError),
+}
+
 /// Load the admin endpoint socket URI from the environment.
 ///
 /// ## Errors
 ///
-/// Returns [`GrpcClientError`] if the environment variable is not set or the value is invalid.
-pub fn admin_endpoint_from_env() -> Result<Endpoint, GrpcClientError> {
-    let raw =
-        std::env::var(ADMIN_SOCKET_ENV).map_err(|_| GrpcClientError::MissingEndpointSocket)?;
+/// Returns [`DelegatedIdentityError`] if the environment variable is not set or the value is invalid.
+pub fn admin_endpoint_from_env() -> Result<Endpoint, DelegatedIdentityError> {
+    let raw = std::env::var(ADMIN_SOCKET_ENV)
+        .map_err(|_| DelegatedIdentityError::MissingEndpointSocket)?;
     Ok(Endpoint::parse(&raw)?)
 }
 
@@ -69,12 +112,12 @@ impl DelegatedIdentityClient {
     ///
     /// # Returns
     ///
-    /// * `Result<Self, ClientError>` - Returns an instance of `DelegatedIdentityClient` if successful, otherwise returns an error.
+    /// * `Result<Self, DelegatedIdentityError>` - Returns an instance of `DelegatedIdentityClient` if successful, otherwise returns an error.
     ///
     /// # Errors
     ///
     /// This function will return an error if the provided socket path is invalid or if there are issues connecting.
-    pub async fn connect_to(endpoint: impl AsRef<str>) -> Result<Self, GrpcClientError> {
+    pub async fn connect_to(endpoint: impl AsRef<str>) -> Result<Self, DelegatedIdentityError> {
         let endpoint = Endpoint::parse(endpoint.as_ref())?;
         Self::connect(endpoint).await
     }
@@ -86,9 +129,9 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`GrpcClientError`] if environment variable is not set or if
+    /// The function returns a variant of [`DelegatedIdentityError`] if environment variable is not set or if
     /// the provided socket path is not valid.
-    pub async fn connect_env() -> Result<Self, GrpcClientError> {
+    pub async fn connect_env() -> Result<Self, DelegatedIdentityError> {
         let endpoint = admin_endpoint_from_env()?;
         Self::connect(endpoint).await
     }
@@ -98,8 +141,8 @@ impl DelegatedIdentityClient {
     /// ## Errors
     ///
     /// Returns [`GrpcClientError`] if the connection fails or the endpoint is unsupported.
-    pub async fn connect(endpoint: Endpoint) -> Result<Self, GrpcClientError> {
-        let channel = spiffe::grpc::connector::connect(&endpoint).await?;
+    pub async fn connect(endpoint: Endpoint) -> Result<Self, DelegatedIdentityError> {
+        let channel = spiffe::transport::connector::connect(&endpoint).await?;
         Ok(Self {
             client: DelegatedIdentityApiClient::new(channel),
         })
@@ -112,9 +155,9 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// Returns [`GrpcClientError`] if the client could not be constructed from
+    /// Returns [`DelegatedIdentityError`] if the client could not be constructed from
     /// the provided channel (for example, due to an invalid configuration).
-    pub fn new(conn: tonic::transport::Channel) -> Result<Self, GrpcClientError> {
+    pub fn new(conn: tonic::transport::Channel) -> Result<Self, DelegatedIdentityError> {
         Ok(DelegatedIdentityClient {
             client: DelegatedIdentityApiClient::new(conn),
         })
@@ -133,15 +176,15 @@ impl DelegatedIdentityClient {
     /// # Returns
     ///
     /// On success, it returns a valid [`X509Svid`] which represents the parsed SVID.
-    /// If the fetch operation or the parsing fails, it returns a [`GrpcClientError`].
+    /// If the fetch operation or the parsing fails, it returns a [`DelegatedIdentityError`].
     ///
     /// # Errors
     ///
-    /// Returns [`GrpcClientError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
+    /// Returns [`DelegatedIdentityError`] if the gRPC call fails or if the SVID could not be parsed from the gRPC response.
     pub async fn fetch_x509_svid(
         &self,
         attest_type: DelegateAttestationRequest,
-    ) -> Result<X509Svid, GrpcClientError> {
+    ) -> Result<X509Svid, DelegatedIdentityError> {
         let request = make_x509svid_request(attest_type);
 
         self.client
@@ -151,7 +194,7 @@ impl DelegatedIdentityClient {
             .into_inner()
             .message()
             .await?
-            .ok_or(GrpcClientError::EmptyResponse)
+            .ok_or(DelegatedIdentityError::EmptyResponse)
             .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
     }
 
@@ -166,12 +209,12 @@ impl DelegatedIdentityClient {
     ///
     /// # Returns
     ///
-    /// Returns a stream of `Result<X509Svid, ClientError>`. Each item represents an updated [`X509Svid`] or an error if
+    /// Returns a stream of `Result<X509Svid, DelegatedIdentityError>`. Each item represents an updated [`X509Svid`] or an error if
     /// there was a problem processing an update from the stream.
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
+    /// The function can return an error variant of [`DelegatedIdentityError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Workload API.
     /// * An error occurs while setting up the stream.
@@ -180,8 +223,10 @@ impl DelegatedIdentityClient {
     pub async fn stream_x509_svids(
         &self,
         attest_type: DelegateAttestationRequest,
-    ) -> Result<impl Stream<Item = Result<X509Svid, GrpcClientError>> + Send + '_, GrpcClientError>
-    {
+    ) -> Result<
+        impl Stream<Item = Result<X509Svid, DelegatedIdentityError>> + Send + '_,
+        DelegatedIdentityError,
+    > {
         let request = match attest_type {
             DelegateAttestationRequest::Selectors(selectors) => SubscribeToX509sviDsRequest {
                 selectors: selectors.into_iter().map(Into::into).collect(),
@@ -197,7 +242,7 @@ impl DelegatedIdentityClient {
 
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(GrpcClientError::from)
+                .map_err(DelegatedIdentityError::from)
                 .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
         });
 
@@ -208,9 +253,9 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, GrpcClientError> {
+    pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, DelegatedIdentityError> {
         let request = SubscribeToX509BundlesRequest::default();
 
         let response = self
@@ -223,7 +268,7 @@ impl DelegatedIdentityClient {
             .into_inner()
             .message()
             .await?
-            .ok_or(GrpcClientError::EmptyResponse)?;
+            .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         Self::parse_x509_bundle_set_from_grpc_response(initial)
     }
@@ -235,12 +280,12 @@ impl DelegatedIdentityClient {
     ///
     /// # Returns
     ///
-    /// Returns a stream of `Result<X509Bundle, ClientError>`. Each item represents an updated [`X509Bundle`] or an error if
+    /// Returns a stream of `Result<X509BundleSet, DelegatedIdentityError>`. Each item represents an updated [`X509BundleSet`] or an error if
     /// there was a problem processing an update from the stream.
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
+    /// The function can return an error variant of [`DelegatedIdentityError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Admin API.
     /// * An error occurs while setting up the stream.
@@ -249,8 +294,8 @@ impl DelegatedIdentityClient {
     pub async fn stream_x509_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<X509BundleSet, GrpcClientError>> + Send + 'static,
-        GrpcClientError,
+        impl Stream<Item = Result<X509BundleSet, DelegatedIdentityError>> + Send + 'static,
+        DelegatedIdentityError,
     > {
         let request = SubscribeToX509BundlesRequest::default();
 
@@ -261,7 +306,7 @@ impl DelegatedIdentityClient {
             .await?;
 
         Ok(response.into_inner().map(|msg| {
-            msg.map_err(GrpcClientError::from)
+            msg.map_err(DelegatedIdentityError::from)
                 .and_then(Self::parse_x509_bundle_set_from_grpc_response)
         }))
     }
@@ -275,13 +320,13 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
     /// there is a problem processing the response.
     pub async fn fetch_jwt_svids<T: AsRef<str> + ToString>(
         &self,
         audience: &[T],
         attest_type: DelegateAttestationRequest,
-    ) -> Result<Vec<JwtSvid>, GrpcClientError> {
+    ) -> Result<Vec<JwtSvid>, DelegatedIdentityError> {
         let request = make_jwtsvid_request(audience, attest_type);
 
         let resp = self
@@ -302,12 +347,12 @@ impl DelegatedIdentityClient {
     ///
     /// # Returns
     ///
-    /// Returns a stream of `Result<JwtBundleSet, ClientError>`. Each item represents an updated [`JwtBundleSet`] or an error if
+    /// Returns a stream of `Result<JwtBundleSet, DelegatedIdentityError>`. Each item represents an updated [`JwtBundleSet`] or an error if
     /// there was a problem processing an update from the stream.
     ///
     /// # Errors
     ///
-    /// The function can return an error variant of [`GrpcClientError`] in the following scenarios:
+    /// The function can return an error variant of [`DelegatedIdentityError`] in the following scenarios:
     ///
     /// * There's an issue connecting to the Workload API.
     /// * An error occurs while setting up the stream.
@@ -316,8 +361,8 @@ impl DelegatedIdentityClient {
     pub async fn stream_jwt_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<JwtBundleSet, GrpcClientError>> + Send + 'static,
-        GrpcClientError,
+        impl Stream<Item = Result<JwtBundleSet, DelegatedIdentityError>> + Send + 'static,
+        DelegatedIdentityError,
     > {
         let request = SubscribeToJwtBundlesRequest::default();
 
@@ -328,7 +373,7 @@ impl DelegatedIdentityClient {
             .await?;
 
         Ok(response.into_inner().map(|msg| {
-            msg.map_err(GrpcClientError::from)
+            msg.map_err(DelegatedIdentityError::from)
                 .and_then(Self::parse_jwt_bundle_set_from_grpc_response)
         }))
     }
@@ -337,9 +382,9 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`GrpcClientError`] if there is en error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_jwt_bundles(&self) -> Result<JwtBundleSet, GrpcClientError> {
+    pub async fn fetch_jwt_bundles(&self) -> Result<JwtBundleSet, DelegatedIdentityError> {
         let request = SubscribeToJwtBundlesRequest::default();
 
         let response = self
@@ -352,7 +397,7 @@ impl DelegatedIdentityClient {
             .into_inner()
             .message()
             .await?
-            .ok_or(GrpcClientError::EmptyResponse)?;
+            .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         Self::parse_jwt_bundle_set_from_grpc_response(initial)
     }
@@ -361,16 +406,16 @@ impl DelegatedIdentityClient {
 impl DelegatedIdentityClient {
     fn parse_x509_svid_from_grpc_response(
         response: &SubscribeToX509sviDsResponse,
-    ) -> Result<X509Svid, GrpcClientError> {
+    ) -> Result<X509Svid, DelegatedIdentityError> {
         let svid = response
             .x509_svids
             .get(DEFAULT_SVID)
-            .ok_or(GrpcClientError::EmptyResponse)?;
+            .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         let x509_svid = svid
             .x509_svid
             .as_ref()
-            .ok_or(GrpcClientError::EmptyResponse)?;
+            .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         let total_length: usize = x509_svid
             .cert_chain
@@ -387,22 +432,22 @@ impl DelegatedIdentityClient {
 
     fn parse_jwt_svid_from_grpc_response(
         svids: Vec<ProtoJwtSvid>,
-    ) -> Result<Vec<JwtSvid>, GrpcClientError> {
+    ) -> Result<Vec<JwtSvid>, DelegatedIdentityError> {
         svids
             .into_iter()
-            .map(|r| JwtSvid::from_str(&r.token).map_err(GrpcClientError::JwtSvid))
+            .map(|r| JwtSvid::from_str(&r.token).map_err(DelegatedIdentityError::from))
             .collect()
     }
 
     fn parse_jwt_bundle_set_from_grpc_response(
         response: SubscribeToJwtBundlesResponse,
-    ) -> Result<JwtBundleSet, GrpcClientError> {
+    ) -> Result<JwtBundleSet, DelegatedIdentityError> {
         let mut bundle_set = JwtBundleSet::new();
 
         for (td, bundle_data) in response.bundles {
             let trust_domain = TrustDomain::try_from(td)?;
             let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
-                .map_err(GrpcClientError::from)?;
+                .map_err(DelegatedIdentityError::from)?;
             bundle_set.add_bundle(bundle);
         }
 
@@ -411,17 +456,30 @@ impl DelegatedIdentityClient {
 
     fn parse_x509_bundle_set_from_grpc_response(
         response: SubscribeToX509BundlesResponse,
-    ) -> Result<X509BundleSet, GrpcClientError> {
+    ) -> Result<X509BundleSet, DelegatedIdentityError> {
         let mut bundle_set = X509BundleSet::new();
 
         for (td, bundle) in response.ca_certificates {
             let trust_domain = TrustDomain::try_from(td)?;
             let parsed = X509Bundle::parse_from_der(trust_domain, &bundle)
-                .map_err(GrpcClientError::X509Bundle)?;
+                .map_err(DelegatedIdentityError::from)?;
             bundle_set.add_bundle(parsed);
         }
 
         Ok(bundle_set)
+    }
+}
+
+// Error conversions
+impl From<tonic::Status> for DelegatedIdentityError {
+    fn from(status: tonic::Status) -> Self {
+        Self::Transport(TransportError::Status(status))
+    }
+}
+
+impl From<tonic::transport::Error> for DelegatedIdentityError {
+    fn from(err: tonic::transport::Error) -> Self {
+        Self::Transport(TransportError::Tonic(err))
     }
 }
 
