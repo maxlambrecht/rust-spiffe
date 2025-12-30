@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.9.0] – 2025-12-30
+
+### ⚠️ Breaking changes
+
+- Offline JWT verification is now feature-gated.
+    - `JwtSvid::parse_and_validate` requires enabling a `jwt-verify-*` feature.
+- `SvidPicker::pick_svid` now returns `Option<usize>` instead of a reference.
+- Internal feature renamed: `grpc` → `transport`.
+- `GrpcClientError` replaced by `WorkloadApiError` and `TransportError`.
+- MSRV bumped from 1.83 to 1.85.
+
+### Added
+
+- X509Source hardening:
+    - Resource limits (SVIDs, bundles, bundle size)
+    - Graceful shutdown with timeout
+    - Metrics hooks and categorized error reporting
+- Optional `tracing` feature for structured logging.
+- New `X509SourceUpdates` API for update notifications.
+- Stricter and more defensive JWT/JWKS parsing.
+
+### Changed
+
+- `JwtBundleSet` now uses deterministic ordering (`BTreeMap`).
+- Default dependency and cryptography surface reduced via feature gating.
+
+### Deprecated
+
+- `JwtBundleSet::bundle_for` (use `get` instead).
+
+
 ## [0.8.0] – 2025-12-26
 
 ### Breaking Changes
