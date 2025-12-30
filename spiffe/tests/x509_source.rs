@@ -20,7 +20,7 @@ mod integration_tests_x509_source {
     use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
     use spiffe::{
         MetricsErrorKind, MetricsRecorder, ResourceLimits, SpiffeId, TrustDomain,
-        WorkloadApiClient, X509Bundle, X509Source, X509Svid, UNLIMITED,
+        WorkloadApiClient, X509Bundle, X509Source, X509Svid,
     };
     use std::collections::HashMap;
     use std::error::Error;
@@ -283,9 +283,9 @@ mod integration_tests_x509_source {
     async fn test_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with very restrictive limits (should still work if actual values are below limits)
         let limits = ResourceLimits {
-            max_svids: 10,
-            max_bundles: 10,
-            max_bundle_der_bytes: 1024 * 1024, // 1MB
+            max_svids: Some(10),
+            max_bundles: Some(10),
+            max_bundle_der_bytes: Some(1024 * 1024), // 1MB
         };
 
         let source = X509SourceBuilder::new()
@@ -307,9 +307,9 @@ mod integration_tests_x509_source {
     async fn test_unlimited_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with unlimited limits
         let limits = ResourceLimits {
-            max_svids: UNLIMITED,
-            max_bundles: UNLIMITED,
-            max_bundle_der_bytes: UNLIMITED,
+            max_svids: None,
+            max_bundles: None,
+            max_bundle_der_bytes: None,
         };
 
         let source = X509SourceBuilder::new()

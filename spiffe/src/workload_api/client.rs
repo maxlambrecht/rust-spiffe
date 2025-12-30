@@ -28,8 +28,8 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
 //!
-//! let jwt = client.fetch_jwt_token(&["service1"], None).await?;
-//! let jwt_svid = client.fetch_jwt_svid(&["service1"], None).await?;
+//! let jwt = client.fetch_jwt_token(["service1"], None).await?;
+//! let jwt_svid = client.fetch_jwt_svid(["service1"], None).await?;
 //!
 //! let x509_svid = client.fetch_x509_svid().await?;
 //! let x509_ctx = client.fetch_x509_context().await?;
@@ -68,7 +68,14 @@ use crate::workload_api::x509_context::X509Context;
 const SPIFFE_HEADER_KEY: &str = "workload.spiffe.io";
 const SPIFFE_HEADER_VALUE: &str = "true";
 
-// Pre-parsed header value to avoid parsing on every request.
+// Pre-parsed header key and value to avoid parsing on every request.
+static PARSED_HEADER_KEY: std::sync::LazyLock<
+    tonic::metadata::MetadataKey<tonic::metadata::Ascii>,
+> = std::sync::LazyLock::new(|| {
+    #[allow(clippy::expect_used)]
+    tonic::metadata::MetadataKey::from_bytes(SPIFFE_HEADER_KEY.as_bytes())
+        .expect("SPIFFE_HEADER_KEY must be valid ASCII")
+});
 static PARSED_HEADER_VALUE: std::sync::LazyLock<
     tonic::metadata::MetadataValue<tonic::metadata::Ascii>,
 > = std::sync::LazyLock::new(|| tonic::metadata::MetadataValue::from_static(SPIFFE_HEADER_VALUE));
@@ -97,7 +104,7 @@ impl tonic::service::Interceptor for MetadataAdder {
     ) -> Result<tonic::Request<()>, tonic::Status> {
         request
             .metadata_mut()
-            .insert(SPIFFE_HEADER_KEY, PARSED_HEADER_VALUE.clone());
+            .insert(PARSED_HEADER_KEY.clone(), PARSED_HEADER_VALUE.clone());
         Ok(request)
     }
 }
@@ -148,25 +155,6 @@ impl WorkloadApiClient {
         Self::connect(endpoint).await
     }
 
-    /// Rebuilds the underlying gRPC channel.
-    ///
-    /// This is intended for manual recovery scenarios when the channel has become
-    /// disconnected. The method takes `&mut self` because it modifies the internal
-    /// client state.
-    ///
-    /// **Note:** For most use cases, creating a new `WorkloadApiClient` is simpler
-    /// and equally effective. Higher-level abstractions such as `X509Source` typically
-    /// create fresh clients and manage reconnection automatically.
-    ///
-    /// # Errors
-    ///
-    /// Returns a [`WorkloadApiError`] if the gRPC channel cannot be rebuilt.
-    pub async fn reconnect(&mut self) -> Result<(), WorkloadApiError> {
-        let channel = connector::connect(&self.endpoint).await?;
-        self.client = SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder {});
-        Ok(())
-    }
-
     /// Creates a client from an existing gRPC channel.
     ///
     /// This is primarily intended for tests or advanced transport customization.
@@ -204,11 +192,7 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             client.fetch_x509svid(request).await?;
 
-        let resp = grpc_stream_response
-            .into_inner()
-            .message()
-            .await?
-            .ok_or(WorkloadApiError::EmptyResponse)?;
+        let resp = Self::first_message(grpc_stream_response.into_inner()).await?;
 
         Self::parse_x509_svid_from_grpc_response(&resp)
     }
@@ -227,11 +211,7 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             client.fetch_x509svid(request).await?;
 
-        let response = grpc_stream_response
-            .into_inner()
-            .message()
-            .await?
-            .ok_or(WorkloadApiError::EmptyResponse)?;
+        let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         WorkloadApiClient::parse_x509_svids_from_grpc_response(&response)
     }
 
@@ -249,11 +229,7 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
             client.fetch_x509_bundles(request).await?;
 
-        let response = grpc_stream_response
-            .into_inner()
-            .message()
-            .await?
-            .ok_or(WorkloadApiError::EmptyResponse)?;
+        let response = Self::first_message(grpc_stream_response.into_inner()).await?;
 
         Self::parse_x509_bundle_set_from_grpc_response(response)
     }
@@ -275,11 +251,7 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
             client.fetch_jwt_bundles(request).await?;
 
-        let response = grpc_stream_response
-            .into_inner()
-            .message()
-            .await?
-            .ok_or(WorkloadApiError::EmptyResponse)?;
+        let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(response)
     }
 
@@ -297,11 +269,7 @@ impl WorkloadApiClient {
         let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
             client.fetch_x509svid(request).await?;
 
-        let response = grpc_stream_response
-            .into_inner()
-            .message()
-            .await?
-            .ok_or(WorkloadApiError::EmptyResponse)?;
+        let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         WorkloadApiClient::parse_x509_context_from_grpc_response(response)
     }
 
@@ -313,11 +281,15 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails or the Workload API
     /// returns an invalid or empty response.
-    pub async fn fetch_jwt_svid<T: AsRef<str>>(
+    pub async fn fetch_jwt_svid<I>(
         &self,
-        audience: &[T],
+        audience: I,
         spiffe_id: Option<&SpiffeId>,
-    ) -> Result<JwtSvid, WorkloadApiError> {
+    ) -> Result<JwtSvid, WorkloadApiError>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
         let r = response
             .svids
@@ -344,11 +316,15 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails, the Workload API response is
     /// invalid or empty, or any returned token cannot be parsed.
-    pub async fn fetch_all_jwt_svids<T: AsRef<str>>(
+    pub async fn fetch_all_jwt_svids<I>(
         &self,
-        audience: &[T],
+        audience: I,
         spiffe_id: Option<&SpiffeId>,
-    ) -> Result<Vec<JwtSvid>, WorkloadApiError> {
+    ) -> Result<Vec<JwtSvid>, WorkloadApiError>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
 
         response
@@ -378,12 +354,16 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails, the Workload API response is
     /// invalid, or no JWT-SVID with the requested hint is found.
-    pub async fn fetch_jwt_svid_by_hint<T: AsRef<str>>(
+    pub async fn fetch_jwt_svid_by_hint<I>(
         &self,
-        audience: &[T],
+        audience: I,
         spiffe_id: Option<&SpiffeId>,
         hint: &str,
-    ) -> Result<JwtSvid, WorkloadApiError> {
+    ) -> Result<JwtSvid, WorkloadApiError>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
         let all = self.fetch_all_jwt_svids(audience, spiffe_id).await?;
         all.into_iter()
             .find(|s| s.hint() == Some(hint))
@@ -398,11 +378,15 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the token request fails or the Workload API
     /// returns an invalid or empty response.
-    pub async fn fetch_jwt_token<T: AsRef<str>>(
+    pub async fn fetch_jwt_token<I>(
         &self,
-        audience: &[T],
+        audience: I,
         spiffe_id: Option<&SpiffeId>,
-    ) -> Result<String, WorkloadApiError> {
+    ) -> Result<String, WorkloadApiError>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
         response
             .svids
@@ -443,6 +427,12 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the Workload API stream cannot be
     /// established or the initial request fails.
+    ///
+    /// # Return Type
+    ///
+    /// Returns `impl Stream` rather than a boxed trait object to provide better
+    /// type inference and avoid heap allocation. The concrete stream type is
+    /// an implementation detail and may change in future versions.
     pub async fn stream_x509_contexts(
         &self,
     ) -> Result<
@@ -552,14 +542,31 @@ impl WorkloadApiClient {
 
 /// private
 impl WorkloadApiClient {
-    async fn fetch_jwt<T: AsRef<str>>(
+    /// Extracts the first message from a streaming gRPC response.
+    ///
+    /// Returns `WorkloadApiError::EmptyResponse` if the stream ends without yielding a message.
+    async fn first_message<T>(mut stream: tonic::Streaming<T>) -> Result<T, WorkloadApiError> {
+        stream
+            .message()
+            .await?
+            .ok_or(WorkloadApiError::EmptyResponse)
+    }
+
+    async fn fetch_jwt<I>(
         &self,
-        audience: &[T],
+        audience: I,
         spiffe_id: Option<&SpiffeId>,
-    ) -> Result<JwtsvidResponse, WorkloadApiError> {
+    ) -> Result<JwtsvidResponse, WorkloadApiError>
+    where
+        I: IntoIterator,
+        I::Item: AsRef<str>,
+    {
         let request = JwtsvidRequest {
             spiffe_id: spiffe_id.map(ToString::to_string).unwrap_or_default(),
-            audience: audience.iter().map(|a| a.as_ref().to_string()).collect(),
+            audience: audience
+                .into_iter()
+                .map(|a| a.as_ref().to_string())
+                .collect(),
         };
 
         let mut client = self.client.clone();

@@ -52,5 +52,5 @@ pub use error::WorkloadApiError;
 pub use x509_context::X509Context;
 pub use x509_source::{
     LimitKind, MetricsErrorKind, MetricsRecorder, ResourceLimits, X509Source, X509SourceBuilder,
-    X509SourceUpdates, UNLIMITED,
+    X509SourceUpdates,
 };

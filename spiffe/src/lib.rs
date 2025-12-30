@@ -74,6 +74,11 @@ pub mod endpoint;
 pub mod spiffe_id;
 pub mod svid;
 
+#[macro_use]
+mod observability;
+
+mod prelude;
+
 #[cfg(feature = "transport")]
 pub mod transport;
 
@@ -95,7 +100,7 @@ pub use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 #[cfg(all(feature = "workload-api", feature = "transport"))]
 pub use crate::workload_api::{
     error::WorkloadApiError, LimitKind, MetricsErrorKind, MetricsRecorder, ResourceLimits,
-    WorkloadApiClient, X509Context, X509Source, X509SourceBuilder, X509SourceUpdates, UNLIMITED,
+    WorkloadApiClient, X509Context, X509Source, X509SourceBuilder, X509SourceUpdates,
 };
 
 #[cfg(all(feature = "workload-api", feature = "transport"))]
