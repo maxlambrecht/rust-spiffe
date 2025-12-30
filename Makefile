@@ -1,5 +1,4 @@
 CARGO ?= cargo
-FAST  ?= 0
 
 # -----------------------------------------------------------------------------
 # Policy
@@ -17,7 +16,7 @@ JWT_VERIFY_TEST_AWS_LC ?= 0
 # Trace lane (compile/test the `tracing` feature explicitly)
 SPIFFE_TRACE_FEATURES := workload-api,tracing
 
-.PHONY: help fmt fmt-check clean all msrv integration-tests spiffe spiffe-rustls spire-api
+.PHONY: help fmt fmt-check clean all msrv integration-tests spiffe spire-api spiffe-rustls
 
 help:
 	@echo "Targets:"
@@ -25,20 +24,36 @@ help:
 	@echo "  make msrv              Verify Minimum Supported Rust Version ($(MSRV))"
 	@echo "  make integration-tests Run integration tests"
 	@echo "  make spiffe            Clippy/build/test across feature matrix"
-	@echo "  make spire-api         Clippy/build/test (plus integration-tests unless FAST=1)"
+	@echo "  make spire-api         Clippy/build/test"
 	@echo "  make spiffe-rustls     Clippy/build/test (ring default + aws-lc-rs)"
 	@echo "  make fmt | fmt-check   rustfmt"
 	@echo "  make clean             cargo clean"
-	@echo ""
-	@echo "Env:"
-	@echo "  FAST=1                 Skip heavier scenarios (integration-tests, etc.)"
-	@echo "  MSRV=1.xx.y            Override MSRV for local checks"
-	@echo "  JWT_VERIFY_BACKEND=... Override jwt verify backend feature (default: $(JWT_VERIFY_BACKEND))"
-	@echo "  JWT_VERIFY_TEST_AWS_LC=1 Enable aws-lc-rs jwt verify backend tests"
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+
+# $(call cargo_cmd,<subcommand>,<manifest>,<extra args>)
+define cargo_cmd
+	$(CARGO) $(1) --manifest-path $(2) --all-targets $(3)
+endef
+
+# $(call cargo_cmd_deny_warnings,<subcommand>,<manifest>,<extra args>)
+define cargo_cmd_deny_warnings
+	$(CARGO) $(1) --manifest-path $(2) --all-targets $(3) -- -D warnings
+endef
+
+# MSRV variants (use cargo +<toolchain>)
+# $(call msrv_cmd,<subcommand>,<manifest>,<extra args>)
+define msrv_cmd
+	cargo +$(MSRV) $(1) --manifest-path $(2) --all-targets $(3)
+endef
 
 # -----------------------------------------------------------------------------
 # Global targets
 # -----------------------------------------------------------------------------
+
+full: all integration-tests
 
 all: fmt-check spiffe spire-api spiffe-rustls
 	@true
@@ -61,25 +76,30 @@ msrv:
 	cargo +$(MSRV) --version
 
 	@printf "\n==> spiffe (MSRV)\n"
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features transport
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(JWT_VERIFY_BACKEND)
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,$(JWT_VERIFY_BACKEND)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features transport)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features $(JWT_VERIFY_BACKEND))
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,logging,$(JWT_VERIFY_BACKEND))
 
-	# Explicit tracing lane (compile/test tracing-only code paths)
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(SPIFFE_TRACE_FEATURES)
+	# Tracing-only (no logging fallback)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_TRACE_FEATURES))
+
+	# Tracing + JWT verify (tracing takes precedence)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,tracing,$(JWT_VERIFY_BACKEND))
 
 ifneq ($(JWT_VERIFY_TEST_AWS_LC),0)
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features jwt-verify-aws-lc-rs
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,jwt-verify-aws-lc-rs
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
+	$(call msrv_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,jwt-verify-aws-lc-rs)
 endif
 
 	@printf "\n==> spire-api (MSRV)\n"
-	cargo +$(MSRV) test --manifest-path $(SPIRE_API_MANIFEST) --all-targets
+	$(call msrv_cmd,test,$(SPIRE_API_MANIFEST),)
 
 	@printf "\n==> spiffe-rustls (MSRV)\n"
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets
-	cargo +$(MSRV) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs
+	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
+	# Ensure `tracing` compiles/runs under MSRV
+	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
 
 # -----------------------------------------------------------------------------
 # Integration tests (SPIRE)
@@ -94,60 +114,53 @@ integration-tests:
 # -----------------------------------------------------------------------------
 # spiffe
 # -----------------------------------------------------------------------------
+# Lanes:
+# - default (workload-api)
+# - transport-only
+# - jwt verify backend only
+# - workload-api + logging + jwt verify
+# - tracing-only
+# - workload-api + tracing + jwt verify
+# - optional aws-lc-rs jwt verify
 
 spiffe:
 	@printf "\n==> spiffe: clippy\n"
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features transport -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(JWT_VERIFY_BACKEND) -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,$(JWT_VERIFY_BACKEND) -- -D warnings
-
-	# Explicit tracing lane (compile/check tracing-only code paths)
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(SPIFFE_TRACE_FEATURES) -- -D warnings
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features transport)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features $(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,logging,$(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_TRACE_FEATURES))
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,tracing,$(JWT_VERIFY_BACKEND))
 
 ifneq ($(JWT_VERIFY_TEST_AWS_LC),0)
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features jwt-verify-aws-lc-rs -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,jwt-verify-aws-lc-rs -- -D warnings
-endif
-
-ifneq ($(FAST),1)
-	$(CARGO) clippy --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,integration-tests -- -D warnings
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,jwt-verify-aws-lc-rs)
 endif
 
 	@printf "\n==> spiffe: build\n"
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features transport
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(JWT_VERIFY_BACKEND)
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,$(JWT_VERIFY_BACKEND)
-
-	# Explicit tracing lane
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(SPIFFE_TRACE_FEATURES)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features transport)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features $(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,$(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_TRACE_FEATURES))
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,tracing,$(JWT_VERIFY_BACKEND))
 
 ifneq ($(JWT_VERIFY_TEST_AWS_LC),0)
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features jwt-verify-aws-lc-rs
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,jwt-verify-aws-lc-rs
-endif
-
-ifneq ($(FAST),1)
-	$(CARGO) build --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,integration-tests
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,jwt-verify-aws-lc-rs)
 endif
 
 	@printf "\n==> spiffe: test\n"
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features transport
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(JWT_VERIFY_BACKEND)
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,$(JWT_VERIFY_BACKEND)
-
-	# Explicit tracing lane
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features $(SPIFFE_TRACE_FEATURES)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features transport)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features $(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,$(JWT_VERIFY_BACKEND))
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_TRACE_FEATURES))
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,tracing,$(JWT_VERIFY_BACKEND))
 
 ifneq ($(JWT_VERIFY_TEST_AWS_LC),0)
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features jwt-verify-aws-lc-rs
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,jwt-verify-aws-lc-rs
-endif
-
-ifneq ($(FAST),1)
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --all-targets --no-default-features --features workload-api,integration-tests
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api,jwt-verify-aws-lc-rs)
 endif
 
 # -----------------------------------------------------------------------------
@@ -156,51 +169,32 @@ endif
 
 spire-api:
 	@printf "\n==> spire-api: clippy\n"
-	$(CARGO) clippy --manifest-path $(SPIRE_API_MANIFEST) --all-targets -- -D warnings
-ifneq ($(FAST),1)
-	$(CARGO) clippy --manifest-path $(SPIRE_API_MANIFEST) --all-targets --no-default-features --features integration-tests -- -D warnings
-endif
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIRE_API_MANIFEST),)
 
 	@printf "\n==> spire-api: build\n"
-	$(CARGO) build --manifest-path $(SPIRE_API_MANIFEST) --all-targets
-ifneq ($(FAST),1)
-	$(CARGO) build --manifest-path $(SPIRE_API_MANIFEST) --all-targets --no-default-features --features integration-tests
-endif
+	$(call cargo_cmd,build,$(SPIRE_API_MANIFEST),)
 
 	@printf "\n==> spire-api: test\n"
-	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) --all-targets
-ifneq ($(FAST),1)
-	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) --all-targets --no-default-features --features integration-tests
-endif
+	$(call cargo_cmd,test,$(SPIRE_API_MANIFEST),)
 
 # -----------------------------------------------------------------------------
 # spiffe-rustls
 # -----------------------------------------------------------------------------
+# Lanes:
+# - default (ring)
+# - aws-lc-rs
+# - integration tests both backends when FAST!=1
+# - exercise observability lanes under integration tests when FAST!=1
 
 spiffe-rustls:
 	@printf "\n==> spiffe-rustls: clippy\n"
-	$(CARGO) clippy --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs -- -D warnings
-
-ifneq ($(FAST),1)
-	$(CARGO) clippy --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features ring,integration-tests -- -D warnings
-	$(CARGO) clippy --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs,integration-tests -- -D warnings
-endif
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 
 	@printf "\n==> spiffe-rustls: build\n"
-	$(CARGO) build --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets
-	$(CARGO) build --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs
-
-ifneq ($(FAST),1)
-	$(CARGO) build --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features ring,integration-tests
-	$(CARGO) build --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs,integration-tests
-endif
+	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 
 	@printf "\n==> spiffe-rustls: test\n"
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs
-
-ifneq ($(FAST),1)
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features ring,integration-tests
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --all-targets --no-default-features --features aws-lc-rs,integration-tests
-endif
+	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)

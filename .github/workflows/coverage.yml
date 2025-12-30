@@ -10,10 +10,10 @@ jobs:
     name: Run tests and generate coverage report
     runs-on: ubuntu-latest
     env:
-      RUSTFLAGS: "-Cinstrument-coverage"
+      RUSTFLAGS: "-Cinstrument-coverage -C link-dead-code"
       LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
-      SPIFFE_ENDPOINT_SOCKET: unix:///tmp/spire-agent/public/api.sock
-      SPIRE_ADMIN_ENDPOINT_SOCKET: unix:///tmp/spire-agent/admin/api.sock
+      SPIFFE_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/public/api.sock"
+      SPIRE_ADMIN_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/admin/api.sock"
 
     steps:
       - name: Check out code
@@ -21,13 +21,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Cache Project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
-
       - name: Install toolchain
         uses: ./.github/actions/setup-env
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache project
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Install LLVM tools
         run: rustup component add llvm-tools-preview
@@ -38,38 +38,37 @@ jobs:
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      - name: Run Tests
+      - name: Run tests (full)
         run: |
-          cargo test --workspace --all-targets --exclude spiffe-rustls-grpc-examples --exclude xtask
-          cargo test --manifest-path spiffe/Cargo.toml --features integration-tests
-          cargo test --manifest-path spire-api/Cargo.toml --features integration-tests
-          cargo test --manifest-path spiffe-rustls/Cargo.toml --features integration-tests       
+          mkdir -p target/coverage
+          make full
 
       # Coverage is restricted to hand-written library code.
       # Generated protobuf code, examples, and tooling are intentionally excluded.
-      - name: Generate Coveralls JSON Report
+      - name: Generate Coveralls JSON report
         run: |
           grcov . \
-          --binary-path ./target/debug/ \
-          -t coveralls \
-          --service-name github \
-          --service-job-id "${{ github.run_id }}" \
-          -s . \
-          --ignore-not-existing \
-          --ignore "$HOME/.cargo/**" \
-          --ignore "*/proto/**" \
-          --ignore "*/pb/**" \
-          --ignore "*/spire-api-sdk/**" \
-          --ignore "*/build.rs" \
-          --ignore "*/spiffe-rustls-grpc-examples/src/**" \
-          --ignore "*/xtask/src/**" \
-          --keep-only '*/src/**' > coveralls.json
+            --binary-path ./target/debug/ \
+            -t coveralls \
+            --service-name github \
+            --service-job-id "${{ github.run_id }}" \
+            -s . \
+            --ignore-not-existing \
+            --ignore "$HOME/.cargo/**" \
+            --ignore "*/proto/**" \
+            --ignore "*/pb/**" \
+            --ignore "*/spire-api-sdk/**" \
+            --ignore "*/build.rs" \
+            --ignore "*/spiffe-rustls-grpc-examples/src/**" \
+            --ignore "*/xtask/src/**" \
+            --keep-only '*/src/**' \
+            > coveralls.json
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path-to-json: ./coveralls.json
+          file: ./coveralls.json
 
       - name: Clean up SPIRE
         if: always()
