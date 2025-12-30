@@ -1,8 +1,9 @@
 //! Crate-internal observability macros.
 //!
-//! These macros abstract over `tracing` vs `log`.
-
-// observability.rs (or wherever these live)
+//! Precedence:
+//! 1) `tracing` feature => emit `tracing::*` events
+//! 2) `logging` feature => emit `log::*` records
+//! 3) neither enabled => no-op (but still evaluates format args)
 
 #[allow(unused_macros)]
 macro_rules! log_debug {

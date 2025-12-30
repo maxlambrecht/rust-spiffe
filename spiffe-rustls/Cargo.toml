@@ -38,15 +38,15 @@ tokio = { version = "1", default-features = false, features = [
 ] }
 
 [features]
-default = ["ring", "logging"]
+default = ["ring"]
 
 # Crypto backend selection (rustls feature passthrough)
 ring = ["rustls/ring"]
 aws-lc-rs = ["rustls/aws_lc_rs"]
 
 # Observability
-logging = ["dep:log"]
-tracing = ["dep:tracing"]
+logging = ["dep:log", "spiffe/logging"]
+tracing = ["dep:tracing", "spiffe/tracing"]
 
 # Examples / tests
 tcp-examples = ["dep:tokio-rustls"]

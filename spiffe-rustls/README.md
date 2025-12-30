@@ -245,6 +245,8 @@ No federation-specific configuration is required.
 
 ## Features
 
+All features are additive and opt-in unless explicitly stated otherwise.
+
 ### Crypto Providers
 
 `spiffe-rustls` supports multiple `rustls` crypto providers:
@@ -270,19 +272,52 @@ cargo add spiffe-rustls --no-default-features --features aws-lc-rs
 Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior are
 identical** across providers.
 
-### Tracing
+### Observability features
 
-By default, `spiffe-rustls` uses the [`log`](https://crates.io/crates/log) crate for observability.
-To use [`tracing`](https://crates.io/crates/tracing) instead, enable the `tracing` feature:
+The crate supports optional observability through two mutually compatible features:
+`logging` and `tracing`. Both features are optional and can be enabled independently
+or together.
+
+#### Feature precedence
+
+When multiple observability features are enabled, the following precedence applies:
+
+1. **`tracing`** (highest priority) — If enabled, all events are emitted via `tracing`
+2. **`logging`** — If `tracing` is not enabled, events are emitted via the `log` crate
+3. **No observability** — If neither feature is enabled, observability calls are no-ops
+
+#### `logging` (default)
+
+Enables observability using the [`log`](https://crates.io/crates/log) crate.
+
+This is a lightweight option suitable for applications that use the standard `log`
+facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `log::error!`.
+
+**Note:** The `logging` feature is **included in the default features**, so it's enabled
+by default. To disable it, use `--no-default-features` and explicitly select only the
+features you need.
+
+```toml
+[dependencies]
+spiffe-rustls = { version = "0.2" }  # logging enabled by default
+```
+
+#### `tracing`
+
+Enables structured observability using the [`tracing`](https://crates.io/crates/tracing) crate.
+
+This is recommended for production environments that use structured logs, spans,
+or distributed tracing systems. When both `tracing` and `logging` features are enabled,
+**`tracing` takes precedence** and all events are emitted via `tracing` macros.
 
 ```toml
 [dependencies]
 spiffe-rustls = { version = "0.2", features = ["tracing"] }
 ```
 
-When the `tracing` feature is enabled, all log statements are emitted as tracing events instead.
-This allows you to use tracing's structured logging, spans, and integration with observability
-platforms.
+**Note:** The `tracing` and `logging` features are not mutually exclusive. When both
+features are enabled, events are emitted via `tracing`. The `tracing` feature also
+enables tracing in the underlying `spiffe` crate.
 
 ---
 

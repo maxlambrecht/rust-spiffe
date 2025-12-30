@@ -81,7 +81,6 @@ compile_error!("Enable only one crypto provider feature: `ring` or `aws-lc-rs`."
 #[cfg(not(any(feature = "ring", feature = "aws-lc-rs")))]
 compile_error!("Enable one crypto provider feature: `ring` (default) or `aws-lc-rs`.");
 
-// Public modules (stable API surface)
 pub mod authorizer;
 
 // Crate-internal modules
@@ -90,7 +89,6 @@ mod crypto;
 mod error;
 mod material;
 
-#[macro_use]
 mod observability;
 mod prelude;
 
@@ -99,12 +97,11 @@ mod resolve;
 mod server;
 mod verifier;
 
-// Public re-exports (minimal surface area)
+// Public re-exports
 pub use authorizer::{any, exact, trust_domains, Authorizer};
 pub use client::ClientConfigBuilder;
 pub use error::{Error, Result};
 pub use policy::TrustDomainPolicy;
-// Convenience re-exports for TrustDomainPolicy variants
 pub use policy::TrustDomainPolicy::{AllowList, AnyInBundleSet, LocalOnly};
 pub use server::ServerConfigBuilder;
 pub use spiffe::{SpiffeId, TrustDomain};
