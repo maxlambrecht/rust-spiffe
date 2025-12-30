@@ -74,9 +74,7 @@ pub mod endpoint;
 pub mod spiffe_id;
 pub mod svid;
 
-#[macro_use]
 mod observability;
-
 mod prelude;
 
 #[cfg(feature = "transport")]

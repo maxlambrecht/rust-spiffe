@@ -4,8 +4,8 @@ version = "0.9.0"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
-description = "Rust client library implementation for SPIFFE"
 license = "Apache-2.0"
+description = "Rust client library implementation for SPIFFE"
 repository = "https://github.com/maxlambrecht/rust-spiffe"
 documentation = "https://docs.rs/spiffe"
 readme = "README.md"
@@ -24,33 +24,37 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 time = "0.3"
 base64ct = { version = "1.8", features = ["alloc"] }
 
-# Optional backend
+# Optional JWT verification backend
 jsonwebtoken = { version = "10", optional = true, default-features = false }
 
-# Workload API
+# Workload API (async + runtime helpers)
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "sync"], optional = true }
 tokio-stream = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", optional = true }
-log = { version = "0.4", optional = true }
-tracing = { version = "0.1", optional = true }
 arc-swap = { version = "1", optional = true }
 fastrand = { version = "2", optional = true }
 
+# Observability (optional)
+log = { version = "0.4", optional = true }
+tracing = { version = "0.1", optional = true }
+
 # gRPC/Protobuf transport
-tower = { version = "0.5", features = ["util"], optional = true }
-prost = { version = "0.14", optional = true }
-prost-types = { version = "0.14", optional = true }
 tonic = { version = "0.14", optional = true, default-features = false, features = ["transport", "codegen"] }
 tonic-prost = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+prost-types = { version = "0.14", optional = true }
+tower = { version = "0.5", features = ["util"], optional = true }
 hyper-util = { version = "0.1.8", optional = true }
 
 [dev-dependencies]
+# Test crypto helpers
 p256 = { version = "0.13", features = ["pkcs8"] }
+
+# Test/util
 base64ct = "1"
 serde_json = "1"
-
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 once_cell = "1"
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 
 # Used in tests to validate DER bytes are parseable as OpenSSL X.509 certificates.
 openssl = { version = "0.10", features = ["vendored"] }
@@ -71,7 +75,6 @@ transport = [
 workload-api = [
     "transport",
     "dep:tokio-stream",
-    "dep:log",
     "dep:arc-swap",
     "dep:fastrand",
     "dep:prost",
@@ -79,11 +82,13 @@ workload-api = [
     "dep:tonic-prost",
 ]
 
+# JWT verification
 jwt-verify = ["dep:jsonwebtoken"]
 jwt-verify-rust-crypto = ["jwt-verify", "jsonwebtoken/rust_crypto"]
 jwt-verify-aws-lc-rs = ["jwt-verify", "jsonwebtoken/aws_lc_rs"]
 
 # Observability
+logging = ["dep:log"]
 tracing = ["dep:tracing"]
 
 integration-tests = []

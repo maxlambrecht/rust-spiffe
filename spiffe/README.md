@@ -252,6 +252,8 @@ Use this mode when:
 
 ## Features
 
+All features are additive and opt-in unless explicitly stated otherwise.
+
 ### `workload-api` (default)
 
 Enables the gRPC-based SPIFFE Workload API client.
@@ -284,20 +286,50 @@ Enables **offline JWT-SVID verification** using **AWS-LC** via `aws-lc-rs`.
 
 ---
 
-### `tracing`
+### Observability features
 
-Enables structured logging support using the [`tracing`](https://crates.io/crates/tracing) crate.
+The crate supports optional observability through two mutually compatible features:
+`logging` and `tracing`. Both features are optional and can be enabled independently
+or together.
 
-When enabled, `X509Source` emits structured log events via `tracing` instead of the `log` crate. This enables better observability 
-in production environments that use distributed tracing systems.
+#### Feature precedence
+
+When multiple observability features are enabled, the following precedence applies:
+
+1. **`tracing`** (highest priority) — If enabled, all events are emitted via `tracing`
+2. **`logging`** — If `tracing` is not enabled, events are emitted via the `log` crate
+3. **No observability** — If neither feature is enabled, observability calls are no-ops
+
+#### `logging`
+
+Enables observability using the [`log`](https://crates.io/crates/log) crate.
+
+This is a lightweight option suitable for applications that use the standard `log`
+facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `log::error!`.
+
+```toml
+[dependencies]
+spiffe = { version = "0.9", features = ["logging"] }
+```
+
+**Note:** The `logging` feature is not included in the default `workload-api` feature.
+You must explicitly enable it if you want log output.
+
+#### `tracing`
+
+Enables structured observability using the [`tracing`](https://crates.io/crates/tracing) crate.
+
+This is recommended for production environments that use structured logs, spans,
+or distributed tracing systems. When both `tracing` and `logging` features are enabled,
+**`tracing` takes precedence** and all events are emitted via `tracing` macros.
 
 ```toml
 [dependencies]
 spiffe = { version = "0.9", features = ["tracing"] }
 ```
 
-**Note:** The `tracing` feature is mutually exclusive with the default `log`-based logging.
-When `tracing` is enabled, all log events are emitted through `tracing` instead of `log`.
+**Note:** The `tracing` and `logging` features are not mutually exclusive. When both
+features are enabled, events are emitted via `tracing`.
 
 ---
 

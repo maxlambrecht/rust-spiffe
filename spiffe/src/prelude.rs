@@ -1,4 +1,6 @@
-//! Internal prelude for commonly used crate utilities.
+// Internal logging facade.
+// Provides `debug!`, `info!`, `warn!`, `error!` macros backed by
+// either `tracing`, `log`, or no-op depending on enabled features.
 
 #[allow(unused_imports)]
 pub(crate) use crate::observability::{

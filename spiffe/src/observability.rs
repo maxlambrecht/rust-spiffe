@@ -1,55 +1,67 @@
 //! Crate-internal observability macros.
 //!
-//! These macros abstract over `tracing` vs `log`.
+//! Precedence:
+//! 1) `tracing` feature => emit `tracing::*` events
+//! 2) `logging` feature => emit `log::*` records
+//! 3) neither enabled => no-op (but still evaluates format args)
 
-#[cfg(feature = "tracing")]
 #[allow(unused_macros)]
 macro_rules! log_debug {
-    ($($arg:tt)*) => { tracing::debug!($($arg)*); };
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        { tracing::debug!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), feature = "logging"))]
+        { log::debug!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), not(feature = "logging")))]
+        { let _ = format_args!($($arg)*); }
+    }};
 }
 
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! log_debug {
-    ($($arg:tt)*) => { log::debug!($($arg)*); };
-}
-
-#[cfg(feature = "tracing")]
 #[allow(unused_macros)]
 macro_rules! log_info {
-    ($($arg:tt)*) => { tracing::info!($($arg)*); };
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        { tracing::info!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), feature = "logging"))]
+        { log::info!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), not(feature = "logging")))]
+        { let _ = format_args!($($arg)*); }
+    }};
 }
 
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! log_info {
-    ($($arg:tt)*) => { log::info!($($arg)*); };
-}
-
-#[cfg(feature = "tracing")]
 #[allow(unused_macros)]
 macro_rules! log_warn {
-    ($($arg:tt)*) => { tracing::warn!($($arg)*); };
-}
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! log_warn {
-    ($($arg:tt)*) => { log::warn!($($arg)*); };
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        { tracing::warn!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), feature = "logging"))]
+        { log::warn!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), not(feature = "logging")))]
+        { let _ = format_args!($($arg)*); }
+    }};
 }
 
-#[cfg(feature = "tracing")]
 #[allow(unused_macros)]
 macro_rules! log_error {
-    ($($arg:tt)*) => { tracing::error!($($arg)*); };
-}
-#[cfg(not(feature = "tracing"))]
-#[allow(unused_macros)]
-macro_rules! log_error {
-    ($($arg:tt)*) => { log::error!($($arg)*); };
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        { tracing::error!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), feature = "logging"))]
+        { log::error!($($arg)*); }
+
+        #[cfg(all(not(feature = "tracing"), not(feature = "logging")))]
+        { let _ = format_args!($($arg)*); }
+    }};
 }
 
 pub(crate) use log_debug;
-#[allow(unused_imports)]
 pub(crate) use log_error;
 pub(crate) use log_info;
 pub(crate) use log_warn;
