@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.0] – 2025-12-30
+
+* Updated dependency to **spiffe 0.9** using `default-features = false` + `features = ["transport"]`
+* Delegated Identity client now returns `DelegatedIdentityError`.
+* **MSRV** bumped to Rust **1.85**
+
 ## [0.4.0] – 2025-12-26
 
 ### Changed
