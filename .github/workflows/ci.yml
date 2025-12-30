@@ -57,8 +57,8 @@ jobs:
         with:
           shared-key: ${{ runner.os }}-cargo-test
 
-      - name: Make all (FAST=1)
-        run: make all FAST=1
+      - name: Make all
+        run: make all
 
       - name: Build spiffe-rustls examples (tcp)
         run: cargo build -p spiffe-rustls --features tcp-examples --examples
