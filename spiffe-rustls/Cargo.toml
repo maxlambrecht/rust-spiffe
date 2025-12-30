@@ -2,31 +2,32 @@
 name = "spiffe-rustls"
 version = "0.2.0"
 edition = "2021"
-rust-version = "1.83"
+rust-version = "1.85"
 license = "Apache-2.0"
 description = "SPIFFE/SPIRE integration for rustls"
-repository = "https://github.com/maxlambrecht/rust-spiffe"
 readme = "README.md"
+repository = "https://github.com/maxlambrecht/rust-spiffe"
 keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 categories = ["network-programming", "cryptography", "authentication"]
 
 [dependencies]
-spiffe = "0.8"
+spiffe = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
-log = "0.4"
 thiserror = "2"
 x509-parser = "0.18"
 
-# Optional: TCP/TLS example support
+# Observability (optional)
+log = { version = "0.4", optional = true }
+tracing = { version = "0.1", optional = true }
+
+# Optional: TCP/TLS example + integration support
 tokio-rustls = { version = "0.26", default-features = false, optional = true }
 
 [dev-dependencies]
 anyhow = "1"
 env_logger = "0.11"
-
-# Tokio for tests/examples
 tokio = { version = "1", default-features = false, features = [
     "macros",
     "rt-multi-thread",
@@ -43,11 +44,13 @@ default = ["ring"]
 ring = ["rustls/ring"]
 aws-lc-rs = ["rustls/aws_lc_rs"]
 
+# Observability
+logging = ["dep:log", "spiffe/logging"]
+tracing = ["dep:tracing", "spiffe/tracing"]
+
+# Examples / tests
 tcp-examples = ["dep:tokio-rustls"]
-
-# Internal: enables deps used by integration tests
 integration-tests = ["dep:tokio-rustls"]
-
 
 [[example]]
 name = "mtls_tcp_server"

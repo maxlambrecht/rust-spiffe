@@ -1,0 +1,7 @@
+// Internal logging facade.
+// Provides `debug!`, `info!`, `warn!`, `error!` macros backed by
+// either `tracing`, `log`, or no-op depending on enabled features.
+
+pub(crate) use crate::observability::{
+    log_debug as debug, log_error as error, log_info as info, log_warn as warn,
+};

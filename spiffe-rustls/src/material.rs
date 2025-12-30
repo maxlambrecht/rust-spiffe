@@ -1,21 +1,32 @@
 use crate::error::{Error, Result};
-use log::debug;
+use crate::prelude::debug;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::RootCertStore;
+use spiffe::TrustDomain;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Snapshot of rustls material with federation support.
+///
+/// Contains the current SVID and a map of trust domain -> root cert store
+/// for federation-aware verification.
 #[derive(Clone, Debug)]
 pub(crate) struct MaterialSnapshot {
     pub generation: u64,
     pub certified_key: Arc<rustls::sign::CertifiedKey>,
-    pub roots: Arc<RootCertStore>,
+    /// Map of trust domain to root certificate store.
+    ///
+    /// This enables federation: we can verify certificates from any
+    /// trust domain for which we have a bundle.
+    pub roots_by_td: BTreeMap<TrustDomain, Arc<RootCertStore>>,
 }
 
 /// Build a `RootCertStore` from DER-encoded certificate authorities.
 ///
-/// ## Errors
+/// # Errors
 ///
-/// Returns [`Error::Internal`] if no certificates are accepted into the store.
+/// Returns [`Error::EmptyRootStore`] if no certificates are accepted into the store.
+/// This can occur if the certificates are malformed, expired, or otherwise invalid.
 pub(crate) fn roots_from_certs(certs: &[CertificateDer<'static>]) -> Result<Arc<RootCertStore>> {
     let mut store = RootCertStore::empty();
 
@@ -24,9 +35,7 @@ pub(crate) fn roots_from_certs(certs: &[CertificateDer<'static>]) -> Result<Arc<
     debug!("loaded root cert(s): {added:?}");
 
     if store.is_empty() {
-        return Err(Error::Internal(
-            "no root certificates were accepted into RootCertStore".into(),
-        ));
+        return Err(Error::EmptyRootStore);
     }
 
     Ok(Arc::new(store))
