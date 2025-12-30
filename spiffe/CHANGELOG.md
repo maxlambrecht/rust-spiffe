@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.9.1] – 2025-12-30
+
+### Changed
+- Observability is now fully opt-in via features:
+  - `logging` enables `log`
+  - `tracing` enables `tracing`
+  - precedence: `tracing` > `logging` > no-op
+- `workload-api` no longer enables `log` implicitly (reduced default dependency surface).
+
+### Documentation
+- Documented observability feature precedence and clarified that features are additive/opt-in.
+
+### Migration note
+If you relied on `workload-api` enabling logging implicitly, enable `logging` explicitly:
+`spiffe = { version = "0.9.1", features = ["workload-api", "logging"] }`
+
+
 ## [0.9.0] – 2025-12-30
 
 ### ⚠️ Breaking changes
