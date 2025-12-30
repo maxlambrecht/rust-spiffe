@@ -1,5 +1,5 @@
-use spiffe::X509Source;
-use spiffe_rustls::{ServerConfigBuilder, ServerConfigOptions};
+use spiffe::{TrustDomain, X509Source};
+use spiffe_rustls::{authorizer, mtls_server, LocalOnly};
 use tonic::{Request, Response, Status};
 use tonic_rustls::Server;
 
@@ -27,23 +27,44 @@ impl Greeter for MyGreeter {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let socket = std::env::var("SPIFFE_ENDPOINT_SOCKET")
-        .unwrap_or_else(|_| "unix:///tmp/spire-agent/public/api.sock".to_string());
-    unsafe { std::env::set_var("SPIFFE_ENDPOINT_SOCKET", socket) };
-
+    // Env-driven, zero-config Workload API connection (SPIFFE_ENDPOINT_SOCKET).
     let source = X509Source::new().await?;
 
-    let mut server_cfg = ServerConfigBuilder::new(
-        source.clone(),
-        ServerConfigOptions::allow_any("example.org".try_into()?),
-    )
-    .build()?;
+    // Example 1: Authorization by trust domain
+    // Accept clients from any SPIFFE ID in the specified trust domains.
+    // This is more flexible than exact SPIFFE ID matching and works well
+    // when you trust an entire trust domain.
+    // Pass string literals directly - trust_domains() will convert them.
+    let allowed_trust_domains = [
+        "example.org",
+        // In a federation scenario, you might also allow:
+        // "broker.example",
+    ];
+
+    // Example 2: Trust Domain Policy - LocalOnly
+    // Only trust certificates from a single trust domain, even if the Workload API
+    // provides bundles for multiple trust domains (federation scenario).
+    // This is the most restrictive policy and ensures we only accept connections
+    // from our own trust domain.
+    let local_trust_domain: TrustDomain = "example.org".try_into()?;
+
+    // Build rustls server config with:
+    // - Authorization: accept clients from the specified trust domains
+    // - Trust Domain Policy: only trust certificates from our local trust domain
+    //   (defense-in-depth: even if federation provides other bundles, we ignore them)
+    let mut server_cfg = mtls_server(source.clone())
+        .authorize(authorizer::trust_domains(allowed_trust_domains)?)
+        .trust_domain_policy(LocalOnly(local_trust_domain))
+        .build()?;
 
     // gRPC requires HTTP/2 via ALPN.
     server_cfg.alpn_protocols = vec![b"h2".to_vec()];
 
     let addr = "127.0.0.1:50051".parse()?;
     eprintln!("gRPC server listening on https://{addr}");
+    eprintln!("Server configured to:");
+    eprintln!("  - Accept clients from trust domains: example.org");
+    eprintln!("  - Trust domain policy: LocalOnly (example.org)");
 
     let mut server = Server::builder().tls_config(server_cfg)?;
 

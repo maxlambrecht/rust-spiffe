@@ -2,9 +2,7 @@
 
 use rustls::pki_types::ServerName;
 use spiffe::X509Source;
-use spiffe_rustls::{
-    ClientConfigBuilder, ClientConfigOptions, ServerConfigBuilder, ServerConfigOptions,
-};
+use spiffe_rustls::{authorizer, ClientConfigBuilder, ServerConfigBuilder};
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -13,17 +11,13 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 async fn integration_mtls() -> Result<(), Box<dyn std::error::Error>> {
     let source = X509Source::new().await?;
 
-    let server_cfg = ServerConfigBuilder::new(
-        source.clone(),
-        ServerConfigOptions::allow_any("example.org".try_into()?),
-    )
-    .build()?;
+    let server_cfg = ServerConfigBuilder::new(source.clone())
+        .authorize(authorizer::any())
+        .build()?;
 
-    let client_cfg = ClientConfigBuilder::new(
-        source.clone(),
-        ClientConfigOptions::allow_any("example.org".try_into()?),
-    )
-    .build()?;
+    let client_cfg = ClientConfigBuilder::new(source.clone())
+        .authorize(authorizer::any())
+        .build()?;
 
     let acceptor = TlsAcceptor::from(Arc::new(server_cfg));
     let connector = TlsConnector::from(Arc::new(client_cfg));

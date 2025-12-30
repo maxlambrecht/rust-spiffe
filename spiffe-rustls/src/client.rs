@@ -1,79 +1,140 @@
+use crate::authorizer::Authorizer;
 use crate::error::Result;
+use crate::policy::TrustDomainPolicy;
 use crate::resolve::MaterialWatcher;
-use crate::types::{authorize_any, AuthorizeSpiffeId};
 use crate::verifier::SpiffeServerCertVerifier;
 use rustls::client::ResolvesClientCert;
 use rustls::ClientConfig;
-use spiffe::{TrustDomain, X509Source};
+use spiffe::X509Source;
 use std::sync::Arc;
-
-/// Configuration options for [`ClientConfigBuilder`].
-///
-/// These options control trust bundle selection and server authorization.
-#[derive(Clone)]
-pub struct ClientConfigOptions {
-    /// Trust domain whose bundle is used as the verification root set.
-    pub trust_domain: TrustDomain,
-
-    /// Authorization hook invoked with the server SPIFFE ID.
-    ///
-    /// The hook receives the SPIFFE ID extracted from the server certificate’s
-    /// URI SAN and must return `true` to allow the connection.
-    pub authorize_server: AuthorizeSpiffeId,
-}
-
-impl std::fmt::Debug for ClientConfigOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ClientConfigOptions")
-            .field("trust_domain", &self.trust_domain)
-            .field("authorize_server", &"<authorize_fn>")
-            .finish()
-    }
-}
-
-impl ClientConfigOptions {
-    /// Creates options that authenticate the server but allow any SPIFFE ID.
-    ///
-    /// This disables authorization while retaining full TLS authentication.
-    /// Use only if authorization is performed at another layer.
-    pub fn allow_any(trust_domain: TrustDomain) -> Self {
-        Self {
-            trust_domain,
-            authorize_server: authorize_any(),
-        }
-    }
-}
 
 /// Builds a [`rustls::ClientConfig`] backed by a live SPIFFE `X509Source`.
 ///
 /// The resulting client configuration:
 ///
 /// * presents the current SPIFFE X.509 SVID as the client certificate
-/// * validates the server certificate chain against the trust domain bundle
+/// * validates the server certificate chain against trust bundles from the Workload API
 /// * authorizes the server by SPIFFE ID (URI SAN)
 ///
 /// The builder retains an `Arc<X509Source>`. When the underlying SVID or trust
 /// bundle is rotated by the SPIRE agent, **new TLS handshakes automatically use
 /// the updated material**.
 ///
+/// ## Trust Domain Selection
+///
+/// The builder uses the bundle set from `X509Source`, which may contain bundles
+/// for multiple trust domains (when SPIFFE federation is configured). The verifier
+/// automatically selects the correct bundle based on the peer's SPIFFE ID—no
+/// manual configuration is required. You can optionally restrict which trust
+/// domains are accepted using [`Self::trust_domain_policy`].
+///
 /// ## Authorization
 ///
-/// Server authorization is performed by invoking the provided
-/// [`AuthorizeSpiffeId`] hook with the server’s SPIFFE ID extracted from the
-/// certificate’s URI SAN.
+/// Server authorization is performed by invoking the provided [`Authorizer`] with
+/// the server's SPIFFE ID extracted from the certificate's URI SAN.
 ///
-/// Use [`ClientConfigOptions::allow_any`] to disable authorization while
-/// retaining full TLS authentication.
-#[derive(Debug)]
+/// Use [`authorizer::any`] to disable authorization while retaining full TLS authentication.
+///
+/// # Examples
+///
+/// ```no_run
+/// use spiffe_rustls::{authorizer, mtls_client, AllowList};
+/// use std::collections::BTreeSet;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let source = spiffe::X509Source::new().await?;
+///
+/// // Pass string literals directly - exact() and trust_domains() will convert them
+/// let allowed_server_ids = [
+///     "spiffe://example.org/myservice",
+///     "spiffe://example.org/myservice2",
+/// ];
+///
+/// let mut allowed_trust_domains = BTreeSet::new();
+/// allowed_trust_domains.insert("example.org".try_into()?);
+///
+/// let client_config = mtls_client(source)
+///     .authorize(authorizer::exact(allowed_server_ids)?)
+///     .trust_domain_policy(AllowList(allowed_trust_domains))
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
 pub struct ClientConfigBuilder {
     source: Arc<X509Source>,
-    opts: ClientConfigOptions,
+    authorizer: Arc<dyn Authorizer>,
+    trust_domain_policy: TrustDomainPolicy,
+}
+
+impl std::fmt::Debug for ClientConfigBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConfigBuilder")
+            .field("source", &"<Arc<X509Source>>")
+            .field("authorizer", &"<Arc<dyn Authorizer>>")
+            .field("trust_domain_policy", &self.trust_domain_policy)
+            .finish()
+    }
 }
 
 impl ClientConfigBuilder {
-    /// Creates a new builder from an `X509Source` and options.
-    pub fn new(source: Arc<X509Source>, opts: ClientConfigOptions) -> Self {
-        Self { source, opts }
+    /// Creates a new builder from an `X509Source`.
+    ///
+    /// Defaults:
+    /// - Authorization: accepts any SPIFFE ID (authentication only)
+    /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
+    pub fn new(source: Arc<X509Source>) -> Self {
+        Self {
+            source,
+            authorizer: Arc::new(crate::authorizer::any()),
+            trust_domain_policy: TrustDomainPolicy::default(),
+        }
+    }
+
+    /// Sets the authorization policy for server SPIFFE IDs.
+    ///
+    /// Accepts any type that implements `Authorizer`, including closures.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe_rustls::{authorizer, mtls_client};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = spiffe::X509Source::new().await?;
+    ///
+    /// // Using a convenience constructor - pass string literals directly
+    /// let config = mtls_client(source.clone())
+    ///     .authorize(authorizer::exact([
+    ///         "spiffe://example.org/service",
+    ///         "spiffe://example.org/service2",
+    ///     ])?)
+    ///     .build()?;
+    ///
+    /// // Using a closure
+    /// let config = mtls_client(source.clone())
+    ///     .authorize(|id: &spiffe::SpiffeId| id.path().starts_with("/api/"))
+    ///     .build()?;
+    ///
+    /// // Using the Any authorizer (default)
+    /// let config = mtls_client(source)
+    ///     .authorize(authorizer::any())
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn authorize<A: Authorizer>(mut self, authorizer: A) -> Self {
+        self.authorizer = Arc::new(authorizer);
+        self
+    }
+
+    /// Sets the trust domain policy.
+    ///
+    /// Defaults to `AnyInBundleSet` (uses all bundles from the Workload API).
+    #[must_use]
+    pub fn trust_domain_policy(mut self, policy: TrustDomainPolicy) -> Self {
+        self.trust_domain_policy = policy;
+        self
     }
 
     /// Builds the `rustls::ClientConfig`.
@@ -81,7 +142,7 @@ impl ClientConfigBuilder {
     /// The returned configuration:
     ///
     /// * presents the current SPIFFE X.509 SVID as the client certificate
-    /// * validates the server certificate chain against the configured trust domain
+    /// * validates the server certificate chain against trust bundles from the Workload API
     /// * authorizes the server by SPIFFE ID (URI SAN)
     ///
     /// The configuration is backed by a live [`X509Source`]. When the underlying
@@ -94,21 +155,21 @@ impl ClientConfigBuilder {
     ///
     /// * the Rustls crypto provider is not installed
     /// * no current X.509 SVID is available from the `X509Source`
-    /// * the trust bundle for the configured trust domain is missing
     /// * building the underlying Rustls certificate verifier fails
     pub fn build(self) -> Result<ClientConfig> {
         crate::crypto::ensure_crypto_provider_installed();
 
-        let watcher = MaterialWatcher::new(self.source, self.opts.trust_domain)?;
+        let watcher = MaterialWatcher::spawn(self.source)?;
 
         let resolver: Arc<dyn ResolvesClientCert> =
             Arc::new(resolve_client::SpiffeClientCertResolver {
                 watcher: watcher.clone(),
             });
 
-        let verifier = Arc::new(SpiffeServerCertVerifier::from_watcher(
-            watcher.clone(),
-            self.opts.authorize_server,
+        let verifier = Arc::new(SpiffeServerCertVerifier::new(
+            Arc::new(watcher) as Arc<dyn crate::verifier::MaterialProvider>,
+            self.authorizer,
+            self.trust_domain_policy,
         ));
 
         let cfg = ClientConfig::builder()
