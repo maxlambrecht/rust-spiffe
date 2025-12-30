@@ -235,8 +235,6 @@ let server_cfg = mtls_server(source)
     .trust_domain_policy(LocalOnly(local_trust_domain))
     .build()?;
 ```
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-read_file
 
 The builder automatically handles multiple trust domains when SPIFFE federation is configured.
 No federation-specific configuration is required.
