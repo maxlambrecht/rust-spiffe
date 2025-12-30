@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.9.2] – 2025-12-30
+
+### Changed
+- Expose `Endpoint` and `EndpointError` in `transport` feature.
+
 ## [0.9.1] – 2025-12-30
 
 ### Changed

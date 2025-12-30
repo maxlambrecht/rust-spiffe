@@ -101,5 +101,5 @@ pub use crate::workload_api::{
     WorkloadApiClient, X509Context, X509Source, X509SourceBuilder, X509SourceUpdates,
 };
 
-#[cfg(all(feature = "workload-api", feature = "transport"))]
+#[cfg(feature = "transport")]
 pub use crate::endpoint::{Endpoint, EndpointError};
