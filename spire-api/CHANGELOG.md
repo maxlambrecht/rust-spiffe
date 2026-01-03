@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.1] – 2026-01-03
+
+* Updated `spiffe` dependency to `0.10` with `features = ["x509", "jwt", "transport-grpc"]`
+* Remove feature `integration-tests`
+
 ## [0.5.0] – 2025-12-30
 
 * Updated dependency to **spiffe 0.9** using `default-features = false` + `features = ["transport"]`

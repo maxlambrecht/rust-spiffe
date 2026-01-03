@@ -20,11 +20,10 @@ use crate::pb::spire::api::types::Jwtsvid as ProtoJwtSvid;
 use crate::selectors::Selector;
 
 use spiffe::constants::DEFAULT_SVID;
-use spiffe::endpoint::EndpointError;
-use spiffe::transport::TransportError;
+use spiffe::transport::{Endpoint, TransportError};
 use spiffe::{
-    Endpoint, JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeIdError,
-    TrustDomain, X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
+    JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeIdError, TrustDomain,
+    X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
 };
 
 use std::str::FromStr;
@@ -44,7 +43,7 @@ pub enum DelegatedIdentityError {
 
     /// Failed to parse the endpoint URI.
     #[error("invalid endpoint: {0}")]
-    Endpoint(#[from] EndpointError),
+    Endpoint(#[from] spiffe::transport::EndpointError),
 
     /// Transport error while connecting to the API.
     #[error(transparent)]
