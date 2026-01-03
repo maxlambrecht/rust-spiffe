@@ -334,12 +334,25 @@ wait_for_service \
   "SPIRE Server" \
   "${spire_server_log_file}"
 
+# Export primary bundle and ingest it into the federated server
+bin/spire-server bundle show \
+  -socketPath "${spire_server_socket_path}" \
+  -format spiffe \
+  > example.org.bundle
+
 # Ingest federated bundle into the primary server
 bin/spire-server bundle set \
   -socketPath "${spire_server_socket_path}" \
   -format spiffe \
   -id spiffe://example-federated.org \
   -path example-federated.org.bundle
+
+# Ingest bundle into the federate server
+bin/spire-server bundle set \
+  -socketPath "${spire_server_federated_socket_path}" \
+  -format spiffe \
+  -id spiffe://example.org \
+  -path example.org.bundle
 
 # -------------------------
 # 3) Register workloads (primary TD)
