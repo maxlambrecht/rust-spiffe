@@ -4,7 +4,8 @@
 //! 1) **Workload API (trusted)**: tokens are fetched from the SPIRE agent (already validated by the agent).
 //!    Use [`JwtSvid::from_workload_api_token`] to parse and inspect the token.
 //! 2) **Offline verification**: verify a token using JWT authorities from bundles.
-//!    Requires the `jwt-verify` feature and [`JwtSvid::parse_and_validate`].
+//!    Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`)
+//!    and [`JwtSvid::parse_and_validate`].
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -18,12 +19,12 @@ use zeroize::Zeroize;
 
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 
-#[cfg(feature = "jwt-verify")]
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use crate::bundle::jwt::{JwtAuthority, JwtBundle};
-#[cfg(feature = "jwt-verify")]
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use crate::bundle::BundleSource;
 
-#[cfg(feature = "jwt-verify")]
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use jsonwebtoken::{DecodingKey, Validation};
 
 /// Algorithms supported for JWT-SVIDs according to the SPIFFE JWT-SVID profile.
@@ -65,7 +66,7 @@ impl JwtAlg {
         })
     }
 
-    #[cfg(feature = "jwt-verify")]
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     fn to_jsonwebtoken(self) -> jsonwebtoken::Algorithm {
         match self {
             Self::RS256 => jsonwebtoken::Algorithm::RS256,
@@ -88,7 +89,7 @@ impl JwtAlg {
 /// ## Usage Patterns
 ///
 /// - **Trusted tokens** (from Workload API): Use [`JwtSvid::from_workload_api_token`]
-/// - **Untrusted tokens** (from network): Use [`JwtSvid::parse_and_validate`] (requires `jwt-verify` feature)
+/// - **Untrusted tokens** (from network): Use [`JwtSvid::parse_and_validate`] (requires a JWT verification backend feature)
 ///
 /// See the [module documentation](self) for details on verification modes.
 ///
@@ -170,16 +171,16 @@ pub enum JwtSvidError {
     BundleSourceError(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 
     /// Offline verification backend is not enabled.
-    #[error("jwt offline verification not enabled (enable feature: jwt-verify)")]
+    #[error("jwt offline verification not enabled (enable feature: jwt-verify-rust-crypto or jwt-verify-aws-lc-rs)")]
     JwtVerifyNotEnabled,
 
     /// The authority JWK JSON could not be parsed.
-    #[cfg(feature = "jwt-verify")]
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     #[error("cannot parse authority JWK JSON: {0}")]
     InvalidAuthorityJwk(#[from] serde_json::Error),
 
     /// Error returned by the JWT decoding library.
-    #[cfg(feature = "jwt-verify")]
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     #[error("cannot decode token")]
     InvalidToken(#[from] jsonwebtoken::errors::Error),
 }
@@ -242,7 +243,7 @@ impl JwtSvid {
     /// This performs **no signature verification**. It is intended for tokens that are
     /// trusted by construction (i.e., fetched from the SPIRE agent).
     ///
-    /// For untrusted tokens, use [`JwtSvid::parse_and_validate`] (requires `jwt-verify`).
+    /// For untrusted tokens, use [`JwtSvid::parse_and_validate`] (requires a JWT verification backend feature).
     ///
     /// # Errors
     ///
@@ -258,7 +259,7 @@ impl JwtSvid {
     /// from the SPIFFE Workload API.
     ///
     /// For untrusted tokens, use [`JwtSvid::parse_and_validate`] instead (requires
-    /// the `jwt-verify` feature).
+    /// a JWT verification backend feature: `jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`).
     ///
     /// # Errors
     ///
@@ -278,7 +279,7 @@ impl JwtSvid {
     /// - validates the audience against `expected_audience`,
     /// - validates expiration (`exp`).
     ///
-    /// Requires the `jwt-verify` feature.
+    /// Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`).
     ///
     /// ## Validation Policy
     ///
@@ -305,7 +306,7 @@ impl JwtSvid {
     /// - the signature verification fails,
     /// - the token is expired, or the audience does not match `expected_audience`,
     /// - the bundle source returns an error while fetching bundles.
-    #[cfg(feature = "jwt-verify")]
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     pub fn parse_and_validate<B, T>(
         token: &str,
         bundle_source: &B,
@@ -397,7 +398,7 @@ impl JwtSvid {
         self.hint.as_deref()
     }
 
-    #[cfg(feature = "jwt-verify")]
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     fn find_jwt_authority<B>(
         bundle_source: &B,
         trust_domain: &TrustDomain,
@@ -657,7 +658,10 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "jwt-verify"))]
+#[cfg(all(
+    test,
+    any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs")
+))]
 mod test {
     #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;

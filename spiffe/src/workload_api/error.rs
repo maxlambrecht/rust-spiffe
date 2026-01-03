@@ -2,10 +2,19 @@
 
 use thiserror::Error;
 
-use crate::endpoint::EndpointError;
-use crate::{JwtBundleError, JwtSvidError, SpiffeIdError, X509BundleError, X509SvidError};
+use crate::transport::EndpointError;
+use crate::SpiffeIdError;
+#[cfg(feature = "jwt")]
+use crate::{JwtBundleError, JwtSvidError};
+#[cfg(feature = "x509")]
+use crate::{X509BundleError, X509SvidError};
 
-#[cfg(feature = "transport")]
+#[cfg(any(
+    feature = "workload-api",
+    feature = "workload-api-x509",
+    feature = "workload-api-jwt",
+    feature = "workload-api-full"
+))]
 use crate::transport::TransportError;
 
 /// Errors produced by Workload API operations.
@@ -50,23 +59,32 @@ pub enum WorkloadApiError {
     HintNotFound(String),
 
     /// Errors returned by the underlying transport.
-    #[cfg(feature = "transport")]
+    #[cfg(any(
+        feature = "workload-api",
+        feature = "workload-api-x509",
+        feature = "workload-api-jwt",
+        feature = "workload-api-full"
+    ))]
     #[error(transparent)]
     Transport(#[from] TransportError),
 
     /// Failed to parse an X.509 SVID from the Workload API response.
+    #[cfg(feature = "x509")]
     #[error("failed to parse X.509 SVID: {0}")]
     X509Svid(#[from] X509SvidError),
 
     /// Failed to parse a JWT-SVID from the Workload API response.
+    #[cfg(feature = "jwt")]
     #[error("failed to parse JWT-SVID: {0}")]
     JwtSvid(#[from] JwtSvidError),
 
     /// Failed to parse an X.509 bundle from the Workload API response.
+    #[cfg(feature = "x509")]
     #[error("failed to parse X.509 bundle: {0}")]
     X509Bundle(#[from] X509BundleError),
 
     /// Failed to parse a JWT bundle from the Workload API response.
+    #[cfg(feature = "jwt")]
     #[error("failed to parse JWT bundle: {0}")]
     JwtBundle(#[from] JwtBundleError),
 
@@ -75,7 +93,12 @@ pub enum WorkloadApiError {
     SpiffeId(#[from] SpiffeIdError),
 }
 
-#[cfg(feature = "transport")]
+#[cfg(any(
+    feature = "workload-api",
+    feature = "workload-api-x509",
+    feature = "workload-api-jwt",
+    feature = "workload-api-full"
+))]
 impl From<tonic::Status> for WorkloadApiError {
     fn from(status: tonic::Status) -> Self {
         use tonic::Code;
@@ -94,7 +117,12 @@ impl From<tonic::Status> for WorkloadApiError {
     }
 }
 
-#[cfg(feature = "transport")]
+#[cfg(any(
+    feature = "workload-api",
+    feature = "workload-api-x509",
+    feature = "workload-api-jwt",
+    feature = "workload-api-full"
+))]
 impl From<tonic::transport::Error> for WorkloadApiError {
     fn from(e: tonic::transport::Error) -> Self {
         Self::Transport(TransportError::Tonic(e))

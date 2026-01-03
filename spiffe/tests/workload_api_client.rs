@@ -1,6 +1,7 @@
 // These tests requires a running SPIRE server and agent with workloads registered (see `scripts/run-spire.sh`).
 
-#[cfg(feature = "integration-tests")]
+#[cfg(test)]
+#[cfg(feature = "workload-api-full")]
 mod integration_tests_workload_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleSource;
@@ -24,6 +25,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_jwt_svid() {
         let client = get_client().await;
         let svid = client
@@ -34,6 +36,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_and_validate_jwt_token() {
         let client = get_client().await;
 
@@ -42,7 +45,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT token");
         let jwt_svid = client
-            .validate_jwt_token("my_audience", &token)
+            .validate_jwt_token(["my_audience"], &token)
             .await
             .expect("Failed to validate JWT token");
         assert_eq!(jwt_svid.audience(), &["my_audience"]);
@@ -53,7 +56,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT token");
         let jwt_svid = client
-            .validate_jwt_token("other_audience", &token)
+            .validate_jwt_token(["other_audience"], &token)
             .await
             .expect("Failed to validate JWT token");
         assert_eq!(jwt_svid.audience(), &["other_audience"]);
@@ -61,6 +64,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_all_jwt_svids_includes_hints() {
         let client = get_client().await;
 
@@ -85,6 +89,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_jwt_svid_by_hint_selects_correct_one() {
         let client = get_client().await;
 
@@ -99,6 +104,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_jwt_bundles() {
         let client = get_client().await;
         let bundles = client
@@ -125,6 +131,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_x509_svid() {
         let client = get_client().await;
         let svid = client
@@ -141,6 +148,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_all_x509_svids() {
         let client = get_client().await;
         let svids = client
@@ -176,6 +184,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_x509_context() {
         let client = get_client().await;
         let x509_context = client
@@ -217,6 +226,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_x509_context_includes_hints_on_all_svids() {
         let client = get_client().await;
 
@@ -242,6 +252,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_x509_bundles() {
         let client = get_client().await;
         let bundles = client
@@ -259,6 +270,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_x509_contexts() {
         let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
@@ -324,6 +336,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_x509_svids() {
         let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
@@ -365,6 +378,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_x509_bundles() {
         let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
@@ -398,6 +412,7 @@ mod integration_tests_workload_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_jwt_bundles() {
         let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);

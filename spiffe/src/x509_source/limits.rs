@@ -1,8 +1,8 @@
 use super::builder::ResourceLimits;
 use super::errors::{LimitKind, MetricsErrorKind, X509SourceError};
 use super::metrics::MetricsRecorder;
-use super::source::SvidPicker;
 use crate::workload_api::x509_context::X509Context;
+use crate::x509_source::types::SvidPicker;
 use std::sync::Arc;
 
 pub(super) fn validate_limits(

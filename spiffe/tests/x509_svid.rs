@@ -1,3 +1,4 @@
+#[cfg(feature = "x509")]
 mod x509_svid_tests {
     use std::str::FromStr;
 

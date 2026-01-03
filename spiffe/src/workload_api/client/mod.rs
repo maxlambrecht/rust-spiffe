@@ -1,0 +1,173 @@
+//! Workload API client for fetching SPIFFE X.509 and JWT material.
+//!
+//! `WorkloadApiClient` provides one-shot RPCs (fetch SVIDs/bundles) and streaming RPCs for
+//! receiving updates as material rotates.
+//!
+//! Most users should prefer higher-level types like [`crate::X509Source`], which handle reconnection
+//! and provide an always-up-to-date view of the X.509 context.
+//!
+//! ## Multiple SVIDs and hints
+//!
+//! A single workload may be issued **multiple SVIDs** by the SPIFFE Workload API.
+//! When this happens, the agent may attach an optional **hint** to each SVID to help
+//! distinguish identities (for example `"internal"` vs `"external"`).
+//!
+//! Hints are **not part of the cryptographic material** and have no security meaning.
+//! They are exposed as metadata on [`X509Svid`] and [`JwtSvid`] for selection logic only.
+//!
+//! If multiple identities are expected, prefer APIs that return **all SVIDs**, or select
+//! explicitly by hint. For long-running workloads, use [`X509Source`] with a custom
+//! [`SvidPicker`].
+//!
+//! # Examples
+//!
+//! ## X.509
+//!
+//! ```no_run
+//! # #[cfg(feature = "workload-api")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::WorkloadApiClient;
+//! use tokio_stream::StreamExt;
+//!
+//! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
+//!
+//! let x509_svid = client.fetch_x509_svid().await?;
+//! let x509_ctx = client.fetch_x509_context().await?;
+//!
+//! let mut updates = client.stream_x509_contexts().await?;
+//! while let Some(update) = updates.next().await {
+//!     let _ctx = update?;
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## JWT (requires `jwt` feature)
+//!
+//! ```no_run
+//! # #[cfg(all(feature = "workload-api", feature = "jwt"))]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::WorkloadApiClient;
+//!
+//! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
+//!
+//! let jwt = client.fetch_jwt_token(["service1"], None).await?;
+//! let jwt_svid = client.fetch_jwt_svid(["service1"], None).await?;
+//!
+//! # Ok(())
+//! # }
+//! ```
+
+#[cfg(feature = "x509")]
+mod x509;
+
+mod header;
+#[cfg(feature = "jwt")]
+mod jwt;
+
+use crate::transport::connect;
+use crate::transport::Endpoint;
+use crate::workload_api::client::header::MetadataAdder;
+use crate::workload_api::error::WorkloadApiError;
+use crate::workload_api::pb::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
+
+/// Client for the SPIFFE Workload API.
+///
+/// Provides one-shot calls and streaming updates for X.509 and JWT SVIDs and bundles.
+/// For an always-up-to-date, shareable source of X.509 material with automatic reconnection,
+/// see [`crate::X509Source`].
+#[derive(Debug, Clone)]
+pub struct WorkloadApiClient {
+    endpoint: Endpoint,
+    client: SpiffeWorkloadApiClient<
+        tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>,
+    >,
+}
+
+impl WorkloadApiClient {
+    /// Returns the configured Workload API endpoint.
+    pub fn endpoint(&self) -> &Endpoint {
+        &self.endpoint
+    }
+
+    /// Connects to the Workload API using a parsed [`Endpoint`].
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WorkloadApiError`] if the endpoint cannot be reached or the gRPC
+    /// connection fails.
+    pub async fn connect(endpoint: Endpoint) -> Result<Self, WorkloadApiError> {
+        let channel = connect(&endpoint).await?;
+        Ok(Self {
+            endpoint,
+            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder {}),
+        })
+    }
+
+    /// Connects to the Workload API using the given endpoint string.
+    ///
+    /// Examples:
+    /// - `unix:/tmp/spire-agent/public/api.sock` or `unix:///tmp/spire-agent/public/api.sock`
+    /// - `tcp:127.0.0.1:8081` or `tcp://127.0.0.1:8081`
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WorkloadApiError`] if the endpoint string is invalid, the endpoint
+    /// cannot be reached, or the gRPC connection fails.
+    pub async fn connect_to(endpoint: impl AsRef<str>) -> Result<Self, WorkloadApiError> {
+        let endpoint = Endpoint::parse(endpoint.as_ref())?;
+        Self::connect(endpoint).await
+    }
+
+    /// Connects to the Workload API using `SPIFFE_ENDPOINT_SOCKET`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`WorkloadApiError`] if the endpoint socket is not set, cannot be
+    /// reached, or the gRPC connection fails.
+    pub async fn connect_env() -> Result<Self, WorkloadApiError> {
+        let endpoint = crate::workload_api::endpoint::from_env()?;
+        Self::connect(endpoint).await
+    }
+
+    /// Creates a client from an existing gRPC channel.
+    ///
+    /// This is primarily intended for tests or advanced transport customization (e.g., custom TLS
+    /// configuration, load balancing, or connection pooling). The provided channel must be
+    /// configured to connect to the actual SPIFFE endpoint.
+    ///
+    /// For normal usage, prefer [`WorkloadApiClient::connect`] or [`WorkloadApiClient::connect_env`].
+    ///
+    /// # Example (TCP endpoint)
+    ///
+    /// ```no_run
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// # use spiffe::{Endpoint, WorkloadApiClient};
+    /// # use tonic::transport::Channel;
+    /// let endpoint = "tcp://127.0.0.1:8080".parse::<Endpoint>()?;
+    /// let channel = Channel::from_shared("http://127.0.0.1:8080")?
+    ///     .connect()
+    ///     .await?;
+    /// let client = WorkloadApiClient::new_with_channel(endpoint, channel);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn new_with_channel(endpoint: Endpoint, channel: tonic::transport::Channel) -> Self {
+        Self {
+            endpoint,
+            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder {}),
+        }
+    }
+}
+
+impl WorkloadApiClient {
+    /// Extracts the first message from a streaming gRPC response.
+    ///
+    /// Returns `WorkloadApiError::EmptyResponse` if the stream ends without yielding a message.
+    async fn first_message<T>(mut stream: tonic::Streaming<T>) -> Result<T, WorkloadApiError> {
+        stream
+            .message()
+            .await?
+            .ok_or(WorkloadApiError::EmptyResponse)
+    }
+}

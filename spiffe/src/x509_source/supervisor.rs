@@ -2,16 +2,25 @@ use super::builder::{ReconnectConfig, ResourceLimits};
 use super::errors::{MetricsErrorKind, X509SourceError};
 use super::limits::validate_context;
 use super::metrics::MetricsRecorder;
-use super::source::{ClientFactory, SvidPicker};
 use crate::prelude::{debug, info, warn};
-use crate::workload_api::client::WorkloadApiClient;
 use crate::workload_api::error::WorkloadApiError;
 use crate::workload_api::x509_context::X509Context;
+use crate::workload_api::WorkloadApiClient;
+use crate::x509_source::source::Inner;
+use crate::x509_source::types::{ClientFactory, SvidPicker};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
+
+/// Supervisor policy: maximum number of consecutive identical errors before suppressing WARN logs.
+///
+/// Applies to:
+/// - client creation failures
+/// - stream connection failures
+/// - update validation rejections
+const MAX_CONSECUTIVE_SAME_ERROR: u32 = 3;
 
 /// Allocation-free key type for error tracking categories.
 ///
@@ -83,7 +92,6 @@ impl ErrorTracker {
 /// for steady-state reconnections (not for initial sync).
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
-    source_id: u64,
     min_backoff: Duration,
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
@@ -93,9 +101,8 @@ pub(super) async fn try_create_client(
         Ok(c) => {
             if error_tracker.consecutive_count() > 0 {
                 debug!(
-                    "Client creation recovered after {} consecutive failures: source_id={}",
-                    error_tracker.consecutive_count(),
-                    source_id
+                    "Client creation recovered after {} consecutive failures",
+                    error_tracker.consecutive_count()
                 );
             }
             error_tracker.reset();
@@ -108,15 +115,13 @@ pub(super) async fn try_create_client(
 
             if should_warn {
                 warn!(
-                    "Failed to create WorkloadApiClient; retrying: source_id={}, error={}, backoff_ms={}",
-                    source_id,
+                    "Failed to create WorkloadApiClient; retrying: error={}, backoff_ms={}",
                     e,
                     backoff.as_millis()
                 );
             } else {
                 debug!(
-                    "Failed to create WorkloadApiClient (repeated); retrying: source_id={}, error={}, backoff_ms={}, consecutive_failures={}",
-                    source_id,
+                    "Failed to create WorkloadApiClient (repeated); retrying: error={}, backoff_ms={}, consecutive_failures={}",
                     e,
                     backoff.as_millis(),
                     error_tracker.consecutive_count()
@@ -140,7 +145,6 @@ pub(super) async fn try_create_client(
 /// for steady-state reconnections (not for initial sync).
 pub(super) async fn try_connect_stream(
     client: &WorkloadApiClient,
-    source_id: u64,
     min_backoff: Duration,
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
@@ -153,16 +157,12 @@ pub(super) async fn try_connect_stream(
         Ok(s) => {
             if error_tracker.consecutive_count() > 0 {
                 info!(
-                    "Stream connection recovered after {} consecutive failures: source_id={}",
+                    "Stream connection recovered after {} consecutive failures",
                     error_tracker.consecutive_count(),
-                    source_id
                 );
             }
             error_tracker.reset();
-            info!(
-                "Connected to Workload API X509 context stream: source_id={}",
-                source_id
-            );
+            info!("Connected to Workload API X509 context stream");
             *backoff = min_backoff;
             Ok(s)
         }
@@ -172,15 +172,13 @@ pub(super) async fn try_connect_stream(
 
             if should_warn {
                 warn!(
-                    "Failed to connect to Workload API stream; retrying: source_id={}, error={}, backoff_ms={}",
-                    source_id,
+                    "Failed to connect to Workload API stream; retrying: error={}, backoff_ms={}",
                     e,
                     backoff.as_millis()
                 );
             } else {
                 debug!(
-                    "Failed to connect to Workload API stream (repeated); retrying: source_id={}, error={}, backoff_ms={}, consecutive_failures={}",
-                    source_id,
+                    "Failed to connect to Workload API stream (repeated); retrying: error={}, backoff_ms={}, consecutive_failures={}",
                     e,
                     backoff.as_millis(),
                     error_tracker.consecutive_count()
@@ -202,7 +200,6 @@ pub(super) async fn initial_sync_with_retry(
     reconnect: ReconnectConfig,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
-    source_id: u64,
 ) -> Result<Arc<X509Context>, X509SourceError> {
     let mut backoff = reconnect.min_backoff;
     let mut error_tracker = ErrorTracker::new(3);
@@ -217,7 +214,6 @@ pub(super) async fn initial_sync_with_retry(
             picker,
             limits,
             metrics,
-            source_id,
             reconnect.min_backoff,
             &mut backoff,
             &mut error_tracker,
@@ -250,47 +246,30 @@ async fn try_sync_once(
     picker: Option<&dyn SvidPicker>,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
-    source_id: u64,
     min_backoff: Duration,
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
 ) -> Result<Arc<X509Context>, X509SourceError> {
     // Use shared client creation logic (records ClientCreation metric on failure).
     // Initial sync does not record reconnect metrics (it's not a reconnect).
-    let client = match try_create_client(
-        make_client,
-        source_id,
-        min_backoff,
-        backoff,
-        error_tracker,
-        metrics,
-    )
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            // Error already logged and metric recorded by try_create_client.
-            return Err(X509SourceError::Source(e));
-        }
-    };
+    let client =
+        match try_create_client(make_client, min_backoff, backoff, error_tracker, metrics).await {
+            Ok(c) => c,
+            Err(e) => {
+                // Error already logged and metric recorded by try_create_client.
+                return Err(X509SourceError::Source(e));
+            }
+        };
 
     // Use shared stream connection logic (records StreamConnect metric on failure).
-    let mut stream = match try_connect_stream(
-        &client,
-        source_id,
-        min_backoff,
-        backoff,
-        error_tracker,
-        metrics,
-    )
-    .await
-    {
-        Ok(s) => s,
-        Err(e) => {
-            // Error already logged and metric recorded by try_connect_stream.
-            return Err(X509SourceError::Source(e));
-        }
-    };
+    let mut stream =
+        match try_connect_stream(&client, min_backoff, backoff, error_tracker, metrics).await {
+            Ok(s) => s,
+            Err(e) => {
+                // Error already logged and metric recorded by try_connect_stream.
+                return Err(X509SourceError::Source(e));
+            }
+        };
 
     match stream.next().await {
         Some(Ok(ctx)) => {
@@ -335,24 +314,161 @@ pub(super) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) ->
 /// precision loss for very small durations. This is acceptable for backoff purposes.
 #[allow(clippy::cast_possible_truncation)]
 pub(super) fn next_backoff(current: Duration, max: Duration) -> Duration {
-    let doubled = current.saturating_mul(2);
-    let base = doubled.min(max);
+    let cur = current.as_millis().min(u128::from(u64::MAX)) as u64;
+    let max = max.as_millis().min(u128::from(u64::MAX)) as u64;
 
-    let base_ms = base.as_millis();
-    if base_ms == 0 {
-        return base;
+    let base = (cur.saturating_mul(2)).min(max);
+    if base == 0 {
+        return Duration::from_millis(0);
     }
 
-    // Add jitter: 0-10% of base
-    let jitter_max_ms = (base_ms / 10).min(u128::from(u64::MAX)) as u64;
-    let jitter_ms = if jitter_max_ms > 0 {
-        fastrand::u64(0..=jitter_max_ms)
+    let jitter = base / 10;
+    let add = if jitter > 0 {
+        fastrand::u64(0..=jitter)
     } else {
         0
     };
 
-    // Result = base + jitter, clamped to max
-    let total_ms = base_ms.saturating_add(u128::from(jitter_ms));
-    let total_ms_clamped = total_ms.min(max.as_millis()).min(u128::from(u64::MAX)) as u64;
-    Duration::from_millis(total_ms_clamped)
+    Duration::from_millis((base.saturating_add(add)).min(max))
+}
+
+impl Inner {
+    pub(super) async fn run_update_supervisor(&self, cancellation_token: CancellationToken) {
+        let mut backoff = self.reconnect().min_backoff;
+        let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
+
+        loop {
+            if cancellation_token.is_cancelled() {
+                debug!("Cancellation signal received; stopping updates");
+                return;
+            }
+
+            let Ok(client) = try_create_client(
+                self.make_client(),
+                self.reconnect().min_backoff,
+                &mut backoff,
+                &mut error_tracker,
+                self.metrics(),
+            )
+            .await
+            else {
+                if self
+                    .backoff_and_maybe_cancel(&cancellation_token, backoff)
+                    .await
+                {
+                    return;
+                }
+                backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                continue;
+            };
+
+            let Ok(mut stream) = try_connect_stream(
+                &client,
+                self.reconnect().min_backoff,
+                &mut backoff,
+                &mut error_tracker,
+                self.metrics(),
+            )
+            .await
+            else {
+                if self
+                    .backoff_and_maybe_cancel(&cancellation_token, backoff)
+                    .await
+                {
+                    return;
+                }
+                backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                continue;
+            };
+
+            // Process stream updates. Returns true if cancelled, false if reconnect needed.
+            let cancelled = self
+                .process_stream_updates(&mut stream, &cancellation_token)
+                .await;
+            if cancelled {
+                return;
+            }
+
+            // Stream ended or errored. Sleep/backoff before retrying.
+            if self
+                .backoff_and_maybe_cancel(&cancellation_token, backoff)
+                .await
+            {
+                return;
+            }
+            backoff = next_backoff(backoff, self.reconnect().max_backoff);
+        }
+    }
+
+    async fn backoff_and_maybe_cancel(&self, token: &CancellationToken, backoff: Duration) -> bool {
+        // Single place where we record reconnect for steady-state reconnect loops.
+        if let Some(metrics) = self.metrics() {
+            metrics.record_reconnect();
+        }
+        sleep_or_cancel(token, backoff).await
+    }
+
+    async fn process_stream_updates(
+        &self,
+        stream: &mut (impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>>
+                  + Unpin
+                  + Send
+                  + 'static),
+        cancellation_token: &CancellationToken,
+    ) -> bool {
+        let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
+
+        loop {
+            // Improvement: cancellation stays responsive even while awaiting stream.next().
+            let item = tokio::select! {
+                () = cancellation_token.cancelled() => {
+                    debug!("Cancellation signal received; stopping update loop");
+                    return true;
+                }
+                v = stream.next() => v,
+            };
+
+            match item {
+                Some(Ok(ctx)) => {
+                    match self.apply_update(std::sync::Arc::new(ctx)) {
+                        Ok(()) => {
+                            if update_rejection_tracker.consecutive_count() > 0 {
+                                info!(
+                                    "Update validation recovered after {} consecutive failures",
+                                    update_rejection_tracker.consecutive_count(),
+                                );
+                                update_rejection_tracker.reset();
+                            }
+                            info!("X509 context updated");
+                        }
+                        Err(_e) => {
+                            let should_warn =
+                                update_rejection_tracker.record_error(ErrorKey::UpdateRejected);
+
+                            if should_warn {
+                                warn!("Rejected X509 context update: error={}", _e);
+                            } else {
+                                debug!(
+                                    "Rejected X509 context update (repeated): error={}, consecutive_rejections={}",
+                                    _e,
+                                    update_rejection_tracker.consecutive_count()
+                                );
+                            }
+                            // Metrics already recorded by apply_update(); do not double-count.
+                        }
+                    }
+                }
+                Some(Err(_e)) => {
+                    warn!("Workload API stream error; reconnecting: error={}", _e);
+                    self.record_error(MetricsErrorKind::StreamError);
+                    return false;
+                }
+                None => {
+                    warn!("Workload API stream ended; reconnecting");
+                    self.record_error(MetricsErrorKind::StreamEnded);
+                    return false;
+                }
+            }
+        }
+    }
 }
