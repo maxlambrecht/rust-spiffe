@@ -1,6 +1,6 @@
 [package]
 name = "spire-api"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
