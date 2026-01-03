@@ -1,81 +1,447 @@
 #!/usr/bin/env bash
-
-SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+set -euo pipefail
 
 # Constants
 spire_version="1.14.0"
 spire_folder="spire-${spire_version}"
+
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_server_socket_path="/tmp/spire-server/private/api.sock"
+
 spire_server_federated_log_file="/tmp/spire-server-federated/server.log"
 spire_server_federated_socket_path="/tmp/spire-server-federated/private/api.sock"
-spire_agent_log_file="/tmp/spire-agent/agent.log"
-agent_id="spiffe://example.org/myagent"
 
-# Helper function to wait for a service to be available
-function wait_for_service() {
+spire_agent_log_file="/tmp/spire-agent/agent.log"
+spire_agent_workload_socket_path="/tmp/spire-agent/public/api.sock"
+
+spire_agent_federated_log_file="/tmp/spire-agent-federated/agent.log"
+spire_agent_federated_workload_socket_path="/tmp/spire-agent-federated/public/api.sock"
+
+agent_id="spiffe://example.org/myagent"
+agent_federated_id="spiffe://example-federated.org/myagent"
+
+# Clean up prior runs
+pkill -f "spire-server run" 2>/dev/null || true
+pkill -f "spire-agent run"  2>/dev/null || true
+
+rm -rf \
+  /tmp/spire-server \
+  /tmp/spire-server-federated \
+  /tmp/spire-agent \
+  /tmp/spire-agent-federated
+
+wait_for_service() {
   local command="$1"
   local description="$2"
-  local log_file="$3"
+  local log_file="${3:-}"
+  local attempts="${4:-60}"
+  local sleep_seconds="${5:-1}"
 
-  for i in {1..10}; do
-    if ${command} >/dev/null 2>&1; then
+  for _ in $(seq 1 "${attempts}"); do
+    if eval "${command}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "${sleep_seconds}"
+  done
+
+  echo "${description} failed to become ready" >&2
+  if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
+    echo "--- ${description} log (tail) ---" >&2
+    tail -n 200 "${log_file}" >&2
+    echo "-------------------------------" >&2
+  fi
+  exit 1
+}
+
+wait_for_socket() {
+  local socket_path="$1"
+  local description="$2"
+  local log_file="${3:-}"
+  local attempts="${4:-60}"
+
+  for _ in $(seq 1 "${attempts}"); do
+    if [ -S "${socket_path}" ]; then
       return 0
     fi
     sleep 1
   done
 
-  [ -n "${log_file}" ] && cat ${log_file} >&2
-  echo "${description} failed to start" >&2
+  echo "${description} socket did not appear: ${socket_path}" >&2
+  if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
+    echo "--- ${description} log (tail) ---" >&2
+    tail -n 200 "${log_file}" >&2
+    echo "-------------------------------" >&2
+  fi
   exit 1
 }
 
-# Main script starts here
-set -euf -o pipefail
+wait_for_workload_api() {
+  local workload_socket_path="$1"
+  local description="$2"
+  local log_file="$3"
+  local attempts="${4:-60}"
 
-# SPIRE server pre-requisites
-curl -s -N -L https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-musl.tar.gz | tar xz
-pushd "${spire_folder}"
+  # 1) Wait for socket file
+  wait_for_socket "${workload_socket_path}" "${description} (workload socket)" "${log_file}" "${attempts}"
 
-# Install and run a SPIRE server for federation
-export SPIRE_FEDERATED_SOCKET_PATH=${spire_server_federated_socket_path}
-cat $SCRIPT_DIR/server-federated.conf | envsubst > "conf/server/server-federated.conf"
-mkdir -p /tmp/spire-server-federated
+  # 2) Confirm Workload API is actually serving
+  for _ in $(seq 1 "${attempts}"); do
+    echo "Testing spire-agent api fetch..."
+    if bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "${description} Workload API failed to become ready" >&2
+  if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
+    echo "--- ${description} log (tail) ---" >&2
+    tail -n 200 "${log_file}" >&2
+    echo "-------------------------------" >&2
+  fi
+
+  echo "--- ${description} fetch x509 error (unsuppressed) ---" >&2
+  bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >&2 || true
+
+  exit 1
+}
+
+wait_for_federation_bundle() {
+  local workload_socket_path="$1"
+  local trust_domain="$2"
+  local description="$3"
+  local attempts="${4:-90}"
+
+  for _ in $(seq 1 "${attempts}"); do
+    if bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Timed out waiting for bundle '${trust_domain}' via Workload API (${description})" >&2
+  echo "--- ${description} fetch bundles (unsuppressed) ---" >&2
+  bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" >&2 || true
+  exit 1
+}
+
+# -------------------------------------------------------------------
+# SPIRE prerequisites
+# -------------------------------------------------------------------
+curl -s -N -L "https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-musl.tar.gz" | tar xz
+pushd "${spire_folder}" >/dev/null
+
+mkdir -p conf/server conf/agent
+
+mkdir -p /tmp/spire-server/private /tmp/spire-server
+mkdir -p /tmp/spire-server-federated/private /tmp/spire-server-federated
+mkdir -p /tmp/spire-agent/public /tmp/spire-agent/admin /tmp/spire-agent
+mkdir -p /tmp/spire-agent-federated/public /tmp/spire-agent-federated/admin /tmp/spire-agent-federated
+
+# -------------------------------------------------------------------
+# Generate configs
+# -------------------------------------------------------------------
+
+cat > conf/server/server-federated.conf <<'EOF'
+server {
+  bind_address = "127.0.0.1"
+  bind_port = "8082"
+  trust_domain = "example-federated.org"
+
+  data_dir = "/tmp/spire-server-federated"
+  socket_path = "/tmp/spire-server-federated/private/api.sock"
+
+  log_level = "DEBUG"
+  ca_ttl = "168h"
+  default_x509_svid_ttl = "48h"
+
+  federation {
+    bundle_endpoint {
+      address = "127.0.0.1"
+      port = 8443
+      profile "https_spiffe" {}
+    }
+    federates_with "example.org" {
+      bundle_endpoint_url = "https://127.0.0.1:8444"
+      bundle_endpoint_profile "https_spiffe" {
+        endpoint_spiffe_id = "spiffe://example.org/spire/server"
+      }
+    }
+  }
+}
+
+plugins {
+  DataStore "sql" {
+    plugin_data {
+      database_type = "sqlite3"
+      connection_string = "/tmp/spire-server-federated/datastore.sqlite3"
+    }
+  }
+
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "/tmp/spire-server-federated/keys.json"
+    }
+  }
+
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+}
+EOF
+
+cat > conf/server/server.conf <<'EOF'
+server {
+  bind_address = "127.0.0.1"
+  bind_port = "8081"
+  trust_domain = "example.org"
+
+  data_dir = "/tmp/spire-server"
+  socket_path = "/tmp/spire-server/private/api.sock"
+
+  log_level = "DEBUG"
+  ca_ttl = "168h"
+  default_x509_svid_ttl = "48h"
+
+  federation {
+    bundle_endpoint {
+      address = "127.0.0.1"
+      port = 8444
+      profile "https_spiffe" {}
+    }
+    federates_with "example-federated.org" {
+      bundle_endpoint_url = "https://127.0.0.1:8443"
+      bundle_endpoint_profile "https_spiffe" {
+        endpoint_spiffe_id = "spiffe://example-federated.org/spire/server"
+      }
+    }
+  }
+}
+
+plugins {
+  DataStore "sql" {
+    plugin_data {
+      database_type = "sqlite3"
+      connection_string = "/tmp/spire-server/datastore.sqlite3"
+    }
+  }
+
+  KeyManager "disk" {
+    plugin_data {
+      keys_path = "/tmp/spire-server/keys.json"
+    }
+  }
+
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+}
+EOF
+
+cat > conf/agent/agent.conf <<'EOF'
+agent {
+  trust_domain = "example.org"
+  log_level = "DEBUG"
+
+  server_address = "127.0.0.1"
+  server_port = 8081
+
+  socket_path = "/tmp/spire-agent/public/api.sock"
+  admin_socket_path = "/tmp/spire-agent/admin/api.sock"
+
+  data_dir = "/tmp/spire-agent/data"
+
+  insecure_bootstrap = true
+
+  authorized_delegates = [
+    "spiffe://example.org/myservice",
+  ]
+}
+
+plugins {
+  KeyManager "disk" {
+    plugin_data {
+      directory = "/tmp/spire-agent/keys"
+    }
+  }
+
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+
+  WorkloadAttestor "unix" {
+    plugin_data {}
+  }
+}
+EOF
+
+cat > conf/agent/agent-federated.conf <<'EOF'
+agent {
+  trust_domain = "example-federated.org"
+  log_level = "DEBUG"
+
+  server_address = "127.0.0.1"
+  server_port = 8082
+
+  socket_path = "/tmp/spire-agent-federated/public/api.sock"
+  admin_socket_path = "/tmp/spire-agent-federated/admin/api.sock"
+
+  data_dir = "/tmp/spire-agent-federated/data"
+
+  insecure_bootstrap = true
+}
+
+plugins {
+  KeyManager "disk" {
+    plugin_data {
+      directory = "/tmp/spire-agent-federated/keys"
+    }
+  }
+
+  NodeAttestor "join_token" {
+    plugin_data {}
+  }
+
+  WorkloadAttestor "unix" {
+    plugin_data {}
+  }
+}
+EOF
+
+# -------------------------------
+# 1) Start federated SPIRE server
+# -------------------------------
+echo "Starting Federated SPIRE Server"
 bin/spire-server run -config conf/server/server-federated.conf > "${spire_server_federated_log_file}" 2>&1 &
-wait_for_service "bin/spire-server healthcheck -socketPath ${spire_server_federated_socket_path}" "SPIRE Federated Server" "${spire_server_federated_log_file}"
-bin/spire-server bundle show -socketPath ${spire_server_federated_socket_path} -format spiffe > example-federated.org.bundle
+wait_for_service \
+  "bin/spire-server healthcheck -socketPath ${spire_server_federated_socket_path}" \
+  "SPIRE Federated Server" \
+  "${spire_server_federated_log_file}"
 
-# Install and run a SPIRE server
-export SPIRE_SOCKET_PATH=${spire_server_socket_path}
-cat $SCRIPT_DIR/server.conf | envsubst > "conf/server/server.conf"
-mkdir -p /tmp/spire-server
+# Export federated bundle to file so the primary server can ingest it
+bin/spire-server bundle show \
+  -socketPath "${spire_server_federated_socket_path}" \
+  -format spiffe \
+  > example-federated.org.bundle
+
+# -------------------------
+# 2) Start primary SPIRE server
+# -------------------------
+echo "Starting Primary SPIRE Server"
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
-wait_for_service "bin/spire-server healthcheck" "SPIRE Server" "${spire_server_log_file}"
-bin/spire-server bundle set -format spiffe -id spiffe://example-federated.org -path example-federated.org.bundle
+wait_for_service \
+  "bin/spire-server healthcheck -socketPath ${spire_server_socket_path}" \
+  "SPIRE Server" \
+  "${spire_server_log_file}"
 
-# Run the SPIRE agent with the join token
-export STRIPPED_SPIRE_ADMIN_ENDPOINT_SOCKET=$(echo $SPIRE_ADMIN_ENDPOINT_SOCKET| cut -c6-)
-cat $SCRIPT_DIR/agent.conf | envsubst > "conf/agent/agent.conf"
-bin/spire-server token generate -spiffeID ${agent_id} > token
-cut -d ' ' -f 2 token > token_stripped
-mkdir -p /tmp/spire-agent
-bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< token_stripped)" > "${spire_agent_log_file}" 2>&1 &
-wait_for_service "bin/spire-agent healthcheck" "SPIRE Agent" "${spire_agent_log_file}"
+# Export primary bundle and ingest it into the federated server
+bin/spire-server bundle show \
+  -socketPath "${spire_server_socket_path}" \
+  -format spiffe \
+  > example.org.bundle
 
-# Register workloads
+# Ingest federated bundle into the primary server
+bin/spire-server bundle set \
+  -socketPath "${spire_server_socket_path}" \
+  -format spiffe \
+  -id spiffe://example-federated.org \
+  -path example-federated.org.bundle
+
+# Ingest bundle into the federate server
+bin/spire-server bundle set \
+  -socketPath "${spire_server_federated_socket_path}" \
+  -format spiffe \
+  -id spiffe://example.org \
+  -path example.org.bundle
+
+# -------------------------
+# 3) Register workloads (primary TD)
+# -------------------------
+uid="$(id -u)"
+
 for service in "myservice" "myservice2"; do
-  echo "Creating entry for '${service}'"
-  bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/${service} -hint ${service} -dns example.org -selector unix:uid:$(id -u) -x509SVIDTTL 5 -jwtSVIDTTL 5 -federatesWith spiffe://example-federated.org
+  echo "Creating primary entry for '${service}'"
+  bin/spire-server entry create \
+    -socketPath "${spire_server_socket_path}" \
+    -parentID "${agent_id}" \
+    -spiffeID "spiffe://example.org/${service}" \
+    -hint "${service}" \
+    -dns example.org \
+    -selector "unix:uid:${uid}" \
+    -x509SVIDTTL 5 \
+    -jwtSVIDTTL 5 \
+    -federatesWith spiffe://example-federated.org
 done
 
-uid=$(id -u)
-# The UID in the test has to match this, so take the current UID and add 1
 uid_plus_one=$((uid + 1))
-echo "Creating entry for 'different-service'"
-bin/spire-server entry create -parentID ${agent_id} -spiffeID spiffe://example.org/different-process -selector unix:uid:${uid_plus_one}
+echo "Creating primary entry for 'different-process' (uid=${uid_plus_one})"
+bin/spire-server entry create \
+  -socketPath "${spire_server_socket_path}" \
+  -parentID "${agent_id}" \
+  -spiffeID "spiffe://example.org/different-process" \
+  -selector "unix:uid:${uid_plus_one}"
 
-# Allow federation to be established
-echo "Sleeping 60s to allow federation to be established"
-sleep 60
+# -------------------------
+# 4) Register workloads (federated TD)
+# -------------------------
+for service in "myservice" "myservice2"; do
+  echo "Creating federated entry for '${service}'"
+  bin/spire-server entry create \
+    -socketPath "${spire_server_federated_socket_path}" \
+    -parentID "${agent_federated_id}" \
+    -spiffeID "spiffe://example-federated.org/${service}" \
+    -hint "${service}" \
+    -dns example.org \
+    -selector "unix:uid:${uid}" \
+    -x509SVIDTTL 5 \
+    -jwtSVIDTTL 5 \
+    -federatesWith spiffe://example.org
+done
 
-popd
+# -------------------------
+# 5) Start primary SPIRE agent
+# -------------------------
+bin/spire-server token generate \
+  -socketPath "${spire_server_socket_path}" \
+  -spiffeID "${agent_id}" \
+  > token_primary
+cut -d ' ' -f 2 token_primary > token_primary_stripped
+
+echo "Starting primary SPIRE Agent"
+bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< token_primary_stripped)" > "${spire_agent_log_file}" 2>&1 &
+
+# Readiness: wait on Workload API (socket + fetch).
+wait_for_workload_api "${spire_agent_workload_socket_path}" "SPIRE Agent" "${spire_agent_log_file}"
+
+# --------------------------------
+# 6) Start federated SPIRE agent
+# --------------------------------
+bin/spire-server token generate \
+  -socketPath "${spire_server_federated_socket_path}" \
+  -spiffeID "${agent_federated_id}" \
+  > token_federated
+cut -d ' ' -f 2 token_federated > token_federated_stripped
+
+echo "Starting federated SPIRE Agent"
+bin/spire-agent run -config conf/agent/agent-federated.conf -joinToken "$(< token_federated_stripped)" > "${spire_agent_federated_log_file}" 2>&1 &
+
+wait_for_workload_api "${spire_agent_federated_workload_socket_path}" "SPIRE Federated Agent" "${spire_agent_federated_log_file}"
+
+
+# -------------------------
+# 7) Export Workload API sockets for tests
+# -------------------------
+export SPIFFE_ENDPOINT_SOCKET="unix://${spire_agent_workload_socket_path}"
+export SPIFFE_ENDPOINT_SOCKET_FEDERATED="unix://${spire_agent_federated_workload_socket_path}"
+
+# -------------------------
+# 8) Wait for federation to be established
+# -------------------------
+echo "Waiting for federation bundles to appear in both agents..."
+wait_for_federation_bundle "${spire_agent_workload_socket_path}" "example-federated.org" "Primary agent"
+wait_for_federation_bundle "${spire_agent_federated_workload_socket_path}" "example.org" "Federated agent"
+
+popd >/dev/null
+echo "SPIRE primary + federated servers/agents are up. Workload API sockets exported."
+echo "Primary Workload API:   ${SPIFFE_ENDPOINT_SOCKET}"
+echo "Federated Workload API: ${SPIFFE_ENDPOINT_SOCKET_FEDERATED}"

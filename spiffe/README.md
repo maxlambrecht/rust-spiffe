@@ -21,9 +21,18 @@ For the protocol definition, see the
 
 ## Installation
 
-Add `spiffe` to your `Cargo.toml`:
+Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 
 ```toml
+# For X.509 workloads (recommended)
+[dependencies]
+spiffe = { version = "0.9", features = ["x509-source"] }
+
+# For direct Workload API client usage
+[dependencies]
+spiffe = { version = "0.9", features = ["workload-api"] }
+
+# Minimal: only SPIFFE primitives (SpiffeId, TrustDomain)
 [dependencies]
 spiffe = "0.9"
 ```
@@ -252,11 +261,27 @@ Use this mode when:
 
 ## Features
 
-All features are additive and opt-in unless explicitly stated otherwise.
+All features are additive and opt-in. The crate has **no default features** (`default = []`).
 
-### `workload-api` (default)
+### Core features
 
-Enables the gRPC-based SPIFFE Workload API client.
+#### `x509`
+
+Enables X.509 SVID and bundle types plus parsing. Gates heavy ASN.1/X.509 dependencies (`asn1`, `x509-parser`, `pkcs8`).
+
+**Note:** Most users should enable `x509-source` instead, which includes this feature automatically.
+
+#### `transport`
+
+Lightweight endpoint parsing and normalization. No runtime dependencies (pure parsing logic).
+
+#### `transport-grpc`
+
+gRPC connector for Unix/TCP endpoints. Requires `transport` and adds tokio/tonic/tower dependencies.
+
+#### `workload-api`
+
+Enables the async SPIFFE Workload API client. Requires `transport-grpc` and `x509`.
 
 Provides:
 
@@ -265,9 +290,27 @@ Provides:
 * Streaming watch semantics
 * Agent-side JWT validation (`validate_jwt_token`)
 
+#### `x509-source`
+
+High-level X.509 watcher and caching abstraction. Requires `workload-api` (and transitively `x509`).
+
+Provides:
+
+* `X509Source` for automatic SVID/bundle watching and caching
+* Automatic reconnection and rotation handling
+* Recommended for most X.509-based workloads
+
+#### `jwt`
+
+Enables JWT SVID and bundle types plus parsing. Gates JWT-related dependencies (`serde`, `serde_json`, `time`, `base64ct`).
+
+**Note:** JWT verification requires an additional backend feature (see below).
+
 ---
 
-### `jwt-verify-rust-crypto`
+### JWT verification backends
+
+#### `jwt-verify-rust-crypto`
 
 Enables **offline JWT-SVID verification** using a **pure Rust cryptography backend**.
 
@@ -335,9 +378,9 @@ features are enabled, events are emitted via `tracing`.
 
 ### Notes on JWT verification features
 
-* Exactly **one** offline verification backend must be selected
-* Offline verification features are **not required** when using
-  `WorkloadApiClient::validate_jwt_token`
+* Each backend feature (`jwt-verify-rust-crypto`, `jwt-verify-aws-lc-rs`) is self-contained and automatically includes the `jwt` feature
+* Exactly **one** offline verification backend must be selected (mutually exclusive)
+* Offline verification features are **not required** when using `WorkloadApiClient::validate_jwt_token`
 * X.509-based functionality is unaffected by JWT verification features
 
 ---

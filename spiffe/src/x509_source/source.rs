@@ -2,60 +2,24 @@ use super::builder::{ReconnectConfig, ResourceLimits};
 use super::errors::{MetricsErrorKind, X509SourceError};
 use super::limits::{select_svid, validate_context};
 use super::metrics::MetricsRecorder;
-use super::supervisor::{initial_sync_with_retry, next_backoff, ErrorTracker};
+use super::supervisor::initial_sync_with_retry;
 use crate::bundle::BundleSource;
-use crate::prelude::{debug, info, warn};
+use crate::prelude::warn;
 use crate::svid::SvidSource;
-use crate::workload_api::client::WorkloadApiClient;
-use crate::workload_api::error::WorkloadApiError;
 use crate::workload_api::x509_context::X509Context;
-use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Svid};
+use crate::x509_source::types::{ClientFactory, SvidPicker};
+use crate::{TrustDomain, X509Bundle, X509BundleSet, X509SourceBuilder, X509Svid};
 use arc_swap::ArcSwap;
 use std::fmt::Debug;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
-use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
-// Source ID counter for low-cardinality tracing.
-static SOURCE_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Strategy for selecting an X.509 SVID when multiple SVIDs are available.
-///
-/// Implement this trait to customize SVID selection logic. The picker is called whenever
-/// a new X.509 context is received from the Workload API.
-///
-/// # Example
-///
-/// ```no_run
-/// use spiffe::X509Svid;
-/// use std::sync::Arc;
-/// use spiffe::workload_api::x509_source::SvidPicker;
-///
-/// #[derive(Debug)]
-/// struct HintPicker {
-///     hint: String,
-/// }
-///
-/// impl SvidPicker for HintPicker {
-///     fn pick_svid(&self, svids: &[Arc<X509Svid>]) -> Option<usize> {
-///         svids.iter()
-///             .position(|svid| svid.hint() == Some(&self.hint))
-///     }
-/// }
-/// ```
-pub trait SvidPicker: Debug + Send + Sync {
-    /// Selects an SVID from the provided slice by returning its index.
-    ///
-    /// Returning `None` indicates that no suitable SVID could be selected.
-    /// Returning `Some(index)` selects the SVID at the given index in the slice.
-    fn pick_svid(&self, svids: &[Arc<X509Svid>]) -> Option<usize>;
-}
+#[cfg(test)]
+use crate::WorkloadApiError;
 
 /// Handle for receiving update notifications from an [`X509Source`].
 ///
@@ -149,10 +113,6 @@ impl X509SourceUpdates {
     }
 }
 
-pub(super) type ClientFuture =
-    Pin<Box<dyn Future<Output = Result<WorkloadApiClient, WorkloadApiError>> + Send + 'static>>;
-pub(super) type ClientFactory = Arc<dyn Fn() -> ClientFuture + Send + Sync + 'static>;
-
 /// Live source of X.509 SVIDs and bundles from the SPIFFE Workload API.
 ///
 /// `X509Source` performs an initial sync before returning from [`X509Source::new`] or
@@ -166,30 +126,52 @@ pub(super) type ClientFactory = Arc<dyn Fn() -> ClientFuture + Send + Sync + 'st
 /// - Validates resource limits before publishing updates
 ///
 /// Use [`X509Source::shutdown`] or [`X509Source::shutdown_configured`] to stop background tasks.
+///
+#[derive(Clone, Debug)]
 pub struct X509Source {
+    inner: Arc<Inner>,
+}
+
+pub(super) struct Inner {
+    // Atomically replaced, last-known-good X.509 context (SVIDs + bundles).
     x509_context: ArcSwap<X509Context>,
 
+    // Policy for selecting an SVID when multiple are present.
     svid_picker: Option<Box<dyn SvidPicker>>,
+    limits: ResourceLimits,
+
+    // Supervisor configuration and dependencies.
     reconnect: ReconnectConfig,
     make_client: ClientFactory,
-    limits: ResourceLimits,
     metrics: Option<Arc<dyn MetricsRecorder>>,
-    shutdown_timeout: Option<Duration>,
 
+    // Lifecycle / shutdown.
     closed: AtomicBool,
     cancel: CancellationToken,
+    shutdown_timeout: Option<Duration>,
 
+    // Update notifications (monotonic sequence).
     update_seq: AtomicU64,
     update_tx: watch::Sender<u64>,
     update_rx: watch::Receiver<u64>,
 
+    // Supervisor task handle (joined/aborted at shutdown).
     supervisor: Mutex<Option<JoinHandle<()>>>,
-
-    /// Monotonic source identifier for low-cardinality tracing.
-    source_id: u64,
 }
 
-impl Debug for X509Source {
+impl Inner {
+    pub(super) fn reconnect(&self) -> ReconnectConfig {
+        self.reconnect
+    }
+    pub(super) fn metrics(&self) -> Option<&dyn MetricsRecorder> {
+        self.metrics.as_deref()
+    }
+    pub(super) fn make_client(&self) -> &ClientFactory {
+        &self.make_client
+    }
+}
+
+impl Debug for Inner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("X509Source")
             .field("x509_context", &"<ArcSwap<X509Context>>")
@@ -211,7 +193,6 @@ impl Debug for X509Source {
             .field("update_tx", &"<watch::Sender<u64>>")
             .field("update_rx", &"<watch::Receiver<u64>>")
             .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
-            .field("source_id", &self.source_id)
             .finish()
     }
 }
@@ -231,8 +212,32 @@ impl X509Source {
     /// - the Workload API endpoint cannot be resolved or connected to,
     /// - the initial synchronization with the Workload API does not complete successfully,
     /// - or no suitable X.509 SVID can be selected from the received context.
-    pub async fn new() -> Result<Arc<Self>, X509SourceError> {
-        super::builder::X509SourceBuilder::new().build().await
+    pub async fn new() -> Result<Self, X509SourceError> {
+        X509SourceBuilder::new().build().await
+    }
+
+    /// Creates a builder for configuring an [`X509Source`].
+    ///
+    /// The builder allows customizing how the source connects to the SPIFFE
+    /// Workload API and how X.509 material is managed (e.g. endpoint selection,
+    /// reconnection behavior, resource limits).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::X509Source;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = X509Source::builder()
+    ///     .endpoint("unix:///tmp/spire-agent/public/api.sock".try_into()?)
+    ///     .build()
+    ///     .await?;
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn builder() -> X509SourceBuilder {
+        X509SourceBuilder::new()
     }
 
     /// Returns a handle for receiving update notifications.
@@ -260,7 +265,7 @@ impl X509Source {
     /// ```
     pub fn updated(&self) -> X509SourceUpdates {
         X509SourceUpdates {
-            rx: self.update_rx.clone(),
+            rx: self.inner.update_rx.clone(),
         }
     }
 
@@ -292,14 +297,14 @@ impl X509Source {
     /// # }
     /// ```
     pub fn is_healthy(&self) -> bool {
-        if self.closed.load(Ordering::Acquire) || self.cancel.is_cancelled() {
+        if self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled() {
             return false;
         }
 
-        let ctx = self.x509_context.load();
+        let ctx = self.inner.x509_context.load();
         // Check that an SVID can actually be selected (using shared selection logic).
         // This ensures is_healthy() matches the same selection logic used by svid().
-        select_svid(&ctx, self.svid_picker.as_deref()).is_some()
+        select_svid(&ctx, self.inner.svid_picker.as_deref()).is_some()
     }
 
     /// Returns the current X.509 context (SVID + bundles) as a single value.
@@ -310,7 +315,7 @@ impl X509Source {
     /// cannot be constructed.
     pub fn x509_context(&self) -> Result<Arc<X509Context>, X509SourceError> {
         self.assert_open()?;
-        Ok(self.x509_context.load_full())
+        Ok(self.inner.x509_context.load_full())
     }
 
     /// Returns the current X.509 SVID selected by the picker (or default).
@@ -321,9 +326,9 @@ impl X509Source {
     pub fn svid(&self) -> Result<Arc<X509Svid>, X509SourceError> {
         self.assert_open()?;
 
-        let ctx = self.x509_context.load();
-        select_svid(&ctx, self.svid_picker.as_deref()).ok_or_else(|| {
-            self.record_error(MetricsErrorKind::NoSuitableSvid);
+        let ctx = self.inner.x509_context.load();
+        select_svid(&ctx, self.inner.svid_picker.as_deref()).ok_or_else(|| {
+            self.inner.record_error(MetricsErrorKind::NoSuitableSvid);
             X509SourceError::NoSuitableSvid
         })
     }
@@ -363,7 +368,7 @@ impl X509Source {
     /// Returns [`X509SourceError`] if the source is closed.
     pub fn bundle_set(&self) -> Result<Arc<X509BundleSet>, X509SourceError> {
         self.assert_open()?;
-        Ok(self.x509_context.load().bundle_set().clone())
+        Ok(self.inner.x509_context.load().bundle_set().clone())
     }
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
@@ -407,18 +412,19 @@ impl X509Source {
     /// For production use, prefer [`X509Source::shutdown_with_timeout`] or
     /// [`X509Source::shutdown_configured`].
     pub async fn shutdown(&self) {
-        if self.closed.swap(true, Ordering::AcqRel) {
+        if self.inner.closed.swap(true, Ordering::AcqRel) {
             return;
         }
-        self.cancel.cancel();
+        self.inner.cancel.cancel();
 
-        if let Some(handle) = self.supervisor.lock().await.take() {
-            if let Err(e) = handle.await {
+        if let Some(handle) = self.inner.supervisor.lock().await.take() {
+            if let Err(_e) = handle.await {
                 warn!(
-                    "Error joining supervisor task during shutdown: source_id={}, error={}",
-                    self.source_id, e
+                    "Error joining supervisor task during shutdown: error={}",
+                    _e
                 );
-                self.record_error(MetricsErrorKind::SupervisorJoinFailed);
+                self.inner
+                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
             }
         }
     }
@@ -450,30 +456,28 @@ impl X509Source {
     /// # }
     /// ```
     pub async fn shutdown_with_timeout(&self, timeout: Duration) -> Result<(), X509SourceError> {
-        if self.closed.swap(true, Ordering::AcqRel) {
+        if self.inner.closed.swap(true, Ordering::AcqRel) {
             return Ok(());
         }
-        self.cancel.cancel();
+        self.inner.cancel.cancel();
 
-        let Some(mut handle) = self.supervisor.lock().await.take() else {
+        let Some(mut handle) = self.inner.supervisor.lock().await.take() else {
             return Ok(());
         };
 
         match tokio::time::timeout(timeout, &mut handle).await {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => {
+            Ok(Err(_e)) => {
                 warn!(
-                    "Error joining supervisor task during shutdown: source_id={}, error={}",
-                    self.source_id, e
+                    "Error joining supervisor task during shutdown: error={}",
+                    _e
                 );
-                self.record_error(MetricsErrorKind::SupervisorJoinFailed);
+                self.inner
+                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
                 Ok(())
             }
             Err(_) => {
-                warn!(
-                    "Shutdown timeout exceeded; aborting supervisor task: source_id={}",
-                    self.source_id
-                );
+                warn!("Shutdown timeout exceeded; aborting supervisor task");
                 handle.abort();
                 // Wait for the abort to take effect
                 let _ = handle.await;
@@ -491,32 +495,29 @@ impl X509Source {
     ///
     /// Returns [`X509SourceError::ShutdownTimeout`] if the configured shutdown timeout is exceeded.
     pub async fn shutdown_configured(&self) -> Result<(), X509SourceError> {
-        if let Some(timeout) = self.shutdown_timeout {
+        if let Some(timeout) = self.inner.shutdown_timeout {
             self.shutdown_with_timeout(timeout).await
         } else {
             self.shutdown().await;
             Ok(())
         }
     }
+}
 
-    pub(super) async fn new_with(
+impl X509Source {
+    pub(super) async fn build_with(
         make_client: ClientFactory,
         svid_picker: Option<Box<dyn SvidPicker>>,
         reconnect: ReconnectConfig,
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
         shutdown_timeout: Option<Duration>,
-    ) -> Result<Arc<X509Source>, X509SourceError> {
-        // Normalize reconnect config at the single authoritative boundary.
-        // This ensures min_backoff <= max_backoff regardless of construction path.
+    ) -> Result<X509Source, X509SourceError> {
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
         let (update_tx, update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
 
-        let source_id = SOURCE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        // Initial sync must produce a usable + validated context.
         let initial_ctx = initial_sync_with_retry(
             &make_client,
             svid_picker.as_deref(),
@@ -524,10 +525,10 @@ impl X509Source {
             reconnect,
             limits,
             metrics.as_deref(),
-            source_id,
         )
         .await?;
-        let src = Arc::new(Self {
+
+        let inner = Arc::new(Inner {
             x509_context: ArcSwap::from(initial_ctx),
             svid_picker,
             reconnect,
@@ -541,17 +542,17 @@ impl X509Source {
             update_tx,
             update_rx,
             supervisor: Mutex::new(None),
-            source_id,
         });
 
-        let cloned = Arc::clone(&src);
-        let token = cloned.cancel.clone();
+        let task_inner = Arc::clone(&inner);
+        let token = task_inner.cancel.clone();
         let handle = tokio::spawn(async move {
-            cloned.run_update_supervisor(token).await;
+            task_inner.run_update_supervisor(token).await;
         });
 
-        *src.supervisor.lock().await = Some(handle);
-        Ok(src)
+        *inner.supervisor.lock().await = Some(handle);
+
+        Ok(Self { inner })
     }
 
     /// Test-only constructor that creates an `X509Source` with a provided initial context
@@ -565,20 +566,17 @@ impl X509Source {
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
         svid_picker: Option<Box<dyn SvidPicker>>,
-    ) -> Arc<X509Source> {
+    ) -> X509Source {
         // Normalize reconnect config at the boundary (same as new_with)
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
         let (update_tx, update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
 
-        let source_id = SOURCE_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
-
-        // Create a dummy client factory that will never be used
         let make_client: ClientFactory =
             Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
 
-        Arc::new(Self {
+        let inner = Inner {
             x509_context: ArcSwap::from(initial_ctx),
             svid_picker,
             reconnect,
@@ -592,64 +590,35 @@ impl X509Source {
             update_tx,
             update_rx,
             supervisor: Mutex::new(None),
-            source_id,
-        })
+        };
+
+        Self {
+            inner: Arc::new(inner),
+        }
     }
 
     fn assert_open(&self) -> Result<(), X509SourceError> {
-        if self.closed.load(Ordering::Acquire) || self.cancel.is_cancelled() {
+        if self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled() {
             return Err(X509SourceError::Closed);
         }
         Ok(())
     }
+}
 
-    fn record_error(&self, kind: MetricsErrorKind) {
+impl Inner {
+    pub(super) fn record_error(&self, kind: MetricsErrorKind) {
         if let Some(metrics) = self.metrics.as_deref() {
             metrics.record_error(kind);
         }
     }
 
-    fn record_update(&self) {
+    pub(super) fn record_update(&self) {
         if let Some(metrics) = self.metrics.as_deref() {
             metrics.record_update();
         }
     }
 
-    fn record_reconnect(&self) {
-        if let Some(metrics) = self.metrics.as_deref() {
-            metrics.record_reconnect();
-        }
-    }
-
-    /// Performs backoff sleep and records reconnect metric.
-    ///
-    /// This is the single authoritative function for steady-state reconnection behavior.
-    /// It records the reconnect metric immediately before sleeping/backing off, ensuring
-    /// exactly one metric per backoff cycle.
-    ///
-    /// Returns `true` if cancellation was requested during sleep, `false` otherwise.
-    async fn backoff_and_maybe_cancel(&self, token: &CancellationToken, backoff: Duration) -> bool {
-        // Record reconnect metric: we are about to sleep/backoff and retry after a failure
-        // in steady-state operation (not during initial sync).
-        self.record_reconnect();
-        super::supervisor::sleep_or_cancel(token, backoff).await
-    }
-
-    fn notify_update(&self) {
-        let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.update_tx.send(next);
-    }
-
-    fn validate_and_select(&self, ctx: &X509Context) -> Result<(), X509SourceError> {
-        validate_context(
-            ctx,
-            self.svid_picker.as_deref(),
-            self.limits,
-            self.metrics.as_deref(),
-        )
-    }
-
-    fn apply_update(&self, new_ctx: Arc<X509Context>) -> Result<(), X509SourceError> {
+    pub(super) fn apply_update(&self, new_ctx: Arc<X509Context>) -> Result<(), X509SourceError> {
         // validate_and_select() already records limit-specific metrics and NoSuitableSvid.
         // We only record UpdateRejected here if validation fails, and the supervisor loop
         // should NOT record it again to avoid double-counting.
@@ -668,188 +637,25 @@ impl X509Source {
         }
     }
 
-    #[cfg_attr(
-        feature = "tracing",
-        tracing::instrument(
-            name = "spiffe.x509_source.supervisor",
-            skip(self, cancellation_token),
-            fields(
-                source_id = self.source_id,
-                backoff_ms = tracing::field::Empty,
-            )
-        )
-    )]
-    pub(super) async fn run_update_supervisor(&self, cancellation_token: CancellationToken) {
-        const MAX_CONSECUTIVE_SAME_ERROR: u32 = 3;
-
-        let mut backoff = self.reconnect.min_backoff;
-        let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
-
-        loop {
-            if cancellation_token.is_cancelled() {
-                debug!(
-                    "Cancellation signal received; stopping updates: source_id={}",
-                    self.source_id
-                );
-                return;
-            }
-
-            let Ok(client) = super::supervisor::try_create_client(
-                &self.make_client,
-                self.source_id,
-                self.reconnect.min_backoff,
-                &mut backoff,
-                &mut error_tracker,
-                self.metrics.as_deref(),
-            )
-            .await
-            else {
-                // Error already logged and ClientCreation metric recorded by try_create_client.
-                // Sleep/backoff and continue retrying (don't exit the loop).
-                // Reconnect metric is recorded inside backoff_and_maybe_cancel.
-                if self
-                    .backoff_and_maybe_cancel(&cancellation_token, backoff)
-                    .await
-                {
-                    return;
-                }
-                backoff = next_backoff(backoff, self.reconnect.max_backoff);
-                continue;
-            };
-
-            let Ok(mut stream) = super::supervisor::try_connect_stream(
-                &client,
-                self.source_id,
-                self.reconnect.min_backoff,
-                &mut backoff,
-                &mut error_tracker,
-                self.metrics.as_deref(),
-            )
-            .await
-            else {
-                // Error already logged and StreamConnect metric recorded by try_connect_stream.
-                // Sleep/backoff and continue retrying.
-                // Reconnect metric is recorded inside backoff_and_maybe_cancel.
-                if self
-                    .backoff_and_maybe_cancel(&cancellation_token, backoff)
-                    .await
-                {
-                    return;
-                }
-                backoff = next_backoff(backoff, self.reconnect.max_backoff);
-                continue;
-            };
-
-            // Process stream updates. Returns true if cancellation requested, false if reconnect needed.
-            let cancelled = self
-                .process_stream_updates(&mut stream, &cancellation_token)
-                .await;
-
-            if cancelled {
-                // Cancellation requested, exit the loop.
-                return;
-            }
-
-            // Stream ended or error occurred (StreamError/StreamEnded metrics already recorded
-            // in process_stream_updates). Sleep/backoff before retrying.
-            // Reconnect metric is recorded inside backoff_and_maybe_cancel.
-            if self
-                .backoff_and_maybe_cancel(&cancellation_token, backoff)
-                .await
-            {
-                return;
-            }
-            backoff = next_backoff(backoff, self.reconnect.max_backoff);
-        }
+    pub(super) fn notify_update(&self) {
+        let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let _ = self.update_tx.send(next);
     }
 
-    async fn process_stream_updates(
-        &self,
-        stream: &mut (impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>>
-                  + Unpin
-                  + Send
-                  + 'static),
-        cancellation_token: &CancellationToken,
-    ) -> bool {
-        const MAX_CONSECUTIVE_SAME_ERROR: u32 = 3;
-        let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
-
-        loop {
-            if cancellation_token.is_cancelled() {
-                debug!(
-                    "Cancellation signal received; stopping update loop: source_id={}",
-                    self.source_id
-                );
-                return true;
-            }
-
-            match stream.next().await {
-                Some(Ok(ctx)) => {
-                    // Drop invalid updates and keep last-good snapshot.
-                    // apply_update() already records UpdateRejected and limit-specific metrics.
-                    match self.apply_update(Arc::new(ctx)) {
-                        Ok(()) => {
-                            // Log recovery if we had consecutive rejections.
-                            if update_rejection_tracker.consecutive_count() > 0 {
-                                info!(
-                                    "Update validation recovered after {} consecutive failures: source_id={}",
-                                    update_rejection_tracker.consecutive_count(),
-                                    self.source_id
-                                );
-                                update_rejection_tracker.reset();
-                            }
-                            info!("X509 context updated: source_id={}", self.source_id);
-                        }
-                        Err(e) => {
-                            // Suppress log noise: only warn for first N consecutive rejections.
-                            let error_kind = super::supervisor::ErrorKey::UpdateRejected;
-                            let should_warn = update_rejection_tracker.record_error(error_kind);
-
-                            if should_warn {
-                                warn!(
-                                    "Rejected X509 context update: source_id={}, error={}",
-                                    self.source_id, e
-                                );
-                            } else {
-                                debug!(
-                                    "Rejected X509 context update (repeated): source_id={}, error={}, consecutive_rejections={}",
-                                    self.source_id,
-                                    e,
-                                    update_rejection_tracker.consecutive_count()
-                                );
-                            }
-                            // Metrics already recorded in apply_update(), do not double-count.
-                            // continue streaming
-                        }
-                    }
-                }
-                Some(Err(e)) => {
-                    warn!(
-                        "Workload API stream error; reconnecting: source_id={}, error={}",
-                        self.source_id, e
-                    );
-                    self.record_error(MetricsErrorKind::StreamError);
-                    // Reconnect metric will be recorded by the caller (single source of truth).
-                    return false;
-                }
-                None => {
-                    warn!(
-                        "Workload API stream ended; reconnecting: source_id={}",
-                        self.source_id
-                    );
-                    self.record_error(MetricsErrorKind::StreamEnded);
-                    // Reconnect metric will be recorded by the caller (single source of truth).
-                    return false;
-                }
-            }
-        }
+    pub(super) fn validate_and_select(&self, ctx: &X509Context) -> Result<(), X509SourceError> {
+        validate_context(
+            ctx,
+            self.svid_picker.as_deref(),
+            self.limits,
+            self.metrics.as_deref(),
+        )
     }
 }
 
 impl Drop for X509Source {
     fn drop(&mut self) {
         // Best-effort cancellation. Do not block in Drop.
-        self.cancel.cancel();
+        self.inner.cancel.cancel();
     }
 }
 
@@ -871,7 +677,7 @@ impl BundleSource for X509Source {
         trust_domain: &TrustDomain,
     ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
         self.assert_open()?;
-        let ctx = self.x509_context.load();
+        let ctx = self.inner.x509_context.load();
         Ok(ctx.bundle_set().get(trust_domain))
     }
 }
@@ -994,8 +800,8 @@ mod tests {
         use std::sync::Arc;
 
         // Load test fixture SVID
-        let cert_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-svid-chain.der");
-        let key_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-key.der");
+        let cert_bytes = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
 
         let metrics = Arc::new(TestMetricsRecorder::new());
@@ -1023,7 +829,7 @@ mod tests {
         );
 
         // Apply update that should be rejected due to max_bundles limit
-        let result = source.apply_update(Arc::new(ctx));
+        let result = source.inner.apply_update(Arc::new(ctx));
 
         // Should fail with ResourceLimitExceeded
         assert!(matches!(
@@ -1052,8 +858,8 @@ mod tests {
         use std::time::Duration;
 
         // Load test fixture SVID
-        let cert_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-svid-chain.der");
-        let key_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-key.der");
+        let cert_bytes = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
 
         // Create a context with valid SVID and bundle
@@ -1075,8 +881,8 @@ mod tests {
         );
 
         // Verify that reconnect config was normalized (swapped)
-        assert_eq!(source.reconnect.min_backoff, Duration::from_secs(1));
-        assert_eq!(source.reconnect.max_backoff, Duration::from_secs(10));
+        assert_eq!(source.inner.reconnect.min_backoff, Duration::from_secs(1));
+        assert_eq!(source.inner.reconnect.max_backoff, Duration::from_secs(10));
     }
 
     #[test]
@@ -1090,8 +896,8 @@ mod tests {
         use std::sync::Arc;
 
         // Load test fixture SVID
-        let cert_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-svid-chain.der");
-        let key_bytes = include_bytes!("../../../tests/testdata/svid/x509/1-key.der");
+        let cert_bytes = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
 
         let metrics = Arc::new(TestMetricsRecorder::new());

@@ -11,17 +11,15 @@
 //! - Health checks
 //! - Shutdown behavior
 //! - Convenience methods
-
-#[cfg(feature = "integration-tests")]
+#[cfg(feature = "x509-source")]
 mod integration_tests_x509_source {
-    use once_cell::sync::Lazy;
     use spiffe::bundle::BundleSource;
     use spiffe::workload_api::error::WorkloadApiError;
-    use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
-    use spiffe::{
-        MetricsErrorKind, MetricsRecorder, ResourceLimits, SpiffeId, TrustDomain,
-        WorkloadApiClient, X509Bundle, X509Source, X509Svid,
+    use spiffe::x509_source::X509SourceBuilder;
+    use spiffe::x509_source::{
+        MetricsErrorKind, MetricsRecorder, ResourceLimits, SvidPicker, X509Source,
     };
+    use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509Svid};
     use std::collections::HashMap;
     use std::error::Error;
     use std::future::Future;
@@ -31,15 +29,18 @@ mod integration_tests_x509_source {
     use std::time::Duration;
     use tokio::sync::Mutex;
 
-    static SPIFFE_ID_1: Lazy<SpiffeId> =
-        Lazy::new(|| SpiffeId::new("spiffe://example.org/myservice").unwrap());
+    fn spiffe_id_1() -> SpiffeId {
+        SpiffeId::new("spiffe://example.org/myservice").unwrap()
+    }
 
-    static SPIFFE_ID_2: Lazy<SpiffeId> =
-        Lazy::new(|| SpiffeId::new("spiffe://example.org/myservice2").unwrap());
+    fn spiffe_id_2() -> SpiffeId {
+        SpiffeId::new("spiffe://example.org/myservice2").unwrap()
+    }
 
-    static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
+    fn trust_domain() -> TrustDomain {
+        TrustDomain::new("example.org").unwrap()
+    }
 
-    #[derive(Debug)]
     struct SecondSvidPicker;
 
     impl SvidPicker for SecondSvidPicker {
@@ -88,20 +89,21 @@ mod integration_tests_x509_source {
         }
     }
 
-    async fn get_source() -> Arc<X509Source> {
+    async fn get_source() -> X509Source {
         X509Source::new()
             .await
             .expect("Failed to create X509Source")
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_get_x509_svid() {
         let source = get_source().await;
         let svid = source.svid().expect("Failed to get X509Svid");
 
-        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [spiffe_id_1(), spiffe_id_2()];
         assert!(
-            expected_ids.contains(&svid.spiffe_id()),
+            expected_ids.contains(svid.spiffe_id()),
             "Unexpected SPIFFE ID: {:?}",
             svid.spiffe_id()
         );
@@ -112,6 +114,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_try_svid() {
         let source = get_source().await;
 
@@ -120,7 +123,7 @@ mod integration_tests_x509_source {
             .try_svid()
             .expect("try_svid() should return Some when healthy");
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Unexpected SPIFFE ID"
         );
 
@@ -133,14 +136,15 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_get_bundle_for_trust_domain() {
         let source = get_source().await;
         let bundle: Arc<X509Bundle> = source
-            .bundle_for_trust_domain(&TRUST_DOMAIN)
+            .bundle_for_trust_domain(&trust_domain())
             .expect("Failed to get X509Bundle")
             .expect("No X509Bundle found");
 
-        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
+        assert_eq!(bundle.trust_domain().as_ref(), trust_domain().as_ref());
         assert!(
             !bundle.authorities().is_empty(),
             "Bundle should have at least one authority"
@@ -148,37 +152,42 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_try_bundle_for_trust_domain() {
         let source = get_source().await;
 
         // Should succeed when source is healthy
         let bundle = source
-            .try_bundle_for_trust_domain(&TRUST_DOMAIN)
+            .try_bundle_for_trust_domain(&trust_domain())
             .expect("try_bundle_for_trust_domain() should return Some when healthy");
-        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
+        assert_eq!(bundle.trust_domain().as_ref(), trust_domain().as_ref());
 
         // After shutdown, should return None
         source.shutdown().await;
         assert!(
-            source.try_bundle_for_trust_domain(&TRUST_DOMAIN).is_none(),
+            source
+                .try_bundle_for_trust_domain(&trust_domain())
+                .is_none(),
             "try_bundle_for_trust_domain() should return None after shutdown"
         );
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_bundle_set() {
         let source = get_source().await;
         let bundle_set = source.bundle_set().expect("Failed to get bundle set");
 
-        let bundle = bundle_set.get(&TRUST_DOMAIN);
+        let bundle = bundle_set.get(&trust_domain());
         assert!(bundle.is_some(), "Bundle set should contain trust domain");
         assert_eq!(
             bundle.unwrap().trust_domain().as_ref(),
-            TRUST_DOMAIN.as_ref()
+            trust_domain().as_ref()
         );
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_x509_context() {
         let source = get_source().await;
         let context = source.x509_context().expect("Failed to get X509Context");
@@ -201,6 +210,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_is_healthy() {
         let source = get_source().await;
 
@@ -228,6 +238,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_source_updates() {
         let source = get_source().await;
         let mut updates = source.updated();
@@ -251,6 +262,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_x509_source_with_custom_picker_and_client() -> Result<(), Box<dyn Error>> {
         type ClientFactory = Arc<
             dyn Fn() -> Pin<
@@ -263,16 +275,16 @@ mod integration_tests_x509_source {
             Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }));
 
         let source = X509SourceBuilder::new()
-            .with_client_factory(factory)
-            .with_picker(SecondSvidPicker)
+            .client_factory(factory)
+            .picker(SecondSvidPicker)
             .build()
             .await?;
 
         let svid = source.svid().expect("Failed to get X509Svid");
 
-        let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
+        let expected_ids = [spiffe_id_1(), spiffe_id_2()];
         assert!(
-            expected_ids.contains(&svid.spiffe_id()),
+            expected_ids.contains(svid.spiffe_id()),
             "Unexpected SPIFFE ID"
         );
 
@@ -280,6 +292,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with very restrictive limits (should still work if actual values are below limits)
         let limits = ResourceLimits {
@@ -289,14 +302,14 @@ mod integration_tests_x509_source {
         };
 
         let source = X509SourceBuilder::new()
-            .with_resource_limits(limits)
+            .resource_limits(limits)
             .build()
             .await?;
 
         // Should work if limits are not exceeded
         let svid = source.svid()?;
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Should get SVID when limits are not exceeded"
         );
 
@@ -304,6 +317,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_unlimited_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with unlimited limits
         let limits = ResourceLimits {
@@ -313,14 +327,14 @@ mod integration_tests_x509_source {
         };
 
         let source = X509SourceBuilder::new()
-            .with_resource_limits(limits)
+            .resource_limits(limits)
             .build()
             .await?;
 
         // Should work with unlimited limits
         let svid = source.svid()?;
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Should get SVID with unlimited limits"
         );
 
@@ -328,11 +342,12 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_metrics_recorder() -> Result<(), Box<dyn Error>> {
         let metrics = Arc::new(TestMetricsRecorder::new());
 
         let source = X509SourceBuilder::new()
-            .with_metrics(metrics.clone())
+            .metrics(metrics.clone())
             .build()
             .await?;
 
@@ -352,9 +367,10 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_shutdown_with_timeout() -> Result<(), Box<dyn Error>> {
         let source = X509SourceBuilder::new()
-            .with_shutdown_timeout(Some(Duration::from_secs(5)))
+            .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
             .await?;
 
@@ -372,9 +388,10 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_shutdown_idempotent() -> Result<(), Box<dyn Error>> {
         let source = X509SourceBuilder::new()
-            .with_shutdown_timeout(Some(Duration::from_secs(5)))
+            .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
             .await?;
 
@@ -389,16 +406,17 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_reconnect_backoff_config() -> Result<(), Box<dyn Error>> {
         let source = X509SourceBuilder::new()
-            .with_reconnect_backoff(Duration::from_millis(100), Duration::from_secs(5))
+            .reconnect_backoff(Duration::from_millis(100), Duration::from_secs(5))
             .build()
             .await?;
 
         // Should work with custom backoff
         let svid = source.svid()?;
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Should get SVID with custom backoff config"
         );
 
@@ -406,17 +424,18 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_custom_endpoint() -> Result<(), Box<dyn Error>> {
         // Test that custom endpoint configuration works
         // This will use the default endpoint from environment if custom endpoint fails
         let source = X509SourceBuilder::new()
-            .with_endpoint("unix:/tmp/spire-agent/public/api.sock")
+            .endpoint("unix:/tmp/spire-agent/public/api.sock")
             .build()
             .await?;
 
         let svid = source.svid()?;
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Should get SVID with custom endpoint"
         );
 
@@ -424,10 +443,11 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_picker_selection() -> Result<(), Box<dyn Error>> {
         // Test that picker actually selects the second SVID
         let source = X509SourceBuilder::new()
-            .with_picker(SecondSvidPicker)
+            .picker(SecondSvidPicker)
             .build()
             .await?;
 
@@ -435,7 +455,7 @@ mod integration_tests_x509_source {
         // The picker selects the second SVID (index 1)
         // We can't assert the exact ID without knowing the order, but we can verify it works
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Picker should select a valid SVID"
         );
 
@@ -443,6 +463,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_health_check_guarantees_svid_success() {
         let source = get_source().await;
 
@@ -467,6 +488,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_update_notifications_sequence() {
         let source = get_source().await;
         let mut updates = source.updated();
@@ -495,6 +517,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_multiple_update_receivers() {
         let source = get_source().await;
         let mut updates1 = source.updated();
@@ -527,13 +550,14 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_builder_defaults() -> Result<(), Box<dyn Error>> {
         // Test that builder with defaults works
         let source = X509SourceBuilder::new().build().await?;
 
         let svid = source.svid()?;
         assert!(
-            [&*SPIFFE_ID_1, &*SPIFFE_ID_2].contains(&svid.spiffe_id()),
+            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
             "Should work with default builder configuration"
         );
 
@@ -541,6 +565,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_context_after_shutdown() {
         let source = get_source().await;
         source.shutdown().await;
@@ -557,6 +582,7 @@ mod integration_tests_x509_source {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn test_updated_after_shutdown() {
         let source = get_source().await;
         let updates = source.updated();

@@ -6,7 +6,7 @@
 //! This module wires that environment variable to the shared
 //! [`Endpoint`] parser.
 
-use crate::endpoint::Endpoint;
+use crate::transport::Endpoint;
 use crate::workload_api::error::WorkloadApiError;
 
 /// Environment variable holding the Workload API endpoint.

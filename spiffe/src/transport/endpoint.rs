@@ -84,6 +84,7 @@ impl Endpoint {
     /// - `unix:///path/to/socket`
     /// - `unix:/path/to/socket` (accepted in practice)
     /// - `tcp://1.2.3.4:8081`
+    /// - `tcp:1.2.3.4:8081` (accepted in practice)
     ///
     /// ## Errors
     ///
@@ -117,12 +118,25 @@ impl Endpoint {
                     return Err(EndpointError::UnixMissingPath);
                 }
 
+                // Require absolute paths (must start with "/")
+                // This ensures `unix:tmp/sock` fails deterministically.
+                if !path.starts_with('/') {
+                    return Err(EndpointError::UnixMissingPath);
+                }
+
                 Ok(Endpoint::Unix(PathBuf::from(path)))
             }
 
             TCP_SCHEME => {
-                let host_str = url.host_str().ok_or(EndpointError::TcpHostNotIp)?;
-                let host = IpAddr::from_str(host_str).map_err(|_| EndpointError::TcpHostNotIp)?;
+                let host = match url.host() {
+                    Some(url::Host::Ipv4(ipv4)) => IpAddr::V4(ipv4),
+                    Some(url::Host::Ipv6(ipv6)) => IpAddr::V6(ipv6),
+                    Some(url::Host::Domain(domain)) => {
+                        // Try parsing as IP address (IPv4 might be parsed as Domain by url crate)
+                        IpAddr::from_str(domain).map_err(|_| EndpointError::TcpHostNotIp)?
+                    }
+                    None => return Err(EndpointError::TcpHostNotIp),
+                };
                 let port = url.port().ok_or(EndpointError::TcpMissingPort)?;
 
                 let path = url.path();
@@ -138,11 +152,25 @@ impl Endpoint {
     }
 }
 
+impl std::str::FromStr for Endpoint {
+    type Err = EndpointError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse(s)
+    }
+}
+
 fn normalize_endpoint_uri(input: &str) -> String {
     // Accept the shorthand `unix:/path` by rewriting it into a valid URL.
     if input.starts_with("unix:/") && !input.starts_with("unix://") {
         let path = &input["unix:/".len()..];
         return format!("unix:///{path}");
+    }
+
+    // Accept the shorthand `tcp:IP:PORT` by rewriting it into a valid URL.
+    if input.starts_with("tcp:") && !input.starts_with("tcp://") {
+        let rest = &input["tcp:".len()..];
+        return format!("tcp://{rest}");
     }
 
     input.to_owned()
@@ -180,6 +208,60 @@ mod tests {
             Endpoint::Tcp {
                 host: expected_host,
                 port: 80
+            }
+        );
+    }
+
+    #[test]
+    fn from_str_delegates_to_parse() {
+        use std::str::FromStr;
+        let ep1 = Endpoint::parse("unix:///tmp/sock").unwrap();
+        let ep2 = Endpoint::from_str("unix:///tmp/sock").unwrap();
+        assert_eq!(ep1, ep2);
+
+        let ep3 = Endpoint::parse("tcp://127.0.0.1:8080").unwrap();
+        let ep4 = Endpoint::from_str("tcp://127.0.0.1:8080").unwrap();
+        assert_eq!(ep3, ep4);
+    }
+
+    #[test]
+    fn parse_correct_tcp_address_shorthand() {
+        let ep = Endpoint::parse("tcp:127.0.0.1:8081").unwrap();
+        let expected_host: IpAddr = "127.0.0.1".parse().unwrap();
+
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: expected_host,
+                port: 8081
+            }
+        );
+    }
+
+    #[test]
+    fn parse_correct_tcp_address_ipv6() {
+        let ep = Endpoint::parse("tcp://[::1]:8080").unwrap();
+        let expected_host: IpAddr = "::1".parse().unwrap();
+
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: expected_host,
+                port: 8080
+            }
+        );
+    }
+
+    #[test]
+    fn parse_correct_tcp_address_ipv6_shorthand() {
+        let ep = Endpoint::parse("tcp:[::1]:8080").unwrap();
+        let expected_host: IpAddr = "::1".parse().unwrap();
+
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: expected_host,
+                port: 8080
             }
         );
     }
@@ -278,5 +360,53 @@ mod tests {
             EndpointError::TcpMissingPort,
             "tcp: endpoint socket URI must include a port",
         ),
+    }
+
+    #[test]
+    fn parse_unix_missing_slash_after_scheme() {
+        // `unix:tmp/sock` (missing slash after scheme) should fail deterministically
+        // because the path is not absolute (doesn't start with "/").
+        let err = Endpoint::parse("unix:tmp/sock").unwrap_err();
+        assert_eq!(err, EndpointError::UnixMissingPath);
+        assert_eq!(
+            err.to_string(),
+            "unix: endpoint socket URI must include a path"
+        );
+    }
+
+    #[test]
+    fn parse_tcp_with_root_path() {
+        // `tcp://127.0.0.1:8080/` should be accepted (path "/")
+        let ep = Endpoint::parse("tcp://127.0.0.1:8080/").unwrap();
+        let expected_host: IpAddr = "127.0.0.1".parse().unwrap();
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: expected_host,
+                port: 8080
+            }
+        );
+    }
+
+    #[test]
+    fn parse_tcp_shorthand_missing_port() {
+        // `tcp:127.0.0.1` should return TcpMissingPort
+        let err = Endpoint::parse("tcp:127.0.0.1").unwrap_err();
+        assert_eq!(err, EndpointError::TcpMissingPort);
+        assert_eq!(
+            err.to_string(),
+            "tcp: endpoint socket URI must include a port"
+        );
+    }
+
+    #[test]
+    fn parse_tcp_ipv6_missing_port() {
+        // `tcp://[::1]` should return TcpMissingPort
+        let err = Endpoint::parse("tcp://[::1]").unwrap_err();
+        assert_eq!(err, EndpointError::TcpMissingPort);
+        assert_eq!(
+            err.to_string(),
+            "tcp: endpoint socket URI must include a port"
+        );
     }
 }

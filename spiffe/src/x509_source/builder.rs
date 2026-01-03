@@ -1,8 +1,8 @@
 use super::errors::X509SourceError;
 use super::metrics::MetricsRecorder;
-use super::source::{ClientFactory, X509Source};
-use crate::endpoint::Endpoint;
-use crate::workload_api::client::WorkloadApiClient;
+use super::source::X509Source;
+use crate::workload_api::WorkloadApiClient;
+use crate::x509_source::types::{ClientFactory, SvidPicker};
 use std::fmt::Debug;
 use std::sync::Arc;
 use std::time::Duration;
@@ -162,17 +162,17 @@ impl ResourceLimits {
 /// # Example
 ///
 /// ```no_run
-/// use spiffe::{ResourceLimits, X509SourceBuilder};
+/// use spiffe::{ResourceLimits, X509Source, X509SourceBuilder};
 /// use std::time::Duration;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let source = X509SourceBuilder::new()
-///     .with_endpoint("unix:/tmp/spire-agent/public/api.sock")
-///     .with_reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30))
-///     .with_resource_limits(ResourceLimits {
+/// let source = X509Source::builder()
+///     .endpoint("unix:/tmp/spire-agent/public/api.sock")
+///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30))
+///     .resource_limits(ResourceLimits {
 ///         max_svids: Some(100),
 ///         max_bundles: Some(500),
-///         max_bundle_der_bytes: Some(5 * 1024 * 1024), // 5MB
+///         max_bundle_der_bytes: Some(5 * 1024 * 1024),
 ///     })
 ///     .build()
 ///     .await?;
@@ -180,7 +180,7 @@ impl ResourceLimits {
 /// # }
 /// ```
 pub struct X509SourceBuilder {
-    svid_picker: Option<Box<dyn super::source::SvidPicker>>,
+    svid_picker: Option<Box<dyn SvidPicker>>,
     reconnect: ReconnectConfig,
     make_client: Option<ClientFactory>,
     limits: ResourceLimits,
@@ -226,8 +226,8 @@ impl X509SourceBuilder {
     /// # use std::time::Duration;
     ///
     /// let builder = X509SourceBuilder::new()
-    ///     .with_endpoint("unix:/tmp/spire-agent/public/api.sock")
-    ///     .with_reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30));
+    ///     .endpoint("unix:/tmp/spire-agent/public/api.sock")
+    ///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn new() -> Self {
@@ -246,71 +246,31 @@ impl X509SourceBuilder {
     /// Accepts either a filesystem path (e.g. `/tmp/spire-agent/public/api.sock`)
     /// or a full URI (e.g. `unix:///tmp/spire-agent/public/api.sock`).
     ///
-    /// **Note:** Endpoint validation is deferred until `build()` is called. For early
-    /// validation, use [`X509SourceBuilder::try_with_endpoint`].
-    ///
     /// # Examples
     ///
     /// ```no_run
     /// use spiffe::X509SourceBuilder;
     ///
     /// let builder = X509SourceBuilder::new()
-    ///     .with_endpoint("unix:/tmp/spire-agent/public/api.sock");
+    ///     .endpoint("unix:/tmp/spire-agent/public/api.sock");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn with_endpoint(mut self, endpoint: impl AsRef<str>) -> Self {
+    pub fn endpoint(mut self, endpoint: impl AsRef<str>) -> Self {
         let endpoint: Arc<str> = Arc::from(endpoint.as_ref());
 
         let factory: ClientFactory = Arc::new(move || {
             let endpoint = endpoint.clone();
-            Box::pin(async move { WorkloadApiClient::connect_to(endpoint).await })
+            Box::pin(async move { WorkloadApiClient::connect_to(&endpoint).await })
         });
 
         self.make_client = Some(factory);
         self
     }
 
-    /// Sets the Workload API endpoint with early validation.
-    ///
-    /// This method parses and validates the endpoint immediately, allowing you to
-    /// catch configuration errors at build time rather than when the source connects.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the endpoint string cannot be parsed as a valid SPIFFE
-    /// endpoint (see [`Endpoint::parse`] for validation rules).
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use spiffe::X509SourceBuilder;
-    ///
-    /// let builder = X509SourceBuilder::new()
-    ///     .try_with_endpoint("unix:/tmp/spire-agent/public/api.sock")?;
-    /// # Ok::<(), Box<dyn std::error::Error>>(())
-    /// ```
-    pub fn try_with_endpoint(
-        mut self,
-        endpoint: impl AsRef<str>,
-    ) -> Result<Self, crate::endpoint::EndpointError> {
-        let endpoint_str = endpoint.as_ref();
-        let _parsed = Endpoint::parse(endpoint_str)?;
-
-        // If parsing succeeds, use the same factory pattern as with_endpoint
-        let endpoint: Arc<str> = Arc::from(endpoint_str);
-        let factory: ClientFactory = Arc::new(move || {
-            let endpoint = endpoint.clone();
-            Box::pin(async move { WorkloadApiClient::connect_to(endpoint).await })
-        });
-
-        self.make_client = Some(factory);
-        Ok(self)
-    }
-
     /// Sets a custom client factory.
     #[must_use]
-    pub fn with_client_factory(mut self, factory: ClientFactory) -> Self {
+    pub fn client_factory(mut self, factory: ClientFactory) -> Self {
         self.make_client = Some(factory);
         self
     }
@@ -320,9 +280,11 @@ impl X509SourceBuilder {
     /// # Examples
     ///
     /// ```no_run
+    /// # #[cfg(feature = "x509-source")]
+    /// # fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     /// use std::sync::Arc;
     ///
-    /// use spiffe::workload_api::x509_source::{SvidPicker, X509SourceBuilder};
+    /// use spiffe::x509_source::{SvidPicker, X509SourceBuilder};
     /// use spiffe::X509Svid;
     ///
     /// #[derive(Debug)]
@@ -339,14 +301,16 @@ impl X509SourceBuilder {
     /// }
     ///
     /// let _builder = X509SourceBuilder::new()
-    ///     .with_picker(HintPicker {
+    ///     .picker(HintPicker {
     ///         hint: "internal".to_string(),
     ///     });
+    /// # Ok(())
+    /// # }
     /// ```
     #[must_use]
-    pub fn with_picker<P>(mut self, picker: P) -> Self
+    pub fn picker<P>(mut self, picker: P) -> Self
     where
-        P: super::source::SvidPicker + 'static,
+        P: SvidPicker + 'static,
     {
         self.svid_picker = Some(Box::new(picker));
         self
@@ -364,11 +328,11 @@ impl X509SourceBuilder {
     /// use std::time::Duration;
     ///
     /// let builder = X509SourceBuilder::new()
-    ///     .with_reconnect_backoff(Duration::from_secs(1), Duration::from_secs(60));
+    ///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(60));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn with_reconnect_backoff(mut self, min_backoff: Duration, max_backoff: Duration) -> Self {
+    pub fn reconnect_backoff(mut self, min_backoff: Duration, max_backoff: Duration) -> Self {
         // Normalization happens at the authoritative boundary in X509Source::new_with().
         // This setter stores the raw values; normalization ensures min <= max.
         self.reconnect = ReconnectConfig {
@@ -393,14 +357,14 @@ impl X509SourceBuilder {
     ///     max_bundles: Some(500),
     ///     max_bundle_der_bytes: Some(5 * 1024 * 1024), // 5MB
     /// };
-    /// let builder = X509SourceBuilder::new().with_resource_limits(limits);
+    /// let builder = X509SourceBuilder::new().resource_limits(limits);
     ///
     /// // Or disable limits:
     /// let unlimited = ResourceLimits::unlimited();
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn with_resource_limits(mut self, limits: ResourceLimits) -> Self {
+    pub fn resource_limits(mut self, limits: ResourceLimits) -> Self {
         self.limits = limits;
         self
     }
@@ -424,11 +388,11 @@ impl X509SourceBuilder {
     /// }
     ///
     /// let metrics = Arc::new(MyMetrics);
-    /// let builder = X509SourceBuilder::new().with_metrics(metrics);
+    /// let builder = X509SourceBuilder::new().metrics(metrics);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn with_metrics(mut self, metrics: Arc<dyn MetricsRecorder>) -> Self {
+    pub fn metrics(mut self, metrics: Arc<dyn MetricsRecorder>) -> Self {
         self.metrics = Some(metrics);
         self
     }
@@ -448,11 +412,11 @@ impl X509SourceBuilder {
     /// use std::time::Duration;
     ///
     /// let builder = X509SourceBuilder::new()
-    ///     .with_shutdown_timeout(Some(Duration::from_secs(10)));
+    ///     .shutdown_timeout(Some(Duration::from_secs(10)));
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn with_shutdown_timeout(mut self, timeout: Option<Duration>) -> Self {
+    pub fn shutdown_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.shutdown_timeout = timeout;
         self
     }
@@ -467,12 +431,12 @@ impl X509SourceBuilder {
     /// Returns an [`X509SourceError`] if the Workload API endpoint cannot be resolved
     /// or connected to, the initial synchronization fails, or no suitable X.509 SVID
     /// can be selected.
-    pub async fn build(self) -> Result<Arc<X509Source>, X509SourceError> {
+    pub async fn build(self) -> Result<X509Source, X509SourceError> {
         let make_client = self.make_client.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }))
         });
 
-        X509Source::new_with(
+        X509Source::build_with(
             make_client,
             self.svid_picker,
             self.reconnect,
@@ -520,10 +484,10 @@ mod tests {
 
     #[test]
     fn reconnect_config_setter_does_not_normalize() {
-        // Test that with_reconnect_backoff is a pure setter and does NOT normalize.
+        // Test that reconnect_backoff is a pure setter and does NOT normalize.
         // Normalization happens at the authoritative boundary in X509Source::new_with().
         let builder = X509SourceBuilder::new()
-            .with_reconnect_backoff(Duration::from_secs(10), Duration::from_secs(1));
+            .reconnect_backoff(Duration::from_secs(10), Duration::from_secs(1));
         // Builder stores raw values; normalization happens later at the boundary
         assert_eq!(builder.reconnect.min_backoff, Duration::from_secs(10));
         assert_eq!(builder.reconnect.max_backoff, Duration::from_secs(1));
