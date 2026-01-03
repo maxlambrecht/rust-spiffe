@@ -64,7 +64,6 @@ jobs:
   integration:
     name: Integration Tests (SPIRE)
     runs-on: ubuntu-latest
-    needs: test
     timeout-minutes: 20
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
