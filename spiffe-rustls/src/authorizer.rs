@@ -8,12 +8,13 @@ use std::sync::Arc;
 /// Authorization policy for peer SPIFFE IDs.
 ///
 /// Authorization runs **after** cryptographic verification succeeds.
-/// This trait allows you to implement custom authorization logic while
-/// maintaining type safety and auditability.
+/// Implementations must be thread-safe.
 pub trait Authorizer: Send + Sync + 'static {
     /// Returns `true` if the peer SPIFFE ID is authorized.
     fn authorize(&self, peer: &SpiffeId) -> bool;
 }
+
+// ---- ergonomic blanket impl (closures / function pointers) ----
 
 impl<F> Authorizer for F
 where
@@ -24,12 +25,19 @@ where
     }
 }
 
+impl Authorizer for Arc<dyn Authorizer> {
+    fn authorize(&self, peer: &SpiffeId) -> bool {
+        (**self).authorize(peer)
+    }
+}
+
+impl Authorizer for Box<dyn Authorizer> {
+    fn authorize(&self, peer: &SpiffeId) -> bool {
+        (**self).authorize(peer)
+    }
+}
+
 /// Authorizes any SPIFFE ID (authentication only, no authorization).
-///
-/// This is useful when authorization is performed at another layer
-/// (e.g., application-level RBAC).
-///
-/// This is a zero-sized type that can be used directly without allocation.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Any;
 
@@ -40,18 +48,15 @@ impl Authorizer for Any {
 }
 
 /// Authorizes only the exact SPIFFE IDs in the allow list.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Exact {
     allowed: Arc<BTreeSet<SpiffeId>>,
 }
 
 impl Exact {
-    /// Creates a new `Exact` authorizer, failing if any SPIFFE ID is invalid.
+    /// Creates a new `Exact` authorizer.
     ///
-    /// All SPIFFE IDs must be valid; invalid IDs are not silently ignored.
-    ///
-    /// If the iterator is empty, the resulting authorizer will authorize no SPIFFE IDs
-    /// (all authorization checks will return `false`).
+    /// If the iterator is empty, the authorizer authorizes nothing.
     ///
     /// # Errors
     ///
@@ -63,12 +68,14 @@ impl Exact {
         <I::Item as TryInto<SpiffeId>>::Error: std::fmt::Display,
     {
         let mut allowed = BTreeSet::new();
+
         for id in ids {
             let spiffe_id = id
                 .try_into()
                 .map_err(|e| AuthorizerConfigError::InvalidSpiffeId(e.to_string()))?;
             allowed.insert(spiffe_id);
         }
+
         Ok(Self {
             allowed: Arc::new(allowed),
         })
@@ -82,22 +89,19 @@ impl Authorizer for Exact {
 }
 
 /// Authorizes any SPIFFE ID from the given trust domains.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TrustDomains {
     allowed: Arc<BTreeSet<TrustDomain>>,
 }
 
 impl TrustDomains {
-    /// Creates a new `TrustDomains` authorizer, failing if any trust domain is invalid.
+    /// Creates a new `TrustDomains` authorizer.
     ///
-    /// All trust domains must be valid; invalid domains are not silently ignored.
-    ///
-    /// If the iterator is empty, the resulting authorizer will authorize no trust domains
-    /// (all authorization checks will return `false`).
+    /// If the iterator is empty, the authorizer authorizes nothing.
     ///
     /// # Errors
     ///
-    /// Returns `Error::AuthorizerConfig` if any domain cannot be parsed.
+    /// Returns `Error::AuthorizerConfig` if any trust domain cannot be parsed.
     pub fn new<I>(domains: I) -> Result<Self>
     where
         I: IntoIterator,
@@ -105,12 +109,14 @@ impl TrustDomains {
         <I::Item as TryInto<TrustDomain>>::Error: std::fmt::Display,
     {
         let mut allowed = BTreeSet::new();
+
         for domain in domains {
             let td = domain
                 .try_into()
                 .map_err(|e| AuthorizerConfigError::InvalidTrustDomain(e.to_string()))?;
             allowed.insert(td);
         }
+
         Ok(Self {
             allowed: Arc::new(allowed),
         })

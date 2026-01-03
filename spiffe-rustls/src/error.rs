@@ -57,7 +57,7 @@ pub enum Error {
 
     /// An error from the underlying `X509Source`.
     #[error("x509 source error: {0}")]
-    Source(#[from] spiffe::workload_api::x509_source::X509SourceError),
+    Source(#[from] spiffe::x509_source::X509SourceError),
 
     /// Internal error.
     #[error("internal: {0}")]

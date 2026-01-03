@@ -83,8 +83,6 @@ compile_error!("Enable one crypto provider feature: `ring` (default) or `aws-lc-
 
 pub mod authorizer;
 
-// Crate-internal modules
-mod client;
 mod crypto;
 mod error;
 mod material;
@@ -92,6 +90,7 @@ mod material;
 mod observability;
 mod prelude;
 
+mod client;
 mod policy;
 mod resolve;
 mod server;
@@ -140,7 +139,7 @@ pub use spiffe::{SpiffeId, TrustDomain};
 /// # Ok(())
 /// # }
 /// ```
-pub fn mtls_client(source: std::sync::Arc<spiffe::X509Source>) -> ClientConfigBuilder {
+pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
     ClientConfigBuilder::new(source)
 }
 
@@ -177,6 +176,6 @@ pub fn mtls_client(source: std::sync::Arc<spiffe::X509Source>) -> ClientConfigBu
 /// # Ok(())
 /// # }
 /// ```
-pub fn mtls_server(source: std::sync::Arc<spiffe::X509Source>) -> ServerConfigBuilder {
+pub fn mtls_server(source: spiffe::X509Source) -> ServerConfigBuilder {
     ServerConfigBuilder::new(source)
 }

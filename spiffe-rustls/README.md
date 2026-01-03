@@ -347,8 +347,8 @@ Examples:
 * `mtls_tcp_client.rs`
 
 ```bash
-cargo run --features tcp-examples --example mtls_tcp_server
-cargo run --features tcp-examples --example mtls_tcp_client
+cargo run --example mtls_tcp_server
+cargo run --example mtls_tcp_client
 ```
 
 ---

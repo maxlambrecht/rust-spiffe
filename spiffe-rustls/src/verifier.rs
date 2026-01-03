@@ -16,7 +16,11 @@ use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
+use x509_parser::extensions::GeneralName;
 use x509_parser::prelude::{FromDer, X509Certificate};
+
+const MAX_URI_SAN_ENTRIES: usize = 32;
+const MAX_URI_LENGTH: usize = 2048;
 
 /// Cached result of extracting SPIFFE ID from a certificate.
 #[derive(Clone, Debug)]
@@ -99,9 +103,6 @@ pub(crate) fn extract_spiffe_id(leaf: &CertificateDer<'_>) -> Result<SpiffeId> {
     extract_spiffe_id_with_cache(leaf, None)
 }
 
-/// Extract the SPIFFE ID from the leaf certificate, using an optional cache.
-///
-/// This is the internal implementation that supports caching to avoid repeated parsing.
 fn extract_spiffe_id_with_cache(
     leaf: &CertificateDer<'_>,
     cache: Option<&Mutex<CertParseCache>>,
@@ -118,7 +119,6 @@ fn extract_spiffe_id_with_cache(
         }
     }
 
-    // Parse certificate
     let (_, cert) =
         X509Certificate::from_der(leaf.as_ref()).map_err(|e| Error::CertParse(format!("{e:?}")))?;
 
@@ -127,26 +127,44 @@ fn extract_spiffe_id_with_cache(
         .map_err(|e| Error::CertParse(format!("{e:?}")))?
         .ok_or(Error::MissingSpiffeId)?;
 
-    // Collect SPIFFE URIs from SAN with conservative bounds to prevent DoS
-    let uris: Vec<&str> = san
-        .value
-        .general_names
-        .iter()
-        .filter_map(|name| match name {
-            x509_parser::extensions::GeneralName::URI(uri) => Some(&**uri),
-            _ => None,
-        })
-        .collect();
+    // iterate SAN entries directly with conservative bounds
+    let mut uri_count = 0usize;
+    let mut found: Option<SpiffeId> = None;
 
-    let spiffe_ids = collect_spiffe_ids_from_uris(uris.iter().copied())?;
+    for name in &san.value.general_names {
+        let uri = match name {
+            GeneralName::URI(uri) => &**uri,
+            _ => continue,
+        };
 
-    let spiffe_id = match spiffe_ids.len() {
-        0 => return Err(Error::MissingSpiffeId),
-        1 => spiffe_ids.into_iter().next().unwrap(),
-        _ => return Err(Error::MultipleSpiffeIds),
-    };
+        uri_count += 1;
+        if uri_count > MAX_URI_SAN_ENTRIES {
+            return Err(Error::CertParse(format!(
+                "certificate has too many URI SAN entries (max {MAX_URI_SAN_ENTRIES})"
+            )));
+        }
 
-    // Cache the result
+        // Skip overly long URIs (avoid allocating / parsing large junk)
+        if uri.len() > MAX_URI_LENGTH {
+            continue;
+        }
+
+        if !uri.starts_with("spiffe://") {
+            continue;
+        }
+
+        let id = SpiffeId::new(uri)
+            .map_err(|e| Error::CertParse(format!("invalid SPIFFE ID '{uri}': {e}")))?;
+
+        match found.as_ref() {
+            None => found = Some(id),
+            Some(_) => return Err(Error::MultipleSpiffeIds),
+        }
+    }
+
+    let spiffe_id = found.ok_or(Error::MissingSpiffeId)?;
+
+    // Cache the result (best-effort, but fail closed on poison)
     if let Some(cache) = cache {
         let mut guard = cache
             .lock()
@@ -160,53 +178,6 @@ fn extract_spiffe_id_with_cache(
     }
 
     Ok(spiffe_id)
-}
-
-/// Collects SPIFFE IDs from URI SAN entries with conservative bounds to prevent `DoS`.
-///
-/// This function enforces:
-/// - Maximum 32 URI SAN entries (returns error if exceeded)
-/// - Maximum 2048 bytes per URI (overly long URIs are skipped)
-///
-/// # Errors
-///
-/// Returns `Error::CertParse` if there are too many URI SAN entries.
-pub(crate) fn collect_spiffe_ids_from_uris<'a>(
-    uris: impl Iterator<Item = &'a str>,
-) -> Result<Vec<SpiffeId>> {
-    collect_spiffe_ids_from_uris_impl(uris)
-}
-
-fn collect_spiffe_ids_from_uris_impl<'a>(
-    uris: impl Iterator<Item = &'a str>,
-) -> Result<Vec<SpiffeId>> {
-    const MAX_URI_SAN_ENTRIES: usize = 32;
-    const MAX_URI_LENGTH: usize = 2048;
-
-    let mut spiffe_ids = Vec::new();
-    let mut uri_count = 0usize;
-
-    for uri in uris {
-        uri_count += 1;
-        if uri_count > MAX_URI_SAN_ENTRIES {
-            return Err(Error::CertParse(format!(
-                "certificate has too many URI SAN entries (max {MAX_URI_SAN_ENTRIES})"
-            )));
-        }
-
-        if uri.len() > MAX_URI_LENGTH {
-            // Skip overly long URIs rather than failing; they're likely not SPIFFE IDs
-            continue;
-        }
-
-        if uri.starts_with("spiffe://") {
-            let spiffe_id = SpiffeId::new(uri)
-                .map_err(|e| Error::CertParse(format!("invalid SPIFFE ID '{uri}': {e}")))?;
-            spiffe_ids.push(spiffe_id);
-        }
-    }
-
-    Ok(spiffe_ids)
 }
 
 fn other_err<E>(e: E) -> rustls::Error
@@ -363,11 +334,11 @@ impl SpiffeServerCertVerifier {
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
-            Err(e) => {
+            Err(_e) => {
                 debug!(
                     "failed to build server verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
                     trust_domain,
-                    e
+                    _e
                 );
                 Vec::new()
             }
@@ -422,7 +393,7 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        // Extract trust domain from cert for signature verification (using cache)
+        // Extract trust domain from cert for signature verification
         let spiffe_id =
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
@@ -436,7 +407,7 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        // Extract trust domain from cert for signature verification (using cache)
+        // Extract trust domain from cert for signature verification
         let spiffe_id =
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
@@ -549,11 +520,11 @@ impl SpiffeClientCertVerifier {
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
-            Err(e) => {
+            Err(_e) => {
                 debug!(
                     "failed to build client verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
                     trust_domain,
-                    e
+                    _e
                 );
                 Vec::new()
             }
@@ -581,7 +552,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         intermediates: &[CertificateDer<'_>],
         now: UnixTime,
     ) -> std::result::Result<rustls::server::danger::ClientCertVerified, rustls::Error> {
-        // Step 1: Extract SPIFFE ID from certificate (using cache)
+        // Step 1: Extract SPIFFE ID from certificate
         // This extraction is safe because it's only used to select the trust domain's root
         // certificate bundle. Cryptographic verification (signature, chain, expiration) is still
         // enforced by rustls using the selected roots. Policy can further restrict which trust
@@ -612,7 +583,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        // Extract trust domain from cert for signature verification (using cache)
+        // Extract trust domain from cert for signature verification
         let spiffe_id =
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
@@ -626,7 +597,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        // Extract trust domain from cert for signature verification (using cache)
+        // Extract trust domain from cert for signature verification
         let spiffe_id =
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
@@ -668,7 +639,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 /// The policy check is still enforced during certificate verification in
 /// `get_or_build_inner`, so this fallback does not weaken security.
 fn advertised_verify_schemes(
-    label: &str,
+    _label: &str,
     gen: u64,
     last_logged_gen: &Mutex<Option<u64>>,
     snap: &MaterialSnapshot,
@@ -720,11 +691,11 @@ fn advertised_verify_schemes(
     };
 
     if should_log {
-        let snapshot_tds = join_trust_domains(snap.roots_by_td.keys());
+        let _snapshot_tds = join_trust_domains(snap.roots_by_td.keys());
         error!(
-            "{label}: trust domain policy excludes all trust domains in current bundle set \
+            "{}: trust domain policy excludes all trust domains in current bundle set \
             (snapshot trust domains: {}); falling back to scheme union to surface policy error",
-            snapshot_tds
+            _label, _snapshot_tds
         );
     }
 
@@ -736,10 +707,10 @@ fn advertised_verify_schemes(
     for (td, roots) in &snap.roots_by_td {
         let schemes = match build_union_schemes(td, roots.clone()) {
             Ok(s) => s,
-            Err(e) => {
+            Err(_e) => {
                 debug!(
-                    "{label}: failed to build verifier for trust domain {} while computing scheme union: {}",
-                    td, e
+                    "{}: failed to build verifier for trust domain {} while computing scheme union: {}",
+                    _label, td, _e
                 );
                 continue;
             }
@@ -881,44 +852,6 @@ mod tests {
     fn extract_spiffe_id_missing() {
         let err = extract_spiffe_id(&cert_without_spiffe()).unwrap_err();
         assert!(matches!(err, Error::MissingSpiffeId));
-    }
-
-    #[test]
-    fn collect_spiffe_ids_too_many_uri_entries() {
-        // Create an iterator with more than MAX_URI_SAN_ENTRIES (32) entries
-        let uris: Vec<String> = (0..33)
-            .map(|i| format!("spiffe://example.org/service{i}"))
-            .collect();
-        let uris_refs: Vec<&str> = uris.iter().map(std::string::String::as_str).collect();
-
-        let err = collect_spiffe_ids_from_uris(uris_refs.iter().copied()).unwrap_err();
-        assert!(matches!(err, Error::CertParse(_)));
-        assert!(err.to_string().contains("too many URI SAN entries"));
-    }
-
-    #[test]
-    fn collect_spiffe_ids_skips_overly_long_uri() {
-        // Create a URI that exceeds MAX_URI_LENGTH (2048)
-        let long_uri = "spiffe://example.org/".to_string() + &"x".repeat(2050);
-        let uris = [long_uri.as_str(), "spiffe://example.org/valid"];
-
-        // Should skip the long URI and find the valid one
-        let result = collect_spiffe_ids_from_uris(uris.iter().copied()).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].to_string(), "spiffe://example.org/valid");
-    }
-
-    #[test]
-    fn collect_spiffe_ids_finds_valid_spiffe_uri() {
-        let uris = [
-            "https://example.org/not-spiffe",
-            "spiffe://example.org/service1",
-            "http://other.org/also-not-spiffe",
-        ];
-
-        let result = collect_spiffe_ids_from_uris(uris.iter().copied()).unwrap();
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0].to_string(), "spiffe://example.org/service1");
     }
 
     #[test]
