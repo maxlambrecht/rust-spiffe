@@ -5,33 +5,37 @@
 ![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)
 
 `spiffe-rustls` integrates [`rustls`](https://crates.io/crates/rustls) with SPIFFE/SPIRE using the
-[`spiffe`](https://crates.io/crates/spiffe) crate's `X509Source` (SPIFFE Workload API).
+[`spiffe`](https://crates.io/crates/spiffe) crate’s `X509Source` (SPIFFE Workload API).
 
 It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a **live**
 `X509Source`. When the SPIRE agent rotates SVIDs or trust bundles, **new TLS handshakes automatically
 use the updated material**, without restarting the application.
 
-The crate focuses on **TLS authentication and connection-level authorization via SPIFFE IDs**, while
-delegating all cryptography and TLS mechanics to `rustls`.
+The crate focuses on **TLS-level authentication and authorization via SPIFFE IDs**, while delegating
+all cryptography and TLS mechanics to `rustls`.
+
+---
 
 ## Key Features
 
-* **Federation support**: Automatically handles multiple trust domains when SPIFFE federation is configured
-* **Typed authorization**: Strongly-typed `Authorizer` trait for SPIFFE ID-based access control
-* **Live updates**: Material rotates automatically when SPIRE updates SVIDs or bundles
-* **Production-ready**: Zero unsafe code, comprehensive error handling, graceful degradation
+* **Federation support** — Automatically handles multiple trust domains when SPIFFE federation is configured
+* **Typed authorization** — Strongly-typed `Authorizer` trait for SPIFFE ID–based access control
+* **Live updates** — Material rotates automatically when SPIRE updates SVIDs or bundles
+* **Production-ready** — Zero unsafe code, conservative parsing, graceful degradation
 
 ---
 
 ## Quick Start
 
-### 1. Create an X509Source
+### 1. Create an `X509Source`
 
 The source is configured via `SPIFFE_ENDPOINT_SOCKET`:
 
 ```rust
 let source = spiffe::X509Source::new().await?;
 ```
+
+---
 
 ### 2. Build a rustls client configuration
 
@@ -40,7 +44,7 @@ use spiffe_rustls::{authorizer, mtls_client};
 
 let source = spiffe::X509Source::new().await?;
 
-// Pass string literals directly - exact() and trust_domains() will convert them
+// Pass string literals directly — exact() will convert them
 let client_cfg = mtls_client(source)
     .authorize(authorizer::exact([
         "spiffe://example.org/myservice",
@@ -64,19 +68,22 @@ trust domains. `spiffe-rustls` automatically handles this:
 3. **Selects the correct root certificate bundle** from the bundle set
 4. **Verifies the certificate chain** using the selected bundle
 
-**No federation-specific configuration is required.** Federation works automatically whenever
-the Workload API provides bundles for multiple trust domains. The verifier dynamically selects
-the correct trust domain based on the peer's SPIFFE ID.
+**No federation-specific configuration is required.**
+Federation works automatically whenever the Workload API provides bundles for multiple trust domains.
+
+---
 
 ### Trust Domain Policy
 
-You can optionally restrict which trust domains are accepted using [`TrustDomainPolicy`].
+You may optionally restrict which trust domains are accepted using [`TrustDomainPolicy`].
 This is a **defense-in-depth** mechanism—the primary trust model comes from the bundle set
 delivered by the Workload API.
 
 ```rust
 use spiffe_rustls::{AllowList, AnyInBundleSet, LocalOnly, TrustDomainPolicy};
 use std::collections::BTreeSet;
+
+// Choose exactly one policy variant:
 
 // Default: use all bundles from the Workload API
 let policy = AnyInBundleSet;
@@ -90,7 +97,7 @@ let policy = AllowList(allowed);
 // Only trust a single trust domain
 let policy = LocalOnly("example.org".try_into()?);
 
-// You can also use the full path if preferred
+// Full path variant (equivalent)
 let policy = TrustDomainPolicy::AnyInBundleSet;
 ```
 
@@ -98,12 +105,11 @@ let policy = TrustDomainPolicy::AnyInBundleSet;
 
 ## Authorization
 
-Authorization is performed **after** cryptographic verification succeeds. The crate provides a
-strongly-typed [`Authorizer`] trait for implementing authorization policies.
+Authorization is performed **after** cryptographic verification succeeds.
 
-### Using the Authorizer Trait
+The crate provides a strongly-typed [`Authorizer`] trait for SPIFFE ID–based authorization.
 
-The new `Authorizer` trait works with strongly-typed `SpiffeId` values:
+### Using the `Authorizer` trait
 
 ```rust
 use spiffe_rustls::{Authorizer, authorizer};
@@ -113,19 +119,19 @@ use std::sync::Arc;
 // Accept any SPIFFE ID (authentication only)
 let auth: Arc<dyn Authorizer> = Arc::new(authorizer::any());
 
-// Accept only exact SPIFFE IDs - pass string literals directly
+// Accept only exact SPIFFE IDs
 let auth = authorizer::exact([
     "spiffe://example.org/payment",
     "spiffe://example.org/checkout",
 ])?;
 
-// Accept any SPIFFE ID from specific trust domains - pass string literals directly
+// Accept any SPIFFE ID from specific trust domains
 let auth = authorizer::trust_domains([
     "broker.example",
     "stockmarket.example",
 ])?;
 
-// Custom authorizer using a closure
+// Custom authorization logic
 let auth: Arc<dyn Authorizer> = Arc::new(|peer: &SpiffeId| {
     peer.path().starts_with("/payment/")
 });
@@ -135,50 +141,49 @@ let auth: Arc<dyn Authorizer> = Arc::new(|peer: &SpiffeId| {
 
 ## API Overview
 
-The public API consists of:
-
 ### Builders
 
-* `ClientConfigBuilder` - builds `rustls::ClientConfig`
-* `ServerConfigBuilder` - builds `rustls::ServerConfig`
+* `ClientConfigBuilder` — builds `rustls::ClientConfig`
+* `ServerConfigBuilder` — builds `rustls::ServerConfig`
 
 Each builder:
 
-* retains an `Arc<X509Source>`
-* builds a `rustls::{ClientConfig, ServerConfig}`
+* retains an `Arc<X509Source>` internally
 * always uses the **latest SVIDs and trust bundles**
 * authorizes peers by SPIFFE ID (URI SAN)
 
-### Authorization Types
+---
 
-* [`Authorizer`] - trait for SPIFFE ID-based authorization
-* `authorizer::any()` - accept any SPIFFE ID
-* `authorizer::exact()` - accept only exact SPIFFE IDs
-* `authorizer::trust_domains()` - accept any SPIFFE ID from specific trust domains
+### Authorization helpers
 
-### Policy Types
+* [`Authorizer`] — trait for SPIFFE ID–based authorization
+* `authorizer::any()`
+* `authorizer::exact()`
+* `authorizer::trust_domains()`
 
-* [`TrustDomainPolicy`] - optional policy for restricting which trust domains are accepted
-* `AnyInBundleSet` (or `TrustDomainPolicy::AnyInBundleSet`) - use all bundles from the Workload API (default)
-* `AllowList` (or `TrustDomainPolicy::AllowList`) - restrict to specific trust domains
-* `LocalOnly` (or `TrustDomainPolicy::LocalOnly`) - only trust a single trust domain
+---
 
-Policy variants are re-exported at the crate root for convenience, so you can use `AllowList(domains)` instead of `TrustDomainPolicy::AllowList(domains)`.
+### Trust Domain Policy types
+
+* [`TrustDomainPolicy`]
+* `AnyInBundleSet` — use all bundles from the Workload API (default)
+* `AllowList` — restrict to specific trust domains
+* `LocalOnly` — trust exactly one trust domain
+
+Policy variants are re-exported at the crate root for convenience.
 
 ---
 
 ## Client Configuration
 
-### ClientConfigBuilder
+### `ClientConfigBuilder`
 
 Builds a `rustls::ClientConfig` that:
 
-* presents the current SPIFFE X.509 SVID as the client certificate
-* validates the server certificate chain using bundles from the Workload API
-* automatically selects the correct trust domain bundle based on the server's SPIFFE ID
-* authorizes the server by SPIFFE ID (URI SAN)
-
-**Example:**
+* presents the current SPIFFE X.509 SVID
+* validates the server certificate chain using Workload API bundles
+* selects the correct trust domain automatically
+* authorizes the server by SPIFFE ID
 
 ```rust
 use spiffe_rustls::{authorizer, mtls_client, AllowList};
@@ -186,7 +191,6 @@ use std::collections::BTreeSet;
 
 let source = spiffe::X509Source::new().await?;
 
-// Pass string literals directly - exact() will convert them
 let allowed_server_ids = [
     "spiffe://example.org/myservice",
     "spiffe://example.org/myservice2",
@@ -201,23 +205,18 @@ let client_cfg = mtls_client(source)
     .build()?;
 ```
 
-The builder automatically handles multiple trust domains when SPIFFE federation is configured.
-No federation-specific configuration is required.
-
 ---
 
 ## Server Configuration
 
-### ServerConfigBuilder
+### `ServerConfigBuilder`
 
 Builds a `rustls::ServerConfig` that:
 
-* presents the current SPIFFE X.509 SVID as the server certificate
+* presents the current SPIFFE X.509 SVID
 * requires and validates client certificates (mTLS)
-* automatically selects the correct trust domain bundle based on the client's SPIFFE ID
-* authorizes the client by SPIFFE ID (URI SAN)
-
-**Example:**
+* selects the correct trust domain automatically
+* authorizes the client by SPIFFE ID
 
 ```rust
 use spiffe::{TrustDomain, X509Source};
@@ -225,9 +224,7 @@ use spiffe_rustls::{authorizer, mtls_server, LocalOnly};
 
 let source = X509Source::new().await?;
 
-// Pass string literals directly - trust_domains() will convert them
 let allowed_trust_domains = ["example.org"];
-
 let local_trust_domain: TrustDomain = "example.org".try_into()?;
 
 let server_cfg = mtls_server(source)
@@ -236,18 +233,14 @@ let server_cfg = mtls_server(source)
     .build()?;
 ```
 
-The builder automatically handles multiple trust domains when SPIFFE federation is configured.
-No federation-specific configuration is required.
-
 ---
 
 ## Features
 
-All features are additive and opt-in unless explicitly stated otherwise.
+Most features are additive and opt-in.
+**Crypto provider features are mutually exclusive—exactly one must be enabled.**
 
-### Crypto Providers
-
-`spiffe-rustls` supports multiple `rustls` crypto providers:
+### Crypto providers
 
 ```toml
 [features]
@@ -259,63 +252,37 @@ aws-lc-rs = ["rustls/aws_lc_rs"]
 * **Default:** `ring`
 * **Optional:** `aws-lc-rs`
 
-Exactly **one** provider must be enabled. Enabling more than one results in a compile-time error.
-
 Example (AWS-LC):
 
 ```bash
 cargo add spiffe-rustls --no-default-features --features aws-lc-rs
 ```
 
-Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior are
-identical** across providers.
+Provider choice affects only cryptographic primitives; **SPIFFE semantics and API behavior
+are identical** across providers.
 
-### Observability features
+---
 
-The crate supports optional observability through two mutually compatible features:
-`logging` and `tracing`. Both features are optional and can be enabled independently
-or together.
+### Observability
 
-#### Feature precedence
+Observability is optional and controlled via features:
 
-When multiple observability features are enabled, the following precedence applies:
+* `logging` — emit events via the `log` crate
+* `tracing` — emit events via the `tracing` crate
 
-1. **`tracing`** (highest priority) — If enabled, all events are emitted via `tracing`
-2. **`logging`** — If `tracing` is not enabled, events are emitted via the `log` crate
-3. **No observability** — If neither feature is enabled, observability calls are no-ops
+Both features are **disabled by default**.
 
-#### `logging` (default)
+#### Precedence
 
-Enables observability using the [`log`](https://crates.io/crates/log) crate.
+1. `tracing` (if enabled)
+2. `logging` (only if `tracing` is disabled)
+3. no-op (if neither is enabled)
 
-This is a lightweight option suitable for applications that use the standard `log`
-facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `log::error!`.
-
-**Note:** The `logging` feature is **included in the default features**, so it's enabled
-by default. To disable it, use `--no-default-features` and explicitly select only the
-features you need.
+Example:
 
 ```toml
-[dependencies]
-spiffe-rustls = { version = "0.2" }  # logging enabled by default
-```
-
-#### `tracing`
-
-Enables structured observability using the [`tracing`](https://crates.io/crates/tracing) crate.
-
-This is recommended for production environments that use structured logs, spans,
-or distributed tracing systems. When both `tracing` and `logging` features are enabled,
-**`tracing` takes precedence** and all events are emitted via `tracing` macros.
-
-```toml
-[dependencies]
 spiffe-rustls = { version = "0.2", features = ["tracing"] }
 ```
-
-**Note:** The `tracing` and `logging` features are not mutually exclusive. When both
-features are enabled, events are emitted via `tracing`. The `tracing` feature also
-enables tracing in the underlying `spiffe` crate.
 
 ---
 
@@ -337,14 +304,7 @@ For local testing, add to `/etc/hosts`:
 
 ---
 
-### Raw TLS (tokio-rustls)
-
-Direct TLS integration using `tokio-rustls`.
-
-Examples:
-
-* `mtls_tcp_server.rs`
-* `mtls_tcp_client.rs`
+### Raw TLS (`tokio-rustls`)
 
 ```bash
 cargo run --example mtls_tcp_server
@@ -353,10 +313,10 @@ cargo run --example mtls_tcp_client
 
 ---
 
-### gRPC (tonic + tonic-rustls)
+### gRPC (`tonic-rustls`)
 
-gRPC examples live in a **separate crate** (`spiffe-rustls-grpc-examples`) to avoid pulling gRPC and
-protobuf build dependencies into the library.
+gRPC examples live in a **separate crate** (`spiffe-rustls-grpc-examples`) to avoid pulling
+gRPC/protobuf dependencies into the library.
 
 ```bash
 cargo run -p spiffe-rustls-grpc-examples --bin grpc_server_mtls
@@ -367,34 +327,11 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 
 ## Security Considerations
 
-### Certificate Verification
-
-* Certificates are verified against the trust bundle set delivered by the Workload API
-* Only certificates with exactly **one** SPIFFE ID URI SAN are accepted (per SPIFFE spec)
-* The verifier automatically selects the correct trust domain based on the peer's SPIFFE ID
-* Authorization runs **after** cryptographic verification succeeds
-
-### Trust Domain Policy
-
-The `TrustDomainPolicy` is a **defense-in-depth** mechanism. The primary trust model comes from
-the bundle set delivered by the Workload API. When SPIFFE federation is configured, the Workload
-API provides bundles for multiple trust domains, and the policy allows you to restrict which of
-those bundles are actually used during certificate verification.
-
-### Authorization
-
-By default, the builder accepts any SPIFFE ID (authentication only, no authorization).
-Use `authorizer::exact()` or `authorizer::trust_domains()` to restrict which SPIFFE IDs
-are accepted. Use `authorizer::any()` explicitly if you want to make it clear that
-authorization is performed at another layer (e.g., application-level RBAC).
-
----
-
-## Notes
-
-* Examples rely exclusively on the SPIFFE Workload API; they do not start or configure SPIRE.
-* Standard TLS name (SNI) verification still applies; the DNS name must match the certificate SAN.
-* Material updates are atomic; new handshakes use the latest material without blocking.
+* Certificates must contain **exactly one** SPIFFE ID URI SAN
+* Trust bundles come exclusively from the Workload API
+* Trust domain selection is automatic and deterministic
+* Authorization runs **after** cryptographic verification
+* Material updates are atomic; new handshakes use fresh material
 
 ---
 

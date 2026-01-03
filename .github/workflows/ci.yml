@@ -59,7 +59,7 @@ jobs:
         run: make all
 
       - name: Build spiffe-rustls examples (tcp)
-        run: cargo build -p spiffe-rustls --features tcp-examples --examples
+        run: cargo build -p spiffe-rustls --examples
 
   integration:
     name: Integration Tests (SPIRE)
@@ -68,6 +68,7 @@ jobs:
     timeout-minutes: 20
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
+      SPIFFE_ENDPOINT_SOCKET_FEDERATED: unix:/tmp/spire-agent-federated/public/api.sock
       SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
       RUST_BACKTRACE: "1"
     steps:
