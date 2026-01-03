@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.10.0] – 2026-01-03
+
+### Breaking
+
+- Default feature set is now empty (default = []). Feature-gated capabilities (Workload API, X.509 parsing, JWT, etc.) must be explicitly enabled.
+- `X509Source::new()` return type changed** from `Arc<X509Source>` to `X509Source` (cloneable).
+- Module layout changes:** X.509 source moved to `spiffe::x509_source`; endpoint parsing moved under `spiffe::transport`.
+
+### Added / Changed
+
+- Clear **feature matrix** separating X.509, JWT, transport, and Workload API concerns.
+- Heavy X.509 and JWT parsing dependencies are now **fully feature-gated** (`x509`, `jwt`).
+- New Workload API tiers: `workload-api-core`, `workload-api-x509`, `workload-api-jwt`, `workload-api-full`
+  (`workload-api` remains an alias for `-full`).
+- Improved endpoint parsing: supports `tcp:IP:PORT`, IPv6, stricter unix path validation, and `FromStr`.
+- Polished `X509Source` builder API and documentation.
+- Integration tests are now feature-gated and `#[ignore]`.
+
+**Migration:** see `docs/migration-spiffe-0.10.md`.
+
+
 ## [0.9.2] – 2025-12-30
 
 ### Changed
