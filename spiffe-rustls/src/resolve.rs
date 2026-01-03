@@ -53,14 +53,14 @@ impl MaterialWatcher {
     /// This function must be called from within a Tokio runtime context. If you're using
     /// `tokio::main` or `tokio::test`, this is automatic. Otherwise, ensure you have a
     /// runtime handle available.
-    pub fn spawn(source: Arc<X509Source>) -> Result<Self> {
+    pub(crate) fn spawn(source: Arc<X509Source>) -> Result<Self> {
         let cancel = CancellationToken::new();
         let token = cancel.clone();
 
         let handle = tokio::runtime::Handle::try_current().map_err(|_| Error::NoTokioRuntime)?;
 
         // Build initial material with generation 1
-        let initial = Arc::new(build_material(&*source, 1)?);
+        let initial = Arc::new(build_material(source.as_ref(), 1)?);
         let (tx, rx) = watch::channel(initial);
 
         let mut updates = source.updated();
@@ -79,7 +79,7 @@ impl MaterialWatcher {
                             // Update notification received; rebuild material
                             // Only increment generation on successful rebuild+send
                             let next_generation = generation + 1;
-                            match build_material(&*source, next_generation) {
+                            match build_material(source.as_ref(), next_generation) {
                                 Ok(mat) => {
                                     if let Ok(()) = tx.send(Arc::new(mat)) {
                                         generation = next_generation;
@@ -90,9 +90,9 @@ impl MaterialWatcher {
                                         break;
                                     }
                                 }
-                                Err(e) => {
+                                Err(_e) => {
                                     // Keep last known-good material; do not increment generation on failure
-                                    error!("failed rebuilding rustls material; keeping previous: {e}");
+                                    error!("failed rebuilding rustls material; keeping previous: {_e}");
                                 }
                             }
                         } else {
@@ -142,11 +142,11 @@ fn build_material<S: X509MaterialSource>(source: &S, generation: u64) -> Result<
             Ok(roots) => {
                 roots_by_td.insert(trust_domain.clone(), roots);
             }
-            Err(e) => {
+            Err(_e) => {
                 // This is expected when a trust domain's bundle has no valid/acceptable root
                 // certificates (e.g., EmptyRootStore). We log and continue with other trust
                 // domains. We only fail if no usable root stores can be built for any trust domain.
-                warn!("Failed to build root cert store for trust domain {trust_domain}: {e}");
+                warn!("Failed to build root cert store for trust domain {trust_domain}: {_e}");
             }
         }
     }

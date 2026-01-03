@@ -30,9 +30,9 @@ pub(crate) struct MaterialSnapshot {
 pub(crate) fn roots_from_certs(certs: &[CertificateDer<'static>]) -> Result<Arc<RootCertStore>> {
     let mut store = RootCertStore::empty();
 
-    let added = store.add_parsable_certificates(certs.iter().cloned());
+    let _added = store.add_parsable_certificates(certs.iter().cloned());
 
-    debug!("loaded root cert(s): {added:?}");
+    debug!("loaded root cert(s): {_added:?}");
 
     if store.is_empty() {
         return Err(Error::EmptyRootStore);

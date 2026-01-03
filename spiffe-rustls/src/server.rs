@@ -74,9 +74,9 @@ impl ServerConfigBuilder {
     /// Defaults:
     /// - Authorization: accepts any SPIFFE ID (authentication only)
     /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
-    pub fn new(source: Arc<X509Source>) -> Self {
+    pub fn new(source: X509Source) -> Self {
         Self {
-            source,
+            source: Arc::new(source),
             authorizer: Arc::new(crate::authorizer::any()),
             trust_domain_policy: TrustDomainPolicy::default(),
         }
