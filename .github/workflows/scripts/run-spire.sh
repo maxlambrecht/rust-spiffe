@@ -53,22 +53,51 @@ wait_for_service() {
   exit 1
 }
 
+wait_for_workload_api() {
+  local workload_socket_path="$1"
+  local description="$2"
+  local log_file="$3"
+  local attempts="${4:-60}"
 
-wait_for_bundle() {
-  local agent_admin_socket_path="$1"
-  local trust_domain="$2"
-
-  for _ in {1..90}; do
-    if bin/spire-agent bundle list -socketPath "${agent_admin_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
+  for _ in $(seq 1 "${attempts}"); do
+    if bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
 
-  echo "Timed out waiting for bundle '${trust_domain}' in agent at '${agent_admin_socket_path}'" >&2
-  return 1
+  echo "${description} Workload API failed to become ready" >&2
+  if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
+    echo "--- ${description} log (tail) ---" >&2
+    tail -n 200 "${log_file}" >&2
+    echo "-------------------------------" >&2
+  fi
+
+  echo "--- ${description} fetch x509 error (unsuppressed) ---" >&2
+  bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >&2 || true
+
+  exit 1
 }
 
+
+wait_for_federation_bundle() {
+  local workload_socket_path="$1"
+  local trust_domain="$2"
+  local description="$3"
+  local attempts="${4:-90}"
+
+  for _ in $(seq 1 "${attempts}"); do
+    if bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Timed out waiting for bundle '${trust_domain}' via Workload API (${description})" >&2
+  echo "--- ${description} fetch x509 (unsuppressed) ---" >&2
+  bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >&2 || true
+  exit 1
+}
 # SPIRE prerequisites
 curl -s -N -L "https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-musl.tar.gz" | tar xz
 pushd "${spire_folder}" >/dev/null
@@ -285,8 +314,8 @@ cut -d ' ' -f 2 token_primary > token_primary_stripped
 
 echo "Starting primary SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< token_primary_stripped)" > "${spire_agent_log_file}" 2>&1 &
-wait_for_service \
-  "bin/spire-agent bundle list -socketPath '${spire_agent_admin_socket_path}'" \
+wait_for_workload_api \
+  "/tmp/spire-agent/public/api.sock" \
   "SPIRE Agent" \
   "${spire_agent_log_file}"
 
@@ -301,8 +330,8 @@ cut -d ' ' -f 2 token_federated > token_federated_stripped
 
 echo "Starting federated SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent-federated.conf -joinToken "$(< token_federated_stripped)" > "${spire_agent_federated_log_file}" 2>&1 &
-wait_for_service \
-  "bin/spire-agent bundle list -socketPath '${spire_agent_federated_admin_socket_path}'" \
+wait_for_workload_api \
+  "/tmp/spire-agent-federated/public/api.sock" \
   "SPIRE Federated Agent" \
   "${spire_agent_federated_log_file}"
 
@@ -359,8 +388,8 @@ export SPIFFE_ENDPOINT_SOCKET_FEDERATED="unix:///tmp/spire-agent-federated/publi
 # 8) Wait for federation to be established
 # -------------------------
 echo "Waiting for federation bundles to appear in both agents..."
-wait_for_bundle "${spire_agent_admin_socket_path}" "example-federated.org"
-wait_for_bundle "${spire_agent_federated_admin_socket_path}" "example.org"
+wait_for_federation_bundle "/tmp/spire-agent/public/api.sock" "example-federated.org" "Primary agent"
+wait_for_federation_bundle "/tmp/spire-agent-federated/public/api.sock" "example.org" "Federated agent"
 
 popd >/dev/null
 echo "SPIRE primary + federated servers/agents are up. Workload API sockets exported."
