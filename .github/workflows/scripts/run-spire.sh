@@ -34,31 +34,25 @@ wait_for_service() {
   local command="$1"
   local description="$2"
   local log_file="$3"
+  local attempts="${4:-60}"
+  local sleep_seconds="${5:-1}"
 
-  for _ in {1..60}; do
-    if ${command} >/dev/null 2>&1; then
+  for _ in $(seq 1 "${attempts}"); do
+    if eval "${command}" >/dev/null 2>&1; then
       return 0
     fi
-    sleep 1
+    sleep "${sleep_seconds}"
   done
 
-  echo "${description} failed to start" >&2
+  echo "${description} failed to become ready" >&2
   if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
-    echo "--- ${description} log ---" >&2
+    echo "--- ${description} log (tail) ---" >&2
     tail -n 200 "${log_file}" >&2
-    echo "-------------------------" >&2
+    echo "-------------------------------" >&2
   fi
-
-  if [[ "${description}" == "SPIRE Agent" ]]; then
-    echo "--- spire-agent healthcheck (verbose) ---" >&2
-    bin/spire-agent healthcheck -socketPath /tmp/spire-agent/admin/api.sock -verbose >&2 || true
-  elif [[ "${description}" == "SPIRE Federated Agent" ]]; then
-    echo "--- spire-agent healthcheck (verbose) ---" >&2
-    bin/spire-agent healthcheck -socketPath /tmp/spire-agent-federated/admin/api.sock -verbose >&2 || true
-  fi
-
   exit 1
 }
+
 
 wait_for_bundle() {
   local agent_admin_socket_path="$1"
@@ -292,7 +286,7 @@ cut -d ' ' -f 2 token_primary > token_primary_stripped
 echo "Starting primary SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< token_primary_stripped)" > "${spire_agent_log_file}" 2>&1 &
 wait_for_service \
-  "bin/spire-agent healthcheck -socketPath ${spire_agent_admin_socket_path}" \
+  "bin/spire-agent bundle list -socketPath '${spire_agent_admin_socket_path}'" \
   "SPIRE Agent" \
   "${spire_agent_log_file}"
 
@@ -308,7 +302,7 @@ cut -d ' ' -f 2 token_federated > token_federated_stripped
 echo "Starting federated SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent-federated.conf -joinToken "$(< token_federated_stripped)" > "${spire_agent_federated_log_file}" 2>&1 &
 wait_for_service \
-  "bin/spire-agent healthcheck -socketPath ${spire_agent_federated_admin_socket_path}" \
+  "bin/spire-agent bundle list -socketPath '${spire_agent_federated_admin_socket_path}'" \
   "SPIRE Federated Agent" \
   "${spire_agent_federated_log_file}"
 
