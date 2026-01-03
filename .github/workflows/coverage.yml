@@ -13,6 +13,7 @@ jobs:
       RUSTFLAGS: "-Cinstrument-coverage -C link-dead-code"
       LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
       SPIFFE_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/public/api.sock"
+      SPIFFE_ENDPOINT_SOCKET_FEDERATED: "unix:/tmp/spire-agent-federated/public/api.sock"
       SPIRE_ADMIN_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/admin/api.sock"
 
     steps:
