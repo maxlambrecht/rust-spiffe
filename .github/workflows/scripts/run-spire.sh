@@ -113,15 +113,15 @@ wait_for_federation_bundle() {
   local attempts="${4:-90}"
 
   for _ in $(seq 1 "${attempts}"); do
-    if bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
+    if bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
       return 0
     fi
     sleep 1
   done
 
   echo "Timed out waiting for bundle '${trust_domain}' via Workload API (${description})" >&2
-  echo "--- ${description} fetch x509 (unsuppressed) ---" >&2
-  bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >&2 || true
+  echo "--- ${description} fetch bundles (unsuppressed) ---" >&2
+  bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" >&2 || true
   exit 1
 }
 
@@ -161,6 +161,12 @@ server {
       port = 8443
       profile "https_spiffe" {}
     }
+    federates_with "example.org" {
+      bundle_endpoint_url = "https://127.0.0.1:8444"
+      bundle_endpoint_profile "https_spiffe" {
+        endpoint_spiffe_id = "spiffe://example.org/spire/server"
+      }
+    }
   }
 }
 
@@ -198,6 +204,11 @@ server {
   default_x509_svid_ttl = "48h"
 
   federation {
+    bundle_endpoint {
+      address = "127.0.0.1"
+      port = 8444
+      profile "https_spiffe" {}
+    }
     federates_with "example-federated.org" {
       bundle_endpoint_url = "https://127.0.0.1:8443"
       bundle_endpoint_profile "https_spiffe" {
@@ -329,8 +340,6 @@ bin/spire-server bundle set \
   -format spiffe \
   -id spiffe://example-federated.org \
   -path example-federated.org.bundle
-
-echo "bundle set."
 
 # -------------------------
 # 3) Register workloads (primary TD)
