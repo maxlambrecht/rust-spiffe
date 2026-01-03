@@ -2,7 +2,6 @@
 // In addition it requires the admin endpoint to be exposed, and the running user to registered
 // as an authorized_delegate.
 
-#[cfg(feature = "integration-tests")]
 mod integration_tests_delegate_identity_api_client {
     use once_cell::sync::Lazy;
     use spiffe::bundle::BundleSource;
@@ -33,6 +32,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_delegate_jwt_svid() {
         let client = get_client().await;
         let svid = client
@@ -49,6 +49,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_delegate_x509_svid() {
         let client = get_client().await;
         let response: spiffe::svid::x509::X509Svid = client
@@ -67,6 +68,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_delegate_x509_svid() {
         let test_duration = std::time::Duration::from_secs(60);
         let client = get_client().await;
@@ -91,6 +93,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_delegated_x509_trust_bundles() {
         let client = get_client().await;
         let response = client
@@ -101,6 +104,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_delegated_x509_trust_bundles() {
         let test_duration = std::time::Duration::from_secs(60);
         let client = get_client().await;
@@ -138,6 +142,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_delegated_jwt_trust_bundles() {
         let mut client = get_client().await;
         let response = client
@@ -149,6 +154,7 @@ mod integration_tests_delegate_identity_api_client {
     }
 
     #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_delegated_jwt_trust_bundles() {
         let mut client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);

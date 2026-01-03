@@ -99,9 +99,12 @@ msrv:
 
 integration-tests:
 	$(info ==> Run integration tests)
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --features x509-source,jwt -- --ignored
-	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) --features integration-tests
+	@set -e; \
+	status=0; \
+	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --features x509-source,jwt -- --ignored || status=1; \
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored || status=1; \
+	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) -- --ignored || status=1; \
+	exit $$status
 
 # -----------------------------------------------------------------------------
 # spiffe
