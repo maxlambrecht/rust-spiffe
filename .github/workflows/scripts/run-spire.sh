@@ -14,10 +14,10 @@ spire_server_federated_log_file="/tmp/spire-server-federated/server.log"
 spire_server_federated_socket_path="/tmp/spire-server-federated/private/api.sock"
 
 spire_agent_log_file="/tmp/spire-agent/agent.log"
-spire_agent_socket_path="/tmp/spire-agent/private/api.sock"
+spire_agent_socket_path="/tmp/spire-agent/admin/api.sock"
 
 spire_agent_federated_log_file="/tmp/spire-agent-federated/agent.log"
-spire_agent_federated_socket_path="/tmp/spire-agent-federated/private/api.sock"
+spire_agent_federated_socket_path="/tmp/spire-agent-federated/admin/api.sock"
 
 agent_id="spiffe://example.org/myagent"
 agent_federated_id="spiffe://example-federated.org/myagent"
