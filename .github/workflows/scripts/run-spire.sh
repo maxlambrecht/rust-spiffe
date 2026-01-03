@@ -20,20 +20,43 @@ spire_agent_federated_admin_socket_path="/tmp/spire-agent-federated/admin/api.so
 agent_id="spiffe://example.org/myagent"
 agent_federated_id="spiffe://example-federated.org/myagent"
 
+pkill -f "spire-server run" 2>/dev/null || true
+pkill -f "spire-agent run"  2>/dev/null || true
+
+rm -rf \
+  /tmp/spire-server \
+  /tmp/spire-server-federated \
+  /tmp/spire-agent \
+  /tmp/spire-agent-federated
+
+
 wait_for_service() {
   local command="$1"
   local description="$2"
   local log_file="$3"
 
-  for _ in {1..30}; do
+  for _ in {1..60}; do
     if ${command} >/dev/null 2>&1; then
       return 0
     fi
     sleep 1
   done
 
-  [ -n "${log_file}" ] && cat "${log_file}" >&2
   echo "${description} failed to start" >&2
+  if [ -n "${log_file}" ] && [ -f "${log_file}" ]; then
+    echo "--- ${description} log ---" >&2
+    tail -n 200 "${log_file}" >&2
+    echo "-------------------------" >&2
+  fi
+
+  if [[ "${description}" == "SPIRE Agent" ]]; then
+    echo "--- spire-agent healthcheck (verbose) ---" >&2
+    bin/spire-agent healthcheck -socketPath /tmp/spire-agent/admin/api.sock -verbose >&2 || true
+  elif [[ "${description}" == "SPIRE Federated Agent" ]]; then
+    echo "--- spire-agent healthcheck (verbose) ---" >&2
+    bin/spire-agent healthcheck -socketPath /tmp/spire-agent-federated/admin/api.sock -verbose >&2 || true
+  fi
+
   exit 1
 }
 
@@ -66,7 +89,7 @@ mkdir -p /tmp/spire-agent/public /tmp/spire-agent/admin /tmp/spire-agent
 mkdir -p /tmp/spire-agent-federated/public /tmp/spire-agent-federated/admin /tmp/spire-agent-federated
 
 # -------------------------------------------------------------------
-# Write configs (no templating, no env vars, deterministic locations)
+# Generate configs
 # -------------------------------------------------------------------
 
 cat > conf/server/server-federated.conf <<'EOF'
@@ -227,6 +250,7 @@ EOF
 # -------------------------------
 # 1) Start federated SPIRE server
 # -------------------------------
+echo "Starting Federated SPIRE Server"
 bin/spire-server run -config conf/server/server-federated.conf > "${spire_server_federated_log_file}" 2>&1 &
 wait_for_service \
   "bin/spire-server healthcheck -socketPath ${spire_server_federated_socket_path}" \
@@ -242,6 +266,7 @@ bin/spire-server bundle show \
 # -------------------------
 # 2) Start primary SPIRE server
 # -------------------------
+echo "Starting Primary SPIRE Server"
 bin/spire-server run -config conf/server/server.conf > "${spire_server_log_file}" 2>&1 &
 wait_for_service \
   "bin/spire-server healthcheck -socketPath ${spire_server_socket_path}" \
@@ -264,6 +289,7 @@ bin/spire-server token generate \
   > token_primary
 cut -d ' ' -f 2 token_primary > token_primary_stripped
 
+echo "Starting primary SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent.conf -joinToken "$(< token_primary_stripped)" > "${spire_agent_log_file}" 2>&1 &
 wait_for_service \
   "bin/spire-agent healthcheck -socketPath ${spire_agent_admin_socket_path}" \
@@ -279,6 +305,7 @@ bin/spire-server token generate \
   > token_federated
 cut -d ' ' -f 2 token_federated > token_federated_stripped
 
+echo "Starting federated SPIRE Agent"
 bin/spire-agent run -config conf/agent/agent-federated.conf -joinToken "$(< token_federated_stripped)" > "${spire_agent_federated_log_file}" 2>&1 &
 wait_for_service \
   "bin/spire-agent healthcheck -socketPath ${spire_agent_federated_admin_socket_path}" \
