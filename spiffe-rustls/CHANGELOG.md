@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.0] – 2026-01-03
+
+### ⚠️ Breaking changes
+
+- Public builders (`mtls_client`, `mtls_server`, `ClientConfigBuilder`, `ServerConfigBuilder`)
+  now accept `X509Source` by value instead of `Arc<X509Source>`.
+
+### Changed
+- Observability macros emit events via tracing when the tracing feature is enabled,
+  fall back to log when only the logging feature is enabled, and are no-ops when
+  neither feature is enabled.
+
+
 ## [0.3.0] – 2025-12-30
 
 ### ⚠️ Breaking changes

@@ -281,7 +281,7 @@ Both features are **disabled by default**.
 Example:
 
 ```toml
-spiffe-rustls = { version = "0.2", features = ["tracing"] }
+spiffe-rustls = { version = "0.4", features = ["tracing"] }
 ```
 
 ---
