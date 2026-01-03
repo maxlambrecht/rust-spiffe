@@ -64,7 +64,6 @@ pushd "${spire_folder}" >/dev/null
 # 1) Start federated SPIRE server
 # -------------------------------
 export SPIRE_FEDERATED_SOCKET_PATH="${spire_server_federated_socket_path}"
-cat "${SCRIPT_DIR}/server-federated.conf" | envsubst > "conf/server/server-federated.conf"
 mkdir -p /tmp/spire-server-federated
 
 bin/spire-server run -config conf/server/server-federated.conf > "${spire_server_federated_log_file}" 2>&1 &
@@ -102,11 +101,6 @@ bin/spire-server bundle set \
 # -------------------------
 # 3) Start primary SPIRE agent
 # -------------------------
-export STRIPPED_SPIRE_ADMIN_ENDPOINT_SOCKET
-STRIPPED_SPIRE_ADMIN_ENDPOINT_SOCKET="$(echo "${SPIRE_ADMIN_ENDPOINT_SOCKET:-unix:///tmp/spire-server/private/api.sock}" | cut -c6-)"
-
-cat "${SCRIPT_DIR}/agent.conf" | envsubst > "conf/agent/agent.conf"
-
 bin/spire-server token generate \
   -socketPath "${spire_server_socket_path}" \
   -spiffeID "${agent_id}" \
