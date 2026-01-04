@@ -32,7 +32,7 @@ Add `spire-api` to your `Cargo.toml`:
 ```toml
 [dependencies]
 spire-api = "0.5"
-````
+```
 
 ---
 

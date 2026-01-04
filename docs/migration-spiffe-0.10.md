@@ -16,7 +16,7 @@ You **must explicitly enable** the functionality you use.
 
 ```toml
 spiffe = { version = "0.10", features = ["x509-source"] }
-````
+```
 
 **Direct Workload API client (X.509 + JWT):**
 

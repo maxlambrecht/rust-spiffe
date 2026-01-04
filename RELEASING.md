@@ -34,7 +34,7 @@ git checkout main
 git pull
 git tag CRATE-NAME-VERSION
 git push origin CRATE-NAME-VERSION
-````
+```
 
 **Important:**
 The tag **must start with the crate name** for the publish workflow to trigger.

@@ -33,7 +33,7 @@ The source is configured via the `SPIFFE_ENDPOINT_SOCKET` environment variable.
 
 ```rust
 let source = spiffe::X509Source::new().await?;
-````
+```
 
 ---
 

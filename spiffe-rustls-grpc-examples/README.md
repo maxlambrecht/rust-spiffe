@@ -20,7 +20,7 @@ For local testing, add:
 
 ```text
 127.0.0.1 example.org
-````
+```
 
 to `/etc/hosts`.
 
