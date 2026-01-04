@@ -15,3 +15,15 @@ maxlambrecht@gmail.com
 Please report issues as soon as possible. You do not need a proof of concept,
 patch, or detailed write-up. A short description is sufficient to start the
 process.
+
+## Security Practices
+
+This project follows standard Rust security best practices, including:
+
+- No `unsafe` code (`#![deny(unsafe_code)]`)
+- Dependency vulnerability scanning using `cargo-audit`
+- Dependency, license, and source policy checks using `cargo-deny`
+- Continuous integration checks on all pull requests
+
+These practices are applied on a best-effort basis and are intended to reduce
+risk, not to guarantee the absence of vulnerabilities.

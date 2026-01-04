@@ -1,0 +1,7 @@
+[advisories]
+ignore = [
+    # RUSTSEC-2023-0071: rsa Marvin attack timing side-channel.
+    # Present via jsonwebtoken when using rust_crypto backend / RSA algorithms.
+    # No upstream fix currently available; monitor advisory status.
+    "RUSTSEC-2023-0071",
+]

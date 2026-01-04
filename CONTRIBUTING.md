@@ -70,6 +70,17 @@ Reviews are done on a best-effort basis. Please allow time for feedback.
 - [ ] Documentation updated (if needed)
 - [ ] CHANGELOG updated (if applicable)
 
+## CI and Policy Checks
+
+Pull requests are checked using automated CI, including:
+
+- Formatting and linting
+- Unit and integration tests
+- Dependency vulnerability scanning (`cargo-audit`)
+- Dependency, license, and source policy checks (`cargo-deny`)
+
+New dependencies must comply with the existing policy defined in `deny.toml`.
+
 ## Feature Development
 
 ### Adding New Features
