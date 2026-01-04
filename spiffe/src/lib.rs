@@ -8,39 +8,92 @@
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
 
-//! This crate provides Rust bindings for the
-//! [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
+//! Rust client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 //!
-//! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs,
-//! trust bundles, and related metadata, using strongly typed APIs aligned with
-//! the SPIFFE standards.
+//! This crate provides idiomatic, standards-compliant access to SPIFFE identities and trust material.
+//! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs, trust bundles, and
+//! related metadata, using strongly typed APIs aligned with the SPIFFE specifications.
+//!
+//! ## Safety
+//!
+//! This crate contains **zero unsafe code** (`#![deny(unsafe_code)]`).
+//!
+//! ## Quick Start
+//!
+//! For X.509-based workloads, use [`X509Source`] (requires the `x509-source` feature):
+//!
+//! ```no_run
+//! # #[cfg(feature = "x509-source")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::{TrustDomain, X509Source};
+//!
+//! let source = X509Source::new().await?;
+//! let _svid = source.svid()?;
+//! let trust_domain = TrustDomain::try_from("example.org")?;
+//! let _bundle = source
+//!     .bundle_for_trust_domain(&trust_domain)?
+//!     .ok_or("missing bundle")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! For direct Workload API access, use [`WorkloadApiClient`] (requires a `workload-api-*` feature):
+//!
+//! ```no_run
+//! # #[cfg(feature = "workload-api")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::WorkloadApiClient;
+//!
+//! let client = WorkloadApiClient::connect_env().await?;
+//! let _jwt_svid = client.fetch_jwt_svid(&["audience"], None).await?;
+//! # Ok(())
+//! # }
+//! ```
 //!
 //! ## Feature Matrix
+//!
+//! The crate has **no default features** — everything is opt-in.
+//!
+//! Most users should enable `x509-source` (for X.509 workloads) or a `workload-api-*` bundle (for
+//! direct Workload API access). The granular features exist to let you minimize dependency surface
+//! when you only need X.509 or only need JWT.
 //!
 //! | Feature | Description |
 //! |---------|-------------|
 //! | `x509` | X.509 SVID and bundle types + parsing (gates heavy ASN.1/X.509 deps) |
 //! | `transport` | Endpoint parsing (no runtime deps) |
 //! | `transport-grpc` | gRPC connector |
-//! | `workload-api` | Async Workload API client |
-//! | `workload` | Convenience feature for `workload-api` (recommended for direct client usage) |
-//! | `x509-source` | High-level X.509 watcher/caching |
-//! | `jwt` | JWT SVID and bundle types |
-//! | `jwt-verify-rust-crypto` | JWT verification (rust-crypto backend) |
-//! | `jwt-verify-aws-lc-rs` | JWT verification (aws-lc-rs backend) |
+//! | `jwt` | JWT SVID and bundle types + parsing |
+//! | `jwt-verify-rust-crypto` | Offline JWT verification (rust-crypto backend) |
+//! | `jwt-verify-aws-lc-rs` | Offline JWT verification (aws-lc-rs backend) |
 //! | `logging` | Log-based observability |
 //! | `tracing` | Tracing-based observability |
 //!
-//! **Note:** The `x509` feature gates heavy X.509 parsing dependencies. The `workload-api` feature
-//! enables the async Workload API client. Most users wanting X.509 functionality should enable
-//! `x509-source`, which automatically enables `x509` and `workload-api`. For direct client usage,
-//! enable the `workload` feature.
+//! ### Workload API bundles
 //!
-//! For X.509-based workloads, the primary entry point is [`X509Source`] (requires
-//! the `x509-source` feature). It maintains a cached view of the latest X.509
-//! materials and automatically tracks SVID and bundle rotation.
+//! These features enable the async Workload API client (`WorkloadApiClient`). Choose the smallest
+//! bundle that matches your use case:
 //!
-//! For advanced X.509 source configuration, see the [`x509_source`] module.
+//! | Feature | Includes |
+//! |---------|----------|
+//! | `workload-api-x509` | Workload API client + X.509 support (no JWT) |
+//! | `workload-api-jwt` | Workload API client + JWT support (no X.509) |
+//! | `workload-api` | Workload API client with both X.509 + JWT support |
+//! | `workload-api-full` | Alias/bundle for both X.509 + JWT support (same capability as `workload-api`) |
+//!
+//! ### Advanced / compositional
+//!
+//! | Feature | Description |
+//! |---------|-------------|
+//! | `workload-api-core` | Workload API infrastructure only (transport/proto/client plumbing; no X.509/JWT parsing/types) |
+//! | `x509-source` | High-level X.509 watcher/caching built on the Workload API (recommended for most X.509 workloads) |
+//!
+//! **Notes:**
+//!
+//! - The `x509` feature gates heavy X.509 parsing dependencies.
+//! - For most X.509 workloads, prefer `x509-source`, which provides automatic caching and rotation handling.
+//! - For direct Workload API usage, prefer `workload-api-x509` or `workload-api-jwt` when you only need one,
+//!   and `workload-api` (or `workload-api-full`) when you need both.
 //!
 //! ## X.509 (recommended)
 //!
@@ -72,6 +125,8 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! For advanced X.509 source configuration, see the [`x509_source`] module.
 //!
 //! ## JWT SVIDs
 //!

@@ -2,7 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/spire-api.svg)](https://crates.io/crates/spire-api)
 [![Docs.rs](https://docs.rs/spire-api/badge.svg)](https://docs.rs/spire-api)
-![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)
+[![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
 A Rust library providing access to **SPIRE-specific gRPC APIs** that are not part of the core SPIFFE
 standards.

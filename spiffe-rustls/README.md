@@ -2,7 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/spiffe-rustls.svg)](https://crates.io/crates/spiffe-rustls)
 [![Docs.rs](https://docs.rs/spiffe-rustls/badge.svg)](https://docs.rs/spiffe-rustls/)
-![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)
+[![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
 `spiffe-rustls` integrates [`rustls`](https://crates.io/crates/rustls) with SPIFFE/SPIRE using the
 [`spiffe`](https://crates.io/crates/spiffe) crate’s `X509Source` (SPIFFE Workload API).
@@ -21,7 +22,7 @@ delegating all cryptography and TLS mechanics to `rustls`.
 - **Federation support** — Automatically handles multiple trust domains when SPIFFE federation is configured
 - **Typed authorization** — Strongly-typed `Authorizer` trait for SPIFFE ID–based access control
 - **Live updates** — Material rotates automatically when SPIRE updates SVIDs or bundles
-- **Production-ready** — Zero unsafe code, conservative parsing, graceful degradation
+- **Security-conscious design** — Zero unsafe code, conservative parsing, graceful degradation
 
 ---
 
@@ -302,6 +303,43 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 
 ---
 
+## Performance
+
+`spiffe-rustls` is designed for production workloads:
+
+- **Zero-copy certificate access** — SVIDs and bundles accessed via `Arc` references
+- **Atomic updates** — New handshakes automatically use rotated material without locks
+- **Efficient authorization** — `Authorizer` trait allows zero-allocation checks
+- **Minimal overhead** — Authorization runs after TLS verification (no impact on handshake)
+
+### Integration with Async Runtimes
+
+The crate works seamlessly with:
+- `tokio-rustls` for async TLS
+- `tonic-rustls` for gRPC
+- Any `rustls`-based TLS stack
+
+See [examples](#examples) for integration patterns.
+
+---
+
+## Architecture
+
+`spiffe-rustls` acts as a bridge between:
+
+1. **`spiffe::X509Source`** — Provides live SVIDs and trust bundles
+2. **`rustls`** — Handles all TLS cryptography and protocol
+3. **Your application** — Receives verified, authorized connections
+
+The integration is **non-invasive**:
+- No modifications to `rustls` internals
+- Standard `rustls::ClientConfig` and `rustls::ServerConfig` types
+- Works with any `rustls`-compatible library
+
+Authorization is applied **after** TLS verification succeeds, ensuring cryptographic security before policy checks.
+
+---
+
 ## Security Considerations
 
 * Certificates must contain **exactly one** SPIFFE ID URI SAN
@@ -309,6 +347,12 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 * Trust domain selection is automatic and deterministic
 * Authorization runs **after** cryptographic verification
 * Material updates are atomic; new handshakes use fresh material
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](../CHANGELOG.md) for version history and migration guides.
 
 ---
 

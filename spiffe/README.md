@@ -2,7 +2,8 @@
 
 [![Crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
 [![Docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
-![MSRV](https://img.shields.io/badge/MSRV-1.85-blue)
+[![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
 A Rust library for interacting with the **SPIFFE Workload API**.
 
@@ -24,17 +25,15 @@ For the protocol definition, see the
 Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 
 ```toml
-# For X.509 workloads (recommended)
 [dependencies]
+# Minimal: only SPIFFE primitives 
+spiffe = "0.10"
+
+# X.509 workloads (recommended)
 spiffe = { version = "0.10", features = ["x509-source"] }
 
-# For direct Workload API client usage
-[dependencies]
+# Direct Workload API usage
 spiffe = { version = "0.10", features = ["workload-api"] }
-
-# Minimal: only SPIFFE primitives (SpiffeId, TrustDomain)
-[dependencies]
-spiffe = "0.10"
 ```
 
 ---
@@ -302,7 +301,8 @@ Provides:
 
 #### `jwt`
 
-Enables JWT SVID and bundle types plus parsing. Gates JWT-related dependencies (`serde`, `serde_json`, `time`, `base64ct`).
+Enables JWT SVID and bundle types plus parsing. Gates JWT-related dependencies (`serde`, `serde_json`, `time`,
+`base64ct`).
 
 **Note:** JWT verification requires an additional backend feature (see below).
 
@@ -378,10 +378,64 @@ features are enabled, events are emitted via `tracing`.
 
 ### Notes on JWT verification features
 
-* Each backend feature (`jwt-verify-rust-crypto`, `jwt-verify-aws-lc-rs`) is self-contained and automatically includes the `jwt` feature
+* Each backend feature (`jwt-verify-rust-crypto`, `jwt-verify-aws-lc-rs`) is self-contained and automatically includes
+  the `jwt` feature
 * Exactly **one** offline verification backend must be selected (mutually exclusive)
 * Offline verification features are **not required** when using `WorkloadApiClient::validate_jwt_token`
 * X.509-based functionality is unaffected by JWT verification features
+
+---
+
+## Performance
+
+The crate is designed for low-latency, high-throughput workloads:
+
+- **Zero-copy parsing** where possible (X.509 DER, JWT parsing)
+- **Efficient caching** in `X509Source` (atomic updates, no locks on read path)
+- **Streaming APIs** for real-time updates without polling
+- **Minimal allocations** in hot paths
+
+The `X509Source` maintains a cached view of SVIDs and bundles, updating atomically when the Workload API delivers new
+material. This eliminates the need for polling and ensures new handshakes always use the latest credentials.
+
+---
+
+## Architecture
+
+The crate is organized into several layers:
+
+1. **Core primitives** (`SpiffeId`, `TrustDomain`) — Always available, no dependencies
+2. **Transport layer** (`transport`, `transport-grpc`) — Endpoint parsing and gRPC connectivity
+3. **Workload API client** (`workload-api-*`) — Low-level client for SPIFFE Workload API
+4. **High-level abstractions** (`x509-source`) — Automatic caching and rotation handling
+
+This layered design allows you to use only what you need, minimizing dependencies and compile times.
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### "Workload API connection failed"
+
+- **Cause**: SPIRE agent not running or socket path incorrect
+- **Solution**: Verify `SPIFFE_ENDPOINT_SOCKET` environment variable or socket path
+
+#### "Empty response from Workload API"
+
+- **Cause**: Workload not registered with SPIRE agent
+- **Solution**: Ensure your workload is properly attested and registered
+
+---
+
+## Security Best Practices
+
+- **Always validate JWT tokens** when received from untrusted sources (use `jwt-verify-*` features)
+- **Use `X509Source`** for automatic rotation instead of manual polling
+- **Enable observability** (`logging` or `tracing`) in production for monitoring
+
+For security vulnerabilities, see [SECURITY.md](../SECURITY.md).
 
 ---
 
@@ -414,6 +468,12 @@ features are enabled, events are emitted via `tracing`.
 
 Full API documentation and additional examples are available on
 [docs.rs](https://docs.rs/spiffe).
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](../CHANGELOG.md) for version history and migration guides.
 
 ---
 
