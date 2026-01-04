@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.4.1] – 2026-01-04
+
+### Changed
+- Certificate parse cache in the verifier is now a bounded **LRU** cache with a stronger, non-cryptographic fingerprint key (DER hash + length + prefix) to reduce collision risk without adding dependencies.
+- Internal verifier constructors now accept `authorizer: impl Authorizer` (public builder API unchanged).
+- Certificate parse cache mutex poisoning is handled best-effort: verification proceeds by re-parsing rather than failing the handshake.
+
+### Added
+- Backwards-compatible alias `TrustDomains` for the renamed `TrustDomainAllowList` authorizer type.
+- Additional test coverage for trust-domain verification policies, missing bundle errors, LRU eviction behavior, cache hit wiring, and verifier stability across material generations.
+
+### Deprecated
+- `authorizer::TrustDomains` — renamed to `authorizer::TrustDomainAllowList`.  
+  The old name remains available as a compatibility alias and will be removed in a future breaking release.
+
+### Docs
+- Clarified README sections on federation behavior, trust-domain verification vs authorization, common authorization patterns, and closure-based authorizers.
+
+
 ## [0.4.0] – 2026-01-03
 
 ### Breaking changes
