@@ -29,11 +29,11 @@ Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 # Minimal: only SPIFFE primitives 
 spiffe = "0.10"
 
-# X.509 workloads (recommended)
-spiffe = { version = "0.10", features = ["x509-source"] }
+# OR X.509 workloads (recommended)
+# spiffe = { version = "0.10", features = ["x509-source"] }
 
-# Direct Workload API usage
-spiffe = { version = "0.10", features = ["workload-api"] }
+# OR Direct Workload API usage
+# spiffe = { version = "0.10", features = ["workload-api"] }
 ```
 
 ---
@@ -436,6 +436,16 @@ This layered design allows you to use only what you need, minimizing dependencie
 - **Enable observability** (`logging` or `tracing`) in production for monitoring
 
 For security vulnerabilities, see [SECURITY.md](../SECURITY.md).
+
+### Dependency advisories (cargo audit)
+
+This project runs `cargo audit` in CI. Some advisories may appear only when enabling optional features
+(e.g., offline JWT verification). At the time of writing, `cargo audit` may report `RUSTSEC-2023-0071`
+(the `rsa` crate “Marvin Attack” advisory) via `jsonwebtoken`, and there is currently no fixed upgrade
+available upstream.
+
+If you require a clean audit, avoid enabling offline JWT verification unless needed, or temporarily ignore
+the advisory until upstream releases a fix.
 
 ---
 

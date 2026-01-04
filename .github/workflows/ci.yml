@@ -64,7 +64,7 @@ jobs:
   integration:
     name: Integration Tests (SPIRE)
     runs-on: ubuntu-latest
-    needs: fmt
+    needs: [fmt, test]
     timeout-minutes: 20
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
@@ -121,3 +121,55 @@ jobs:
 
       - name: MSRV check (Makefile)
         run: make msrv MSRV=${{ env.MSRV }}
+
+  audit:
+    name: Dependency Audit (cargo-audit)
+    runs-on: ubuntu-latest
+    needs: [fmt, test]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          submodules: recursive
+
+      - name: Install toolchain
+        uses: ./.github/actions/setup-env
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344
+        with:
+          tool: cargo-audit
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Audit dependencies
+        run: cargo audit
+
+  deny:
+    name: Dependency Policy (cargo-deny)
+    runs-on: ubuntu-latest
+    needs: [ fmt, test ]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8
+        with:
+          submodules: recursive
+
+      - name: Install toolchain
+        uses: ./.github/actions/setup-env
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-deny
+        uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344
+        with:
+          tool: cargo-deny
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Check dependency policy
+        run: cargo deny check
