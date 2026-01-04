@@ -149,6 +149,8 @@ spiffe:
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
 
 	$(info ==> spiffe: build (feature lanes))
 	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),)
@@ -171,6 +173,8 @@ spiffe:
 	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
 	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
 	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
+	$(call cargo_cmd,build,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
 
 	$(info ==> spiffe: test (feature lanes))
 	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),)
@@ -192,6 +196,8 @@ spiffe:
 	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
 	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
 	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
+	$(call cargo_cmd,test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
 
 # -----------------------------------------------------------------------------
 # spire-api
