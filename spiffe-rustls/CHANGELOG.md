@@ -2,7 +2,7 @@
 
 ## [0.4.0] – 2026-01-03
 
-### ⚠️ Breaking changes
+### Breaking changes
 
 - Public builders (`mtls_client`, `mtls_server`, `ClientConfigBuilder`, `ServerConfigBuilder`)
   now accept `X509Source` by value instead of `Arc<X509Source>`.
@@ -15,53 +15,53 @@
 
 ## [0.3.0] – 2025-12-30
 
-### ⚠️ Breaking changes
+### Breaking changes
 
-* Authorization API redesigned
-    * String-based authorization hooks have been replaced with a typed `Authorizer` trait operating on `SpiffeId`.
-    * Existing authorization logic must be migrated to `Authorizer` implementations or helper constructors
+- Authorization API redesigned
+    - String-based authorization hooks have been replaced with a typed `Authorizer` trait operating on `SpiffeId`.
+    - Existing authorization logic must be migrated to `Authorizer` implementations or helper constructors
       (`authorizer::any`, `authorizer::exact`, `authorizer::trust_domains`).
 
-* Builder APIs reshaped
-    * Client and server builders were updated to support trust domain policies and stricter verifier guarantees.
-    * Method signatures and configuration flow have changed accordingly.
+- Builder APIs reshaped
+    - Client and server builders were updated to support trust domain policies and stricter verifier guarantees.
+    - Method signatures and configuration flow have changed accordingly.
 
-* MSRV bump
-    * Minimum Supported Rust Version increased from 1.83 → 1.85.
+- MSRV bump
+    - Minimum Supported Rust Version increased from 1.83 → 1.85.
 
 ### Added
 
-* Federation-aware by default
-    * Verifiers automatically handle multiple trust domains when SPIFFE federation is configured.
-* Trust domain policy enforcement
-    * New `TrustDomainPolicy` type with the following variants:
-        * `AnyInBundleSet` (default)
-        * `AllowList`
-        * `LocalOnly`
-    * Allows explicit restriction of accepted trust domains as a defense-in-depth mechanism.
-* Typed authorization helpers
-    * Strongly typed authorization helpers built on `SpiffeId`.
-* Optional `tracing` and `loggin` support
+- Federation-aware by default
+    - Verifiers automatically handle multiple trust domains when SPIFFE federation is configured.
+- Trust domain policy enforcement
+    - New `TrustDomainPolicy` type with the following variants:
+        - `AnyInBundleSet` (default)
+        - `AllowList`
+        - `LocalOnly`
+    - Allows explicit restriction of accepted trust domains as a defense-in-depth mechanism.
+- Typed authorization helpers
+    - Strongly typed authorization helpers built on `SpiffeId`.
+- Optional `tracing` and `logging` support
 
 ### Changed
 
-* Verifier hardening
-    * Reject certificates containing multiple SPIFFE ID URI SANs.
-    * Bound and validate URI SAN parsing.
-    * Cache parsed certificate results to avoid repeated parsing.
+- Verifier hardening
+    - Reject certificates containing multiple SPIFFE ID URI SANs.
+    - Bound and validate URI SAN parsing.
+    - Cache parsed certificate results to avoid repeated parsing.
 
-* Improved TLS failure semantics
-    * When trust domain policies exclude all trust domains, verification now fails with
+- Improved TLS failure semantics
+    - When trust domain policies exclude all trust domains, verification now fails with
       clear `TrustDomainNotAllowed` errors instead of opaque TLS handshake failures.
 
-* Dependency updates
-    * Bumped `spiffe` dependency to 0.9.
+- Dependency updates
+    - Bumped `spiffe` dependency to 0.9.
 
 ### Migration notes
 
-* Replace string-based authorization logic with `Authorizer` implementations.
-* Review trust domain behavior and configure `TrustDomainPolicy` explicitly if needed.
-* Ensure toolchains are updated to Rust 1.85+.
+- Replace string-based authorization logic with `Authorizer` implementations.
+- Review trust domain behavior and configure `TrustDomainPolicy` explicitly if needed.
+- Ensure toolchains are updated to Rust 1.85+.
 
 
 ## [0.2.0] – 2025-12-26
@@ -82,13 +82,14 @@
 
 ## [0.1.3] – 2025-12-24
 
-* Documentation improvements only. No functional changes.
+- Documentation improvements only. No functional changes.
 
 
 ## [0.1.2] – 2025-12-24
 
-* Migrated to the Rust 2021 edition.
-* Minimum supported Rust version (MSRV) is now 1.83.
+- Migrated to the Rust 2021 edition.
+- Minimum supported Rust version (MSRV) is now 1.83.
+
 
 ## [0.1.1] – 2025-12-24
 
@@ -98,6 +99,7 @@
 ### Changed
 - Moved gRPC examples into a separate crate.
 - Removed `build.rs` and gRPC-related build dependencies from the core crate.
+
 
 ## [0.1.0] – 2025-12-23
 
