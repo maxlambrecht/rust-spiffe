@@ -1,6 +1,6 @@
 use rustls::pki_types::ServerName;
 use spiffe::{TrustDomain, X509Source};
-use spiffe_rustls::{authorizer, mtls_client, mtls_server, Authorizer};
+use spiffe_rustls::{authorizer, mtls_client, mtls_server};
 use std::env;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
@@ -59,9 +59,8 @@ async fn integration_mtls_federation_cross_trust_domain() -> Result<(), Box<dyn 
     }
 
     // Authorization: verify the peer is in the expected trust domain.
-    let server_auth: Arc<dyn Authorizer> = Arc::new(authorizer::trust_domains(["example.org"])?);
-    let client_auth: Arc<dyn Authorizer> =
-        Arc::new(authorizer::trust_domains(["example-federated.org"])?);
+    let server_auth = authorizer::trust_domains(["example.org"])?;
+    let client_auth = authorizer::trust_domains(["example-federated.org"])?;
 
     let server_cfg = mtls_server(federated.clone())
         .authorize(server_auth)

@@ -143,17 +143,30 @@ async fn run_case(
     Ok(())
 }
 
+#[derive(Clone)]
+enum TestAuthorizer {
+    Any(authorizer::Any),
+    DenyAll,
+    Exact(authorizer::Exact),
+}
+
+impl Authorizer for TestAuthorizer {
+    fn authorize(&self, peer: &spiffe::SpiffeId) -> bool {
+        match self {
+            Self::Any(a) => a.authorize(peer),
+            Self::DenyAll => false,
+            Self::Exact(a) => a.authorize(peer),
+        }
+    }
+}
+
 fn make_authorizer(
     mode: Authz,
     allowed_ids: [&'static str; 2],
-) -> Result<Arc<dyn Authorizer>, Box<dyn std::error::Error>> {
+) -> Result<TestAuthorizer, Box<dyn std::error::Error>> {
     Ok(match mode {
-        Authz::Any => Arc::new(authorizer::any()),
-        Authz::DenyAll => Arc::new(|_: &spiffe::SpiffeId| false),
-
-        Authz::ExactAllowedIds => {
-            let exact = authorizer::exact(allowed_ids)?;
-            Arc::new(exact)
-        }
+        Authz::Any => TestAuthorizer::Any(authorizer::any()),
+        Authz::DenyAll => TestAuthorizer::DenyAll,
+        Authz::ExactAllowedIds => TestAuthorizer::Exact(authorizer::exact(allowed_ids)?),
     })
 }
