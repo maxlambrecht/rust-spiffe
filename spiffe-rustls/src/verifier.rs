@@ -21,6 +21,35 @@ use x509_parser::prelude::{FromDer, X509Certificate};
 
 const MAX_URI_SAN_ENTRIES: usize = 32;
 const MAX_URI_LENGTH: usize = 2048;
+const CERT_PREFIX_LEN: usize = 32;
+
+/// Non-cryptographic certificate fingerprint used only as a cache key.
+///
+///  (hash of full DER + length + DER prefix) minimizes collisions while remaining dependency-free.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
+struct CertFingerprint {
+    hash: u64,
+    len: usize,
+    prefix: [u8; CERT_PREFIX_LEN],
+}
+
+fn cert_fingerprint(cert: &CertificateDer<'_>) -> CertFingerprint {
+    let bytes = cert.as_ref();
+
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    let hash = hasher.finish();
+
+    let mut prefix = [0u8; CERT_PREFIX_LEN];
+    let n = CERT_PREFIX_LEN.min(bytes.len());
+    prefix[..n].copy_from_slice(&bytes[..n]);
+
+    CertFingerprint {
+        hash,
+        len: bytes.len(),
+        prefix,
+    }
+}
 
 /// Cached result of extracting SPIFFE ID from a certificate.
 #[derive(Clone, Debug)]
@@ -28,14 +57,13 @@ struct CachedSpiffeId {
     spiffe_id: SpiffeId,
 }
 
-/// Bounded cache for certificate parsing results with O(1) lookup and FIFO eviction.
+/// Bounded certificate parse cache with simple LRU eviction.
 ///
-/// Uses a hash-based key (certificate DER hash) to avoid repeated parsing.
-/// Capacity is fixed at 64 entries to prevent unbounded growth while covering
-/// typical TLS handshake patterns (multiple certs per connection, connection reuse).
+/// Capacity is small (64), so we keep the implementation dependency-free.
+/// Touch operations are O(capacity) which is acceptable at this size.
 struct CertParseCache {
-    entries: HashMap<u64, CachedSpiffeId>,
-    order: VecDeque<u64>,
+    entries: HashMap<CertFingerprint, CachedSpiffeId>,
+    order: VecDeque<CertFingerprint>,
     capacity: usize,
 }
 
@@ -50,35 +78,45 @@ impl CertParseCache {
         }
     }
 
-    fn get(&self, cert_hash: u64) -> Option<&CachedSpiffeId> {
-        self.entries.get(&cert_hash)
+    fn get(&mut self, key: CertFingerprint) -> Option<CachedSpiffeId> {
+        let value = self.entries.get(&key).cloned()?;
+
+        // (O(n) remove; acceptable for small capacity)
+        if let Some(pos) = self.order.iter().position(|k| *k == key) {
+            self.order.remove(pos);
+        }
+        self.order.push_back(key);
+
+        Some(value)
     }
 
-    fn insert(&mut self, cert_hash: u64, value: CachedSpiffeId) {
-        // If key already exists, update value but don't duplicate in order queue
-        if let std::collections::hash_map::Entry::Occupied(mut e) = self.entries.entry(cert_hash) {
+    fn insert(&mut self, key: CertFingerprint, value: CachedSpiffeId) {
+        if let std::collections::hash_map::Entry::Occupied(mut e) = self.entries.entry(key) {
             e.insert(value);
+            self.touch(key);
             return;
         }
 
-        // If at capacity, evict oldest entry (FIFO)
         if self.entries.len() >= self.capacity {
-            if let Some(oldest_key) = self.order.pop_front() {
-                self.entries.remove(&oldest_key);
-            }
+            self.evict_lru();
         }
 
-        // Insert new entry
-        self.entries.insert(cert_hash, value);
-        self.order.push_back(cert_hash);
+        self.entries.insert(key, value);
+        self.order.push_back(key);
     }
-}
 
-/// Compute a hash of the certificate DER for use as a cache key.
-fn cert_hash(cert: &CertificateDer<'_>) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    cert.as_ref().hash(&mut hasher);
-    hasher.finish()
+    fn touch(&mut self, key: CertFingerprint) {
+        if let Some(pos) = self.order.iter().position(|k| *k == key) {
+            self.order.remove(pos);
+        }
+        self.order.push_back(key);
+    }
+
+    fn evict_lru(&mut self) {
+        if let Some(oldest) = self.order.pop_front() {
+            self.entries.remove(&oldest);
+        }
+    }
 }
 
 /// Extract the SPIFFE ID from the leaf certificate.
@@ -107,15 +145,14 @@ fn extract_spiffe_id_with_cache(
     leaf: &CertificateDer<'_>,
     cache: Option<&Mutex<CertParseCache>>,
 ) -> Result<SpiffeId> {
-    let cert_hash = cert_hash(leaf);
+    let key = cert_fingerprint(leaf);
 
-    // Check cache first
+    // Best-effort cache lookup; ignores poison and simply parses
     if let Some(cache) = cache {
-        let guard = cache
-            .lock()
-            .map_err(|_| Error::Internal("cert parse cache mutex poisoned".into()))?;
-        if let Some(cached) = guard.get(cert_hash) {
-            return Ok(cached.spiffe_id.clone());
+        if let Ok(mut guard) = cache.lock() {
+            if let Some(cached) = guard.get(key) {
+                return Ok(cached.spiffe_id.clone());
+            }
         }
     }
 
@@ -164,17 +201,16 @@ fn extract_spiffe_id_with_cache(
 
     let spiffe_id = found.ok_or(Error::MissingSpiffeId)?;
 
-    // Cache the result (best-effort, but fail closed on poison)
+    // Best-effort insert; ignore poison
     if let Some(cache) = cache {
-        let mut guard = cache
-            .lock()
-            .map_err(|_| Error::Internal("cert parse cache mutex poisoned".into()))?;
-        guard.insert(
-            cert_hash,
-            CachedSpiffeId {
-                spiffe_id: spiffe_id.clone(),
-            },
-        );
+        if let Ok(mut guard) = cache.lock() {
+            guard.insert(
+                key,
+                CachedSpiffeId {
+                    spiffe_id: spiffe_id.clone(),
+                },
+            );
+        }
     }
 
     Ok(spiffe_id)
@@ -258,14 +294,14 @@ pub(crate) struct SpiffeServerCertVerifier {
 }
 
 impl SpiffeServerCertVerifier {
-    pub fn new(
+    pub(crate) fn new(
         provider: Arc<dyn MaterialProvider>,
-        authorizer: Arc<dyn Authorizer>,
+        authorizer: impl Authorizer,
         policy: TrustDomainPolicy,
     ) -> Self {
         Self {
             provider,
-            authorizer,
+            authorizer: Arc::new(authorizer),
             policy,
             cache: Arc::new(Mutex::new(None)),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
@@ -446,14 +482,14 @@ pub(crate) struct SpiffeClientCertVerifier {
 }
 
 impl SpiffeClientCertVerifier {
-    pub fn new(
+    pub(crate) fn new(
         provider: Arc<dyn MaterialProvider>,
-        authorizer: Arc<dyn Authorizer>,
+        authorizer: impl Authorizer,
         policy: TrustDomainPolicy,
     ) -> Self {
         Self {
             provider,
-            authorizer,
+            authorizer: Arc::new(authorizer),
             policy,
             cache: Arc::new(Mutex::new(None)),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
@@ -725,7 +761,7 @@ fn advertised_verify_schemes(
 
     if union.is_empty() {
         error!(
-            "{label}: failed to build verifiers for all trust domains; returning empty schemes (handshake will fail)"
+            "{_label}: failed to build verifiers for all trust domains; returning empty schemes (handshake will fail)"
         );
     }
 
@@ -745,9 +781,9 @@ mod tests {
     };
     use rustls::server::danger::ClientCertVerifier;
     use rustls::RootCertStore;
-    use spiffe::TrustDomain;
-    use std::collections::BTreeMap;
-    use std::sync::{Arc, OnceLock};
+    use spiffe::{SpiffeId, TrustDomain};
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     fn ensure_provider() {
         static ONCE: OnceLock<()> = OnceLock::new();
@@ -827,12 +863,9 @@ mod tests {
         }
     }
 
-    fn static_provider(generation: u64) -> Arc<dyn MaterialProvider> {
-        use spiffe::TrustDomain;
-        use std::collections::BTreeMap;
-
+    fn static_provider_single_td(generation: u64, td: &str) -> Arc<dyn MaterialProvider> {
         let mut roots_by_td = BTreeMap::new();
-        let td = TrustDomain::new("example.org").expect("valid trust domain");
+        let td = TrustDomain::new(td).expect("valid trust domain");
         roots_by_td.insert(td, roots_with_ca());
 
         Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
@@ -840,6 +873,27 @@ mod tests {
             certified_key: certified_key_from_fixtures(),
             roots_by_td,
         })))
+    }
+
+    fn static_provider_example_org(generation: u64) -> Arc<dyn MaterialProvider> {
+        static_provider_single_td(generation, "example.org")
+    }
+
+    fn server_name_example_org() -> ServerName<'static> {
+        ServerName::try_from("example.org").unwrap()
+    }
+
+    fn assert_other_downcasts_to_error(err: &rustls::Error) -> &Error {
+        match err {
+            rustls::Error::Other(other) => {
+                let dyn_err: &(dyn std::error::Error + Send + Sync + 'static) = other.0.as_ref();
+
+                dyn_err
+                    .downcast_ref::<Error>()
+                    .expect("rustls::Error::Other must wrap crate::Error in these tests")
+            }
+            _ => panic!("expected rustls::Error::Other(..), got: {err:?}"),
+        }
     }
 
     #[test]
@@ -858,10 +912,9 @@ mod tests {
     fn server_verifier_rejects_unauthorized_spiffe_id() {
         ensure_provider();
 
-        let authorizer: Arc<dyn Authorizer> = Arc::new(move |_: &SpiffeId| false);
         let verifier = SpiffeServerCertVerifier::new(
-            static_provider(1),
-            authorizer,
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| false,
             TrustDomainPolicy::AnyInBundleSet,
         );
 
@@ -869,24 +922,23 @@ mod tests {
             .verify_server_cert(
                 &cert_with_spiffe(),
                 &[],
-                &ServerName::try_from("example.org").unwrap(),
+                &server_name_example_org(),
                 &[],
                 UnixTime::now(),
             )
             .unwrap_err();
 
-        let msg = format!("{err:?}");
-        assert!(msg.contains("UnauthorizedSpiffeId"));
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::UnauthorizedSpiffeId(_)));
     }
 
     #[test]
     fn client_verifier_rejects_unauthorized_spiffe_id() {
         ensure_provider();
 
-        let authorizer: Arc<dyn Authorizer> = Arc::new(move |_: &SpiffeId| false);
         let verifier = SpiffeClientCertVerifier::new(
-            static_provider(1),
-            authorizer,
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| false,
             TrustDomainPolicy::AnyInBundleSet,
         );
 
@@ -894,8 +946,8 @@ mod tests {
             .verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now())
             .unwrap_err();
 
-        let msg = format!("{err:?}");
-        assert!(msg.contains("UnauthorizedSpiffeId"));
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::UnauthorizedSpiffeId(_)));
     }
 
     #[test]
@@ -903,16 +955,15 @@ mod tests {
         ensure_provider();
 
         let verifier = SpiffeServerCertVerifier::new(
-            static_provider(1),
-            Arc::new(|id: &SpiffeId| id.to_string() == "spiffe://example.org/service")
-                as Arc<dyn Authorizer>,
+            static_provider_example_org(1),
+            |id: &SpiffeId| id.to_string() == "spiffe://example.org/service",
             TrustDomainPolicy::AnyInBundleSet,
         );
 
         let res = verifier.verify_server_cert(
             &cert_with_spiffe(),
             &[],
-            &ServerName::try_from("example.org").unwrap(),
+            &server_name_example_org(),
             &[],
             UnixTime::now(),
         );
@@ -925,9 +976,8 @@ mod tests {
         ensure_provider();
 
         let verifier = SpiffeClientCertVerifier::new(
-            static_provider(1),
-            Arc::new(|id: &SpiffeId| id.to_string() == "spiffe://example.org/service")
-                as Arc<dyn Authorizer>,
+            static_provider_example_org(1),
+            |id: &SpiffeId| id.to_string() == "spiffe://example.org/service",
             TrustDomainPolicy::AnyInBundleSet,
         );
 
@@ -936,33 +986,107 @@ mod tests {
     }
 
     #[test]
-    fn verifier_cache_is_keyed_by_generation() {
+    fn server_verifier_rejects_trust_domain_not_allowed() {
         ensure_provider();
 
-        let authorizer1: Arc<dyn Authorizer> = Arc::new(move |_: &SpiffeId| true);
-        let v1 = SpiffeServerCertVerifier::new(
-            static_provider(1),
-            authorizer1,
-            TrustDomainPolicy::AnyInBundleSet,
+        let policy = TrustDomainPolicy::LocalOnly(
+            TrustDomain::new("other.org").expect("valid trust domain"),
         );
-        let s1 = v1.supported_verify_schemes();
-        assert!(!s1.is_empty());
 
-        let authorizer2: Arc<dyn Authorizer> = Arc::new(move |_: &SpiffeId| true);
-        let v2 = SpiffeServerCertVerifier::new(
-            static_provider(2),
-            authorizer2,
-            TrustDomainPolicy::AnyInBundleSet,
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| true,
+            policy,
         );
-        let s2 = v2.supported_verify_schemes();
-        assert!(!s2.is_empty());
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::TrustDomainNotAllowed(td) if td.to_string() == "example.org"));
     }
 
     #[test]
-    fn supported_verify_schemes_intersection() {
+    fn client_verifier_rejects_trust_domain_not_allowed() {
         ensure_provider();
 
-        // Create a provider with multiple trust domains
+        let policy = TrustDomainPolicy::LocalOnly(
+            TrustDomain::new("other.org").expect("valid trust domain"),
+        );
+
+        let verifier = SpiffeClientCertVerifier::new(
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| true,
+            policy,
+        );
+
+        let err = verifier
+            .verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now())
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::TrustDomainNotAllowed(td) if td.to_string() == "example.org"));
+    }
+
+    #[test]
+    fn server_verifier_rejects_missing_bundle() {
+        ensure_provider();
+
+        // Provider contains roots for "other.org" only, but cert is for example.org
+        let provider = static_provider_single_td(1, "other.org");
+
+        let verifier = SpiffeServerCertVerifier::new(
+            provider,
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::NoBundle(td) if td.to_string() == "example.org"));
+    }
+
+    #[test]
+    fn client_verifier_rejects_missing_bundle() {
+        ensure_provider();
+
+        let provider = static_provider_single_td(1, "other.org");
+
+        let verifier = SpiffeClientCertVerifier::new(
+            provider,
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now())
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::NoBundle(td) if td.to_string() == "example.org"));
+    }
+
+    #[test]
+    fn supported_verify_schemes_intersection_is_subset_of_each_td() {
+        ensure_provider();
+
+        // Provider with multiple trust domains
         let mut roots_by_td = BTreeMap::new();
         let td1 = TrustDomain::new("example.org").expect("valid trust domain");
         let td2 = TrustDomain::new("other.org").expect("valid trust domain");
@@ -975,19 +1099,18 @@ mod tests {
             roots_by_td,
         })));
 
-        let authorizer: Arc<dyn Authorizer> = Arc::new(move |_: &SpiffeId| true);
-        let verifier =
-            SpiffeServerCertVerifier::new(provider, authorizer, TrustDomainPolicy::AnyInBundleSet);
+        let verifier = SpiffeServerCertVerifier::new(
+            provider,
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
 
-        // Get schemes for each trust domain individually
         let schemes_td1 = verifier.supported_schemes_cached(&td1);
         let schemes_td2 = verifier.supported_schemes_cached(&td2);
 
-        // The intersection should be non-empty (both use same CA, so same schemes)
         let intersection = verifier.supported_verify_schemes();
         assert!(!intersection.is_empty());
 
-        // Intersection should be a subset of both (check manually since SignatureScheme doesn't implement Ord/Hash)
         for scheme in &intersection {
             assert!(
                 schemes_td1.contains(scheme),
@@ -1007,8 +1130,8 @@ mod tests {
         let mut roots_by_td = BTreeMap::new();
         let td1 = TrustDomain::new("example.org").expect("valid trust domain");
         let td2 = TrustDomain::new("other.org").expect("valid trust domain");
-        roots_by_td.insert(td1.clone(), roots_with_ca());
-        roots_by_td.insert(td2.clone(), roots_with_ca());
+        roots_by_td.insert(td1, roots_with_ca());
+        roots_by_td.insert(td2, roots_with_ca());
 
         let provider = Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
             generation: 1,
@@ -1016,19 +1139,126 @@ mod tests {
             roots_by_td,
         })));
 
-        // Policy that excludes all trust domains (use your real allow-list type here if exposed).
-        // If you can't construct one from tests easily, skip this test.
-        let policy = TrustDomainPolicy::AllowList(std::collections::BTreeSet::new());
+        // Exclude all trust domains via an empty allow-list. This should trigger the
+        // fallback-union behavior in advertised_verify_schemes().
+        let empty: BTreeSet<TrustDomain> = BTreeSet::new();
+        let policy = TrustDomainPolicy::AllowList(empty);
 
-        let verifier = SpiffeServerCertVerifier::new(
-            provider,
-            Arc::new(|_: &SpiffeId| true) as Arc<dyn Authorizer>,
-            policy,
-        );
+        let verifier = SpiffeServerCertVerifier::new(provider, |_peer: &SpiffeId| true, policy);
 
         let schemes = verifier.supported_verify_schemes();
+        assert!(
+            !schemes.is_empty(),
+            "fallback should advertise a union to avoid NoSignatureSchemes"
+        );
+    }
 
-        // The point is: non-empty so we avoid NoSignatureSchemes at TLS layer.
-        assert!(!schemes.is_empty());
+    #[test]
+    #[allow(clippy::cast_possible_truncation)]
+    fn cert_parse_cache_lru_eviction_sanity() {
+        // This test exercises CertParseCache deterministically without depending on real cert parsing.
+        fn key(i: u64) -> CertFingerprint {
+            CertFingerprint {
+                hash: i,
+                len: i as usize,
+                prefix: [i as u8; CERT_PREFIX_LEN],
+            }
+        }
+
+        let mut cache = CertParseCache::new();
+
+        // Fill to capacity.
+        for i in 0..(CertParseCache::CAPACITY as u64) {
+            cache.insert(
+                key(i),
+                CachedSpiffeId {
+                    spiffe_id: SpiffeId::new("spiffe://example.org/service").unwrap(),
+                },
+            );
+        }
+
+        // Touch a middle key so it should not be evicted next.
+        let touched = key(10);
+        assert!(cache.get(touched).is_some());
+
+        // Insert one more -> evict LRU (which should be key(0), not key(10)).
+        cache.insert(
+            key(999),
+            CachedSpiffeId {
+                spiffe_id: SpiffeId::new("spiffe://example.org/service").unwrap(),
+            },
+        );
+
+        assert!(
+            !cache.entries.contains_key(&key(0)),
+            "expected LRU entry to be evicted"
+        );
+        assert!(
+            cache.entries.contains_key(&touched),
+            "expected touched entry to remain"
+        );
+    }
+
+    #[test]
+    fn extract_spiffe_id_with_cache_hits_best_effort() {
+        // This test validates the cache wiring (hit path) without requiring timing/alloc assertions.
+        let cache = Mutex::new(CertParseCache::new());
+        let cert = cert_with_spiffe();
+
+        // First call populates (best effort).
+        let id1 = extract_spiffe_id_with_cache(&cert, Some(&cache)).unwrap();
+        // Second call should hit and return the same result.
+        let id2 = extract_spiffe_id_with_cache(&cert, Some(&cache)).unwrap();
+
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn verifier_cache_does_not_panic_across_generations() {
+        // This is a pragmatic regression test: the cache key includes generation; ensure
+        // supported_verify_schemes() remains stable when material generation changes.
+
+        #[derive(Clone)]
+        struct MutableMaterial(Arc<Mutex<Arc<MaterialSnapshot>>>);
+        impl MaterialProvider for MutableMaterial {
+            fn current_material(&self) -> Arc<MaterialSnapshot> {
+                self.0.lock().unwrap().clone()
+            }
+        }
+
+        ensure_provider();
+
+        let mut roots_by_td = BTreeMap::new();
+        let td = TrustDomain::new("example.org").unwrap();
+        roots_by_td.insert(td, roots_with_ca());
+
+        let snap1 = Arc::new(MaterialSnapshot {
+            generation: 1,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td: roots_by_td.clone(),
+        });
+
+        let snap2 = Arc::new(MaterialSnapshot {
+            generation: 2,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        });
+
+        let provider = Arc::new(MutableMaterial(Arc::new(Mutex::new(snap1))));
+
+        let verifier = SpiffeServerCertVerifier::new(
+            provider.clone(),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let s1 = verifier.supported_verify_schemes();
+        assert!(!s1.is_empty());
+
+        // Swap snapshot generation.
+        *provider.0.lock().unwrap() = snap2;
+
+        let s2 = verifier.supported_verify_schemes();
+        assert!(!s2.is_empty());
     }
 }

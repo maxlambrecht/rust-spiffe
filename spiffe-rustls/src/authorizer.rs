@@ -38,6 +38,7 @@ impl Authorizer for Box<dyn Authorizer> {
 }
 
 /// Authorizes any SPIFFE ID (authentication only, no authorization).
+#[must_use]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Any;
 
@@ -48,9 +49,10 @@ impl Authorizer for Any {
 }
 
 /// Authorizes only the exact SPIFFE IDs in the allow list.
+#[must_use]
 #[derive(Debug, Clone)]
 pub struct Exact {
-    allowed: Arc<BTreeSet<SpiffeId>>,
+    allowed: BTreeSet<SpiffeId>,
 }
 
 impl Exact {
@@ -76,9 +78,7 @@ impl Exact {
             allowed.insert(spiffe_id);
         }
 
-        Ok(Self {
-            allowed: Arc::new(allowed),
-        })
+        Ok(Self { allowed })
     }
 }
 
@@ -88,14 +88,25 @@ impl Authorizer for Exact {
     }
 }
 
-/// Authorizes any SPIFFE ID from the given trust domains.
+/// Authorizes any SPIFFE ID whose trust domain is in the allow-list.
+#[must_use]
 #[derive(Debug, Clone)]
-pub struct TrustDomains {
-    allowed: Arc<BTreeSet<TrustDomain>>,
+pub struct TrustDomainAllowList {
+    allowed: BTreeSet<TrustDomain>,
 }
 
-impl TrustDomains {
-    /// Creates a new `TrustDomains` authorizer.
+/// Compatibility alias for [`TrustDomainAllowList`].
+///
+/// This type was renamed for clarity. New code should use
+/// [`TrustDomainAllowList`] directly.
+#[deprecated(
+    since = "0.4.1",
+    note = "Renamed to TrustDomainAllowList; TrustDomains remains as a compatibility alias."
+)]
+pub type TrustDomains = TrustDomainAllowList;
+
+impl TrustDomainAllowList {
+    /// Creates a new `TrustDomainAllowList` authorizer.
     ///
     /// If the iterator is empty, the authorizer authorizes nothing.
     ///
@@ -117,13 +128,11 @@ impl TrustDomains {
             allowed.insert(td);
         }
 
-        Ok(Self {
-            allowed: Arc::new(allowed),
-        })
+        Ok(Self { allowed })
     }
 }
 
-impl Authorizer for TrustDomains {
+impl Authorizer for TrustDomainAllowList {
     fn authorize(&self, peer: &SpiffeId) -> bool {
         self.allowed.contains(peer.trust_domain())
     }
@@ -207,13 +216,13 @@ where
 /// ])?;
 /// # Ok::<(), spiffe_rustls::Error>(())
 /// ```
-pub fn trust_domains<I>(domains: I) -> Result<TrustDomains>
+pub fn trust_domains<I>(domains: I) -> Result<TrustDomainAllowList>
 where
     I: IntoIterator,
     I::Item: TryInto<TrustDomain>,
     <I::Item as TryInto<TrustDomain>>::Error: std::fmt::Display,
 {
-    TrustDomains::new(domains)
+    TrustDomainAllowList::new(domains)
 }
 
 #[cfg(test)]
@@ -248,7 +257,7 @@ mod tests {
         let id3 = SpiffeId::new("spiffe://other.org/service1").unwrap();
         let id4 = SpiffeId::new("spiffe://third.org/service1").unwrap();
 
-        let auth = TrustDomains::new([td1, td2]).unwrap();
+        let auth = TrustDomainAllowList::new([td1, td2]).unwrap();
         assert!(auth.authorize(&id1));
         assert!(auth.authorize(&id2));
         assert!(auth.authorize(&id3));
@@ -259,11 +268,11 @@ mod tests {
     fn test_trust_domains_authorizer_rejects_invalid() {
         // Use a string with invalid characters (uppercase and special chars not allowed)
         // TrustDomain::new explicitly validates the format, so this should fail
-        let result = TrustDomains::new(["Invalid@Trust#Domain"]);
+        let result = TrustDomainAllowList::new(["Invalid@Trust#Domain"]);
         assert!(result.is_err());
 
         // Verify that valid trust domains are accepted
-        let valid = TrustDomains::new(["example.org", "other.org"]).unwrap();
+        let valid = TrustDomainAllowList::new(["example.org", "other.org"]).unwrap();
         let id1 = SpiffeId::new("spiffe://example.org/service").unwrap();
         let id2 = SpiffeId::new("spiffe://other.org/service").unwrap();
         let id3 = SpiffeId::new("spiffe://rejected.org/service").unwrap();
