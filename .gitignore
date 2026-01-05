@@ -11,3 +11,8 @@
 
 .idea
 .vscode
+
+# cargo-fuzz (libFuzzer)
+**/fuzz/target/
+**/fuzz/artifacts/
+**/fuzz/corpus/
