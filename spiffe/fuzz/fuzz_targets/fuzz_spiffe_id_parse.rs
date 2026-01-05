@@ -14,10 +14,13 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(parsed_new.is_ok(), parsed_fromstr.is_ok());
 
     if let Ok(id) = parsed_new {
-        // Invariants that must always hold.
+        let rt = id.to_string();
+        let id2 = SpiffeId::new(&rt).expect("round-trip parse must succeed");
+        assert_eq!(id, id2);
+
         let td = id.trust_domain_name();
         assert!(!td.is_empty());
-        let _ = TrustDomain::new(td).expect("trust domain name must re-parse");
+        TrustDomain::new(td).expect("trust domain name must re-parse");
 
         let path = id.path();
         assert!(path.is_empty() || path.starts_with('/'));
