@@ -1,0 +1,70 @@
+# Core scheme / separators
+"spiffe://"
+"://"
+"/"
+"//"
+
+# Trust-domain candidates (valid)
+"example.org"
+"domain.test"
+"trustdomain"
+"test.org"
+"a"
+"abc"
+"a-b"
+"a_b"
+"a.b"
+"0"
+"9"
+"abc123"
+
+# Trust-domain candidates (invalid for your validator)
+"EXAMPLE.ORG"
+"example.org:80"
+"user@domain"
+"domain,org"
+"domain org"
+"domain/org"
+
+# Full SPIFFE IDs (valid)
+"spiffe://example.org"
+"spiffe://example.org/a"
+"spiffe://example.org/a/b"
+"spiffe://example.org/a_b"
+"spiffe://example.org/a-b"
+"spiffe://example.org/a.b"
+"spiffe://example.org/A"
+"spiffe://example.org/0"
+"spiffe://example.org/._-"
+
+# Full SPIFFE IDs (error-shaping / edge cases)
+"spiffe://"
+"spiffe:///"
+"spiffe:///a"
+"spiffe://example.org/"
+"spiffe://example.org//"
+"spiffe://example.org/a/"
+"spiffe://example.org/."
+"spiffe://example.org/.."
+"spiffe://example.org/./a"
+"spiffe://example.org/../a"
+
+# Characters that should force BadPathSegmentChar in new()
+"?"
+"#"
+"%"
+"@"
+" "
+
+# Wrong-scheme / looks-like-URL inputs (TrustDomain::new should reject)
+"http://example.org"
+"other://example.org"
+"spiffe:/example.org"
+"spiffe:example.org"
+"://example.org"
+
+# Common “url-ish” extras (should trip path validation or scheme checks)
+"?"
+"#"
+":80"
+"user:pass@"
