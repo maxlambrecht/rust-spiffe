@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.1] – 2026-01-05
+
+### Changed
+
+- Improved performance of SPIFFE ID and TrustDomain parsing by switching to byte-level validation, reducing allocations, and optimizing common parsing paths.
+
+### Added
+
+- Added fuzz targets for SPIFFE ID and TrustDomain parsing to validate parser invariants and harden input handling.
+
+
 ## [0.10.0] – 2026-01-03
 
 ### Breaking changes
