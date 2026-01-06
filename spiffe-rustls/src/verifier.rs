@@ -15,9 +15,47 @@ use spiffe::SpiffeId;
 use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use x509_parser::extensions::GeneralName;
 use x509_parser::prelude::{FromDer, X509Certificate};
+
+#[cfg(feature = "parking-lot")]
+use parking_lot::{Condvar, Mutex, MutexGuard};
+
+#[cfg(not(feature = "parking-lot"))]
+use std::sync::{Condvar, Mutex, MutexGuard};
+
+// Unify lock() across std/parking_lot.
+// - parking_lot never poisons => always Ok
+// - std::sync::Mutex may poison => map to Err(())
+#[cfg(feature = "parking-lot")]
+fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
+    Ok(m.lock())
+}
+
+#[cfg(not(feature = "parking-lot"))]
+fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
+    m.lock().map_err(|_| ())
+}
+
+// Unify Condvar::wait() across std/parking_lot.
+// Both consume the guard and return a guard.
+#[cfg(feature = "parking-lot")]
+fn condvar_wait<'a, T>(
+    cv: &Condvar,
+    mut guard: MutexGuard<'a, T>,
+) -> std::result::Result<MutexGuard<'a, T>, ()> {
+    cv.wait(&mut guard);
+    Ok(guard)
+}
+
+#[cfg(not(feature = "parking-lot"))]
+fn condvar_wait<'a, T>(
+    cv: &Condvar,
+    guard: MutexGuard<'a, T>,
+) -> std::result::Result<MutexGuard<'a, T>, ()> {
+    cv.wait(guard).map_err(|_| ())
+}
 
 const MAX_URI_SAN_ENTRIES: usize = 32;
 const MAX_URI_LENGTH: usize = 2048;
@@ -147,9 +185,8 @@ fn extract_spiffe_id_with_cache(
 ) -> Result<SpiffeId> {
     let key = cert_fingerprint(leaf);
 
-    // Best-effort cache lookup; ignores poison and simply parses
     if let Some(cache) = cache {
-        if let Ok(mut guard) = cache.lock() {
+        if let Ok(mut guard) = lock_mutex(cache) {
             if let Some(cached) = guard.get(key) {
                 return Ok(cached.spiffe_id.clone());
             }
@@ -201,9 +238,8 @@ fn extract_spiffe_id_with_cache(
 
     let spiffe_id = found.ok_or(Error::MissingSpiffeId)?;
 
-    // Best-effort insert; ignore poison
     if let Some(cache) = cache {
-        if let Ok(mut guard) = cache.lock() {
+        if let Ok(mut guard) = lock_mutex(cache) {
             guard.insert(
                 key,
                 CachedSpiffeId {
@@ -244,17 +280,67 @@ impl MaterialProvider for MaterialWatcher {
 type VerifierCacheKey = (u64, spiffe::TrustDomain);
 
 #[derive(Clone)]
-struct ServerVerifierCache {
-    key: VerifierCacheKey,
+struct ServerVerifierCacheValue {
     verifier: Arc<dyn rustls::client::danger::ServerCertVerifier>,
     schemes: Vec<SignatureScheme>,
+}
+
+enum ServerBuildState {
+    Empty,
+    Building,
+    Ready(ServerVerifierCacheValue),
+}
+
+struct ServerBuildCell {
+    state: Mutex<ServerBuildState>,
+    cv: Condvar,
+}
+
+impl ServerBuildCell {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(ServerBuildState::Empty),
+            cv: Condvar::new(),
+        }
+    }
+}
+
+#[derive(Clone)]
+struct ServerVerifierCache {
+    key: VerifierCacheKey,
+    cell: Arc<ServerBuildCell>,
+}
+
+#[derive(Clone)]
+struct ClientVerifierCacheValue {
+    verifier: Arc<dyn rustls::server::danger::ClientCertVerifier>,
+    schemes: Vec<SignatureScheme>,
+}
+
+enum ClientBuildState {
+    Empty,
+    Building,
+    Ready(ClientVerifierCacheValue),
+}
+
+struct ClientBuildCell {
+    state: Mutex<ClientBuildState>,
+    cv: Condvar,
+}
+
+impl ClientBuildCell {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(ClientBuildState::Empty),
+            cv: Condvar::new(),
+        }
+    }
 }
 
 #[derive(Clone)]
 struct ClientVerifierCache {
     key: VerifierCacheKey,
-    verifier: Arc<dyn rustls::server::danger::ClientCertVerifier>,
-    schemes: Vec<SignatureScheme>,
+    cell: Arc<ClientBuildCell>,
 }
 
 fn build_server_verifier(
@@ -317,65 +403,119 @@ impl SpiffeServerCertVerifier {
         let snap = self.provider.current_material();
         let gen = snap.generation;
 
-        // Check if trust domain is allowed by policy
-        if !self.policy.allows(trust_domain) {
-            return Err(Error::TrustDomainNotAllowed(trust_domain.clone()));
+        let td = trust_domain.clone();
+
+        if !self.policy.allows(&td) {
+            return Err(Error::TrustDomainNotAllowed(td));
         }
 
-        // Get root cert store for this trust domain
         let roots = snap
             .roots_by_td
-            .get(trust_domain)
-            .ok_or_else(|| Error::NoBundle(trust_domain.clone()))?
+            .get(&td)
+            .ok_or_else(|| Error::NoBundle(td.clone()))?
             .clone();
 
-        let cache_key = (gen, trust_domain.clone());
+        let cache_key = (gen, td);
 
-        let mut guard = self
-            .cache
-            .lock()
-            .map_err(|_| Error::Internal("server verifier cache mutex poisoned".into()))?;
+        // Select (or create) the per-key single-flight cell under the outer cache mutex.
+        let cell: Arc<ServerBuildCell> = {
+            let mut guard = lock_mutex(&self.cache)
+                .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
 
-        if let Some(cached) = guard.as_ref() {
-            if cached.key == cache_key {
-                return Ok(cached.verifier.clone());
+            match guard.as_ref() {
+                Some(entry) if entry.key == cache_key => entry.cell.clone(),
+                _ => {
+                    let cell = Arc::new(ServerBuildCell::new());
+                    *guard = Some(ServerVerifierCache {
+                        key: cache_key,
+                        cell: cell.clone(),
+                    });
+                    cell
+                }
+            }
+        };
+
+        loop {
+            let mut guard = lock_mutex(&cell.state)
+                .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
+
+            match &*guard {
+                ServerBuildState::Ready(v) => return Ok(v.verifier.clone()),
+
+                ServerBuildState::Empty => {
+                    // Become the single builder (no race window).
+                    *guard = ServerBuildState::Building;
+                    drop(guard);
+
+                    // Build without holding any locks.
+                    let verifier = match build_server_verifier(roots.clone()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // Reset + notify waiters; do not cache failure.
+                            let mut g = lock_mutex(&cell.state).map_err(|()| {
+                                Error::Internal("server verifier cache mutex poisoned".into())
+                            })?;
+                            *g = ServerBuildState::Empty;
+                            cell.cv.notify_all();
+                            return Err(e);
+                        }
+                    };
+
+                    let schemes = verifier.supported_verify_schemes();
+                    let value = ServerVerifierCacheValue { verifier, schemes };
+
+                    // Publish success and wake waiters.
+                    let mut g = lock_mutex(&cell.state).map_err(|()| {
+                        Error::Internal("server verifier cache mutex poisoned".into())
+                    })?;
+                    *g = ServerBuildState::Ready(value);
+                    cell.cv.notify_all();
+
+                    if let ServerBuildState::Ready(v) = &*g {
+                        return Ok(v.verifier.clone());
+                    }
+                    unreachable!("state must be Ready after setting it");
+                }
+
+                ServerBuildState::Building => {
+                    // Wait for builder to publish Ready or revert to Empty on failure.
+                    let g = condvar_wait(&cell.cv, guard).map_err(|()| {
+                        Error::Internal("server verifier cache mutex poisoned".into())
+                    })?;
+                    drop(g);
+                }
             }
         }
-
-        let built = build_server_verifier(roots)?;
-        let schemes = built.supported_verify_schemes();
-
-        *guard = Some(ServerVerifierCache {
-            key: cache_key,
-            verifier: built.clone(),
-            schemes,
-        });
-
-        Ok(built)
     }
 
     fn supported_schemes_cached(&self, trust_domain: &spiffe::TrustDomain) -> Vec<SignatureScheme> {
-        // Do not "fail open" to empty if we have a known-good cache.
-        // If there is no cache yet, attempt to build; on failure, return empty (handshake will fail).
-        if let Ok(guard) = self.cache.lock() {
-            if let Some(cached) = guard.as_ref() {
-                if cached.key.1 == *trust_domain {
-                    return cached.schemes.clone();
+        let cell = match lock_mutex(&self.cache) {
+            Ok(guard) => guard
+                .as_ref()
+                .filter(|e| e.key.1 == *trust_domain)
+                .map(|e| e.cell.clone()),
+            Err(_e) => {
+                error!("server verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
+                return Vec::new();
+            }
+        };
+
+        if let Some(cell) = cell {
+            if let Ok(guard) = lock_mutex(&cell.state) {
+                if let ServerBuildState::Ready(v) = &*guard {
+                    return v.schemes.clone();
                 }
             }
-        } else {
-            error!("server verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
-            return Vec::new();
         }
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
             Err(_e) => {
                 debug!(
-                    "failed to build server verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
-                    trust_domain,
-                    _e
-                );
+                "failed to build server verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
+                trust_domain,
+                _e
+            );
                 Vec::new()
             }
         }
@@ -505,63 +645,115 @@ impl SpiffeClientCertVerifier {
         let snap = self.provider.current_material();
         let gen = snap.generation;
 
-        // Check if trust domain is allowed by policy
-        if !self.policy.allows(trust_domain) {
-            return Err(Error::TrustDomainNotAllowed(trust_domain.clone()));
+        let td = trust_domain.clone();
+
+        if !self.policy.allows(&td) {
+            return Err(Error::TrustDomainNotAllowed(td));
         }
 
-        // Get root cert store for this trust domain
         let roots = snap
             .roots_by_td
-            .get(trust_domain)
-            .ok_or_else(|| Error::NoBundle(trust_domain.clone()))?
+            .get(&td)
+            .ok_or_else(|| Error::NoBundle(td.clone()))?
             .clone();
 
-        let cache_key = (gen, trust_domain.clone());
+        let cache_key = (gen, td);
 
-        let mut guard = self
-            .cache
-            .lock()
-            .map_err(|_| Error::Internal("client verifier cache mutex poisoned".into()))?;
+        let cell: Arc<ClientBuildCell> = {
+            let mut guard = lock_mutex(&self.cache)
+                .map_err(|()| Error::Internal("client verifier cache mutex poisoned".into()))?;
 
-        if let Some(cached) = guard.as_ref() {
-            if cached.key == cache_key {
-                return Ok(cached.verifier.clone());
+            match guard.as_ref() {
+                Some(entry) if entry.key == cache_key => entry.cell.clone(),
+                _ => {
+                    let cell = Arc::new(ClientBuildCell::new());
+                    *guard = Some(ClientVerifierCache {
+                        key: cache_key,
+                        cell: cell.clone(),
+                    });
+                    cell
+                }
+            }
+        };
+
+        loop {
+            let mut guard = lock_mutex(&cell.state)
+                .map_err(|()| Error::Internal("client verifier cache mutex poisoned".into()))?;
+
+            match &*guard {
+                ClientBuildState::Ready(v) => return Ok(v.verifier.clone()),
+
+                ClientBuildState::Empty => {
+                    // Become the single builder (no race window).
+                    *guard = ClientBuildState::Building;
+                    drop(guard);
+
+                    let verifier = match build_client_verifier(roots.clone()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // Reset + notify waiters; do not cache failure.
+                            let mut g = lock_mutex(&cell.state).map_err(|()| {
+                                Error::Internal("client verifier cache mutex poisoned".into())
+                            })?;
+                            *g = ClientBuildState::Empty;
+                            cell.cv.notify_all();
+                            return Err(e);
+                        }
+                    };
+
+                    let schemes = verifier.supported_verify_schemes();
+                    let value = ClientVerifierCacheValue { verifier, schemes };
+
+                    let mut g = lock_mutex(&cell.state).map_err(|()| {
+                        Error::Internal("client verifier cache mutex poisoned".into())
+                    })?;
+                    *g = ClientBuildState::Ready(value);
+                    cell.cv.notify_all();
+
+                    if let ClientBuildState::Ready(v) = &*g {
+                        return Ok(v.verifier.clone());
+                    }
+                    unreachable!("state must be Ready after setting it");
+                }
+
+                ClientBuildState::Building => {
+                    let g = condvar_wait(&cell.cv, guard).map_err(|()| {
+                        Error::Internal("client verifier cache mutex poisoned".into())
+                    })?;
+                    drop(g);
+                }
             }
         }
-
-        let built = build_client_verifier(roots)?;
-        let schemes = built.supported_verify_schemes();
-
-        *guard = Some(ClientVerifierCache {
-            key: cache_key,
-            verifier: built.clone(),
-            schemes,
-        });
-
-        Ok(built)
     }
 
     fn supported_schemes_cached(&self, trust_domain: &spiffe::TrustDomain) -> Vec<SignatureScheme> {
-        if let Ok(guard) = self.cache.lock() {
-            if let Some(cached) = guard.as_ref() {
-                if cached.key.1 == *trust_domain {
-                    return cached.schemes.clone();
+        let cell = match lock_mutex(&self.cache) {
+            Ok(guard) => guard
+                .as_ref()
+                .filter(|e| e.key.1 == *trust_domain)
+                .map(|e| e.cell.clone()),
+            Err(_e) => {
+                error!("client verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
+                return Vec::new();
+            }
+        };
+
+        if let Some(cell) = cell {
+            if let Ok(guard) = lock_mutex(&cell.state) {
+                if let ClientBuildState::Ready(v) = &*guard {
+                    return v.schemes.clone();
                 }
             }
-        } else {
-            error!("client verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
-            return Vec::new();
         }
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
             Err(_e) => {
                 debug!(
-                    "failed to build client verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
-                    trust_domain,
-                    _e
-                );
+                "failed to build client verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
+                trust_domain,
+                _e
+            );
                 Vec::new()
             }
         }
@@ -714,7 +906,7 @@ fn advertised_verify_schemes(
     // "NoSignatureSchemes" and hides the actual policy error). Instead advertise
     // a union computed without policy so we can fail later with TrustDomainNotAllowed
     // during certificate verification.
-    let should_log = match last_logged_gen.lock() {
+    let should_log = match lock_mutex(last_logged_gen) {
         Ok(mut guard) => {
             if guard.as_ref() == Some(&gen) {
                 false
@@ -723,7 +915,7 @@ fn advertised_verify_schemes(
                 true
             }
         }
-        Err(_) => true, // poisoned mutex: skip "log once" optimization
+        Err(_e) => true, // poisoned mutex: skip "log once" optimization
     };
 
     if should_log {

@@ -264,6 +264,21 @@ Provider choice affects only cryptographic primitives.
 
 ---
 
+### Optional performance features
+
+#### `parking-lot`
+
+Enable `parking-lot` to use a faster internal synchronization strategy.
+This can improve throughput under high concurrency and reduce contention
+during cold-start bursts.
+
+```bash
+cargo add spiffe-rustls --features parking-lot
+```
+> Note: This feature does not change the public API or SPIFFE semantics. It only affects internal synchronization.
+
+---
+
 ## Examples
 
 ### Prerequisites
@@ -311,6 +326,8 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 - **Atomic updates** — New handshakes automatically use rotated material without locks
 - **Efficient authorization** — `Authorizer` trait allows zero-allocation checks
 - **Minimal overhead** — Authorization runs after TLS verification (no impact on handshake)
+- **Efficient verifier reuse** — Verifiers are cached per trust domain and bundle generation,
+  avoiding repeated construction under concurrent handshakes.
 
 ### Integration with Async Runtimes
 

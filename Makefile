@@ -95,6 +95,8 @@ msrv:
 	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
+	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging)
+	$(call msrv_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,parking-lot)
 
 # -----------------------------------------------------------------------------
 # Integration tests (SPIRE)
@@ -225,16 +227,16 @@ spiffe-rustls:
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging)
+	$(call cargo_cmd_deny_warnings,clippy,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
 
 	$(info ==> spiffe-rustls: build)
 	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging)
+	$(call cargo_cmd,build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
 
 	$(info ==> spiffe-rustls: test)
 	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging)
+	$(call cargo_cmd,test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
