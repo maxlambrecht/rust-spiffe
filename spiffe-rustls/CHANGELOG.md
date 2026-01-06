@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.2] – 2026-01-06
+
+### Changed
+
+- Improved verifier cache concurrency to reduce contention under high concurrency and cold-start bursts.
+
+### Added
+
+- Optional `parking-lot` feature to use a faster internal synchronization strategy.
+
+
 ## [0.4.1] – 2026-01-04
 
 ### Changed
