@@ -5,28 +5,29 @@ use spiffe::TrustDomain;
 
 fuzz_target!(|data: &[u8]| {
     let s = String::from_utf8_lossy(data);
-    let s = s.as_ref();
 
-    let parsed_new = TrustDomain::new(s);
-    let parsed_fromstr = s.parse::<TrustDomain>();
+    let parsed_new = TrustDomain::new(s.as_ref());
+    let parsed_fromstr = s.as_ref().parse::<TrustDomain>();
 
-    let new_ok = parsed_new.is_ok();
-    let fromstr_ok = parsed_fromstr.is_ok();
+    // Consistency between APIs.
+    assert_eq!(parsed_new.is_ok(), parsed_fromstr.is_ok());
 
     if let Ok(td) = parsed_new {
+        // Round-trip must always succeed for a validated ID.
         let rt = td.to_string();
         let td2 = TrustDomain::new(&rt).expect("round-trip parse must succeed");
         assert_eq!(td, td2);
 
-        // Trust domain invariants
+        // Trust domain invariants.
         assert!(!td.as_str().is_empty());
         assert_eq!(td.as_str(), rt);
 
+        // id_string must be stable, parseable, and canonical.
         let id_str = td.id_string();
+        assert!(id_str.starts_with("spiffe://"));
+        assert_eq!(&id_str["spiffe://".len()..], td.as_str());
+
         let td3 = TrustDomain::new(&id_str).expect("id_string must be parseable");
         assert_eq!(td, td3);
     }
-
-    // API consistency
-    assert_eq!(new_ok, fromstr_ok);
 });

@@ -1,32 +1,50 @@
 # Core scheme / separators
 "spiffe://"
 "://"
+"spiffe:"
 "/"
 "//"
 
-# Trust-domain candidates (valid)
+# Trust-domain candidates
 "example.org"
 "domain.test"
 "trustdomain"
 "test.org"
 "a"
 "abc"
+"abc123"
 "a-b"
 "a_b"
 "a.b"
 "0"
 "9"
-"abc123"
+"9a"
+"a9"
+"_"
+"-"
+"."
+"a..b"
+"a--b"
+"a__b"
+".example.org"
+"example.org."
+"-example.org"
+"example.org-"
+"_example.org"
+"example.org_"
 
-# Trust-domain candidates (invalid for your validator)
+# Trust-domain candidates (invalid for current validator)
 "EXAMPLE.ORG"
+"Example.org"
 "example.org:80"
 "user@domain"
 "domain,org"
 "domain org"
 "domain/org"
+"exa%mple.org"
+"example?.org"
 
-# Full SPIFFE IDs (valid)
+# Full SPIFFE IDs
 "spiffe://example.org"
 "spiffe://example.org/a"
 "spiffe://example.org/a/b"
@@ -36,6 +54,7 @@
 "spiffe://example.org/A"
 "spiffe://example.org/0"
 "spiffe://example.org/._-"
+"spiffe://trustdomain/path1/path2/path3"
 
 # Full SPIFFE IDs (error-shaping / edge cases)
 "spiffe://"
@@ -48,23 +67,52 @@
 "spiffe://example.org/.."
 "spiffe://example.org/./a"
 "spiffe://example.org/../a"
+"spiffe://example.org/a//b"
+"spiffe://example.org//a"
+"spiffe://example.org/a/./b"
+"spiffe://example.org/a/../b"
 
-# Characters that should force BadPathSegmentChar in new()
+# Characters / fragments that should force BadPathSegmentChar (in segments)
 "?"
 "#"
 "%"
 "@"
 " "
+"+"
+"="
+"&"
+";"
+":"
+"\\"
 
-# Wrong-scheme / looks-like-URL inputs (TrustDomain::new should reject)
+# Wrong-scheme / URL-like inputs (TrustDomain::new should reject)
 "http://example.org"
+"https://example.org"
 "other://example.org"
+"ftp://example.org"
 "spiffe:/example.org"
 "spiffe:example.org"
 "://example.org"
+"//example.org"
 
-# Common “url-ish” extras (should trip path validation or scheme checks)
-"?"
-"#"
+# Common URL-ish extras (useful for splicing)
 ":80"
+":443"
 "user:pass@"
+"@host"
+"?q="
+"#frag"
+"=%"
+"%%"
+"../"
+"./"
+
+# Length nudges (fuzzer will repeat/splice these)
+"aaaaaaaaaaaaaaaa"
+"bbbbbbbbbbbbbbbb"
+"________________"
+"----------------"
+"................"
+"AAAAAAAAAAAAAAAA"
+"9999999999999999"
+"/aaaaaaaaaaaaaaaa"

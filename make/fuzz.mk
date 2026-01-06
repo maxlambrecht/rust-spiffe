@@ -9,8 +9,8 @@ FUZZ_TARGETS := \
 # Override for deeper fuzzing:
 #   FUZZ_SECONDS=300 make fuzz
 #   FUZZ_SECONDS=1800 make fuzz
-FUZZ_SECONDS ?= 30
-FUZZ_MAX_LEN ?= 512
+FUZZ_SECONDS ?= 60
+FUZZ_MAX_LEN ?= 2048
 FUZZ_DICT ?= fuzz.dict
 
 .PHONY: fuzz-setup
