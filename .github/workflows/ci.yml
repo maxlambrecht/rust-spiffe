@@ -138,7 +138,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344
+        uses: taiki-e/install-action@0e76c5c569f13f7eb21e8e5b26fe710062b57b62
         with:
           tool: cargo-audit
 
@@ -164,7 +164,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cc33365ec7e3350bc47bf935f247582cc6f68344
+        uses: taiki-e/install-action@0e76c5c569f13f7eb21e8e5b26fe710062b57b62
         with:
           tool: cargo-deny
 
