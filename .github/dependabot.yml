@@ -1,14 +1,61 @@
 version: 2
+
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/" # Location of package manifests
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "daily"
-  - package-ecosystem: "cargo"
-    directory: "/spiffe" # Location of the Cargo.toml file for spiffe crate
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+
+  # spiffe crate
+  - package-ecosystem: cargo
+    directory: /spiffe
     schedule:
-      interval: "daily"
-  - package-ecosystem: "cargo"
-    directory: "/spire-api" # Location of the Cargo.toml file for spire-api crate
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+    groups:
+      spiffe-minor-patch:
+        update-types: [minor, patch]
+      spiffe-major:
+        update-types: [major]
+
+  # spiffe-rustls crate
+  - package-ecosystem: cargo
+    directory: /spiffe-rustls
     schedule:
-      interval: "daily"
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+    groups:
+      spiffe-rustls-minor-patch:
+        update-types: [minor, patch]
+      spiffe-rustls-major:
+        update-types: [major]
+
+  # spire-api crate
+  - package-ecosystem: cargo
+    directory: /spire-api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - rust
+    groups:
+      spire-api-minor-patch:
+        update-types: [minor, patch]
+      spire-api-major:
+        update-types: [major]
