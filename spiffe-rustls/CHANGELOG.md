@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.3] – 2026-01-17
+
+### Changed
+
+- Updated dependency to `spiffe ^0.10.2` to benefit from improved certificate parsing performance and security enhancements.
+    - Improved URI SAN extraction performance through direct iteration and early filtering
+    - Added security bounds (32 URI SAN entries max, 2048 bytes per URI) to prevent resource exhaustion attacks
+    - Fixed DER byte preservation in certificate chain parsing
+    - Enhanced type safety for X.509 extension error handling
+
 ## [0.4.2] – 2026-01-06
 
 ### Changed

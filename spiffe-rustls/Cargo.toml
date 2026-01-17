@@ -1,6 +1,6 @@
 [package]
 name = "spiffe-rustls"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2021"
 rust-version = "1.85"
 license = "Apache-2.0"
@@ -11,12 +11,13 @@ keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 categories = ["network-programming", "cryptography", "authentication"]
 
 [dependencies]
-spiffe = { version = "0.10", features = ["x509-source"] }
+spiffe = { version = "^0.10.2", features = ["x509-source"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
 thiserror = "2"
 x509-parser = "0.18"
+oid-registry = "0.8.1"
 parking_lot = { version = "0.12", optional = true }
 
 # Observability (optional)

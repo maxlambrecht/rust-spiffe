@@ -16,14 +16,13 @@ use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
-use x509_parser::extensions::GeneralName;
-use x509_parser::prelude::{FromDer, X509Certificate};
 
 #[cfg(feature = "parking-lot")]
 use parking_lot::{Condvar, Mutex, MutexGuard};
 
 #[cfg(not(feature = "parking-lot"))]
 use std::sync::{Condvar, Mutex, MutexGuard};
+use x509_parser::oid_registry;
 
 // Unify lock() across std/parking_lot.
 // - parking_lot never poisons => always Ok
@@ -57,8 +56,6 @@ fn condvar_wait<'a, T>(
     cv.wait(guard).map_err(|_| ())
 }
 
-const MAX_URI_SAN_ENTRIES: usize = 32;
-const MAX_URI_LENGTH: usize = 2048;
 const CERT_PREFIX_LEN: usize = 32;
 
 /// Non-cryptographic certificate fingerprint used only as a cache key.
@@ -193,50 +190,19 @@ fn extract_spiffe_id_with_cache(
         }
     }
 
-    let (_, cert) =
-        X509Certificate::from_der(leaf.as_ref()).map_err(|e| Error::CertParse(format!("{e:?}")))?;
-
-    let san = cert
-        .subject_alternative_name()
-        .map_err(|e| Error::CertParse(format!("{e:?}")))?
-        .ok_or(Error::MissingSpiffeId)?;
-
-    // iterate SAN entries directly with conservative bounds
-    let mut uri_count = 0usize;
-    let mut found: Option<SpiffeId> = None;
-
-    for name in &san.value.general_names {
-        let uri = match name {
-            GeneralName::URI(uri) => &**uri,
-            _ => continue,
-        };
-
-        uri_count += 1;
-        if uri_count > MAX_URI_SAN_ENTRIES {
-            return Err(Error::CertParse(format!(
-                "certificate has too many URI SAN entries (max {MAX_URI_SAN_ENTRIES})"
-            )));
+    let spiffe_id = spiffe::cert::spiffe_id_from_der(leaf.as_ref()).map_err(|e| {
+        use spiffe::cert::error::CertificateError as CE;
+        match e {
+            CE::MissingX509Extension(oid)
+                if oid == oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME =>
+            {
+                Error::MissingSpiffeId
+            }
+            CE::MissingSpiffeId => Error::MissingSpiffeId,
+            CE::MultipleSpiffeIds => Error::MultipleSpiffeIds,
+            _ => Error::CertParse(e.to_string()),
         }
-
-        // Skip overly long URIs (avoid allocating / parsing large junk)
-        if uri.len() > MAX_URI_LENGTH {
-            continue;
-        }
-
-        if !uri.starts_with("spiffe://") {
-            continue;
-        }
-
-        let id = SpiffeId::new(uri)
-            .map_err(|e| Error::CertParse(format!("invalid SPIFFE ID '{uri}': {e}")))?;
-
-        match found.as_ref() {
-            None => found = Some(id),
-            Some(_) => return Err(Error::MultipleSpiffeIds),
-        }
-    }
-
-    let spiffe_id = found.ok_or(Error::MissingSpiffeId)?;
+    })?;
 
     if let Some(cache) = cache {
         if let Ok(mut guard) = lock_mutex(cache) {
