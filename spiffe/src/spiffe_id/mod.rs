@@ -7,8 +7,16 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
-const SPIFFE_SCHEME: &str = "spiffe";
-const SCHEME_PREFIX: &str = "spiffe://";
+/// The canonical URI scheme name for SPIFFE IDs (`spiffe`).
+///
+/// Defined by the SPIFFE specification.
+pub const SPIFFE_SCHEME: &str = "spiffe";
+
+/// The URI prefix used by SPIFFE IDs.
+///
+/// This is equivalent to `"{SPIFFE_SCHEME}://"` and is provided as a
+/// convenience for prefix checks and parsing.
+pub const SPIFFE_SCHEME_PREFIX: &str = "spiffe://";
 
 /// A validated [SPIFFE ID].
 ///
@@ -104,7 +112,7 @@ impl SpiffeId {
         }
 
         let rest = id
-            .strip_prefix(SCHEME_PREFIX)
+            .strip_prefix(SPIFFE_SCHEME_PREFIX)
             .ok_or(SpiffeIdError::WrongScheme)?;
 
         let slash_pos = rest.find('/').unwrap_or(rest.len());
@@ -305,7 +313,7 @@ impl TrustDomain {
         }
 
         // Fast-path parse if this looks like a SPIFFE ID
-        if let Some(rest) = id_or_name.strip_prefix(SCHEME_PREFIX) {
+        if let Some(rest) = id_or_name.strip_prefix(SPIFFE_SCHEME_PREFIX) {
             let slash_pos = rest.find('/').unwrap_or(rest.len());
 
             if slash_pos == 0 {
@@ -345,8 +353,8 @@ impl TrustDomain {
     /// Returns a string representation of the SPIFFE ID of the trust domain,
     /// e.g. `spiffe://example.org`.
     pub fn id_string(&self) -> String {
-        let mut s = String::with_capacity(SCHEME_PREFIX.len() + self.name.len());
-        s.push_str(SCHEME_PREFIX);
+        let mut s = String::with_capacity(SPIFFE_SCHEME_PREFIX.len() + self.name.len());
+        s.push_str(SPIFFE_SCHEME_PREFIX);
         s.push_str(&self.name);
         s
     }

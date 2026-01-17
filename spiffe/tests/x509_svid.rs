@@ -49,7 +49,7 @@ mod x509_svid_tests {
 
         assert!(matches!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::ChainDecode(..))
+            X509SvidError::Certificate(CertificateError::ParseX509Certificate(..))
         ));
     }
 
@@ -122,7 +122,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(result.unwrap_err(), X509SvidError::MissingSpiffeId);
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::Certificate(CertificateError::MissingSpiffeId)
+        );
     }
 
     #[test]
