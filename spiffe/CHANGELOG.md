@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.2] – 2026-01-17
+
+### Fixed
+
+- Fixed `to_certificate_vec` to preserve original DER bytes when parsing certificate chains, ensuring byte-for-byte equality with input data.
+
+### Changed
+
+- Improved performance of URI SAN extraction by iterating directly over `general_names` and applying early filtering for SPIFFE IDs.
+- Added security bounds to URI SAN processing: a maximum of 32 URI SAN entries and 2048 bytes per URI, preventing resource exhaustion from malformed or adversarial certificates.
+- Changed `MissingX509Extension` error variant to use `Oid<'static>` instead of `String` for better type safety and consistency with `oid_registry` constants.
+
+### Added
+
+- Added `TooManyUriSanEntries` error variant to `CertificateError` for certificates exceeding the URI SAN entry limit.
+- Added tests covering certificate parsing edge cases and error conditions.
+
+
 ## [0.10.1] – 2026-01-05
 
 ### Changed
