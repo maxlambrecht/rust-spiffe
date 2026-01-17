@@ -1,7 +1,7 @@
 //! Error types for certificate and private key parsing/validation.
 
-use x509_parser::asn1_rs::Oid;
 use crate::SpiffeIdError;
+use x509_parser::asn1_rs::Oid;
 use x509_parser::error::X509Error;
 
 /// An error that may arise parsing and validating X.509 certificates.
