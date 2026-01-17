@@ -193,9 +193,7 @@ fn extract_spiffe_id_with_cache(
     let spiffe_id = spiffe::cert::spiffe_id_from_der(leaf.as_ref()).map_err(|e| {
         use spiffe::cert::error::CertificateError as CE;
         match e {
-            CE::MissingX509Extension(oid)
-                if oid == oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME =>
-            {
+            CE::MissingX509Extension(oid) if oid == oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME => {
                 Error::MissingSpiffeId
             }
             CE::MissingSpiffeId => Error::MissingSpiffeId,
