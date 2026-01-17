@@ -1,10 +1,8 @@
-use crate::cert::error::CertificateError;
 use crate::cert::parsing::{get_x509_extension, parse_der_encoded_bytes_as_x509_certificate};
-use crate::cert::Certificate;
+use crate::cert::{extract_single_spiffe_id_from_uri_san, Certificate};
 use crate::spiffe_id::SpiffeId;
 use crate::svid::x509::X509SvidError;
 use x509_parser::certificate::X509Certificate;
-use x509_parser::extensions::GeneralName;
 use x509_parser::extensions::ParsedExtension;
 use x509_parser::oid_registry;
 
@@ -13,7 +11,7 @@ use x509_parser::oid_registry;
 pub(crate) fn validate_leaf_certificate(cert: &Certificate) -> Result<SpiffeId, X509SvidError> {
     let x509 = parse_der_encoded_bytes_as_x509_certificate(cert.as_bytes())?;
     validate_x509_leaf_certificate(&x509)?;
-    find_spiffe_id(&x509)
+    Ok(extract_single_spiffe_id_from_uri_san(&x509)?)
 }
 
 /// Parses and validates `certs` as signing certificates.
@@ -68,41 +66,4 @@ fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(),
         }
         _ => Ok(()),
     }
-}
-
-fn find_spiffe_id(cert: &X509Certificate<'_>) -> Result<SpiffeId, X509SvidError> {
-    let san_ext = get_x509_extension(cert, &oid_registry::OID_X509_EXT_SUBJECT_ALT_NAME)?;
-
-    let uris: Vec<&str> = match san_ext {
-        ParsedExtension::SubjectAlternativeName(s) => s
-            .general_names
-            .iter()
-            .filter_map(|n| match n {
-                GeneralName::URI(u) => Some(*u),
-                _ => None,
-            })
-            .collect(),
-        other => {
-            return Err(X509SvidError::Certificate(
-                CertificateError::UnexpectedExtension(format!("{other:?}")),
-            ));
-        }
-    };
-
-    if uris.is_empty() {
-        return Err(X509SvidError::MissingSpiffeId);
-    }
-
-    // Prefer the first URI SAN that parses as a SPIFFE ID.
-    let mut last_err = None;
-    for uri in uris {
-        match SpiffeId::try_from(uri) {
-            Ok(id) => return Ok(id),
-            Err(e) => last_err = Some(e),
-        }
-    }
-
-    Err(last_err
-        .unwrap_or_else(|| unreachable!("guaranteed non-empty here"))
-        .into())
 }

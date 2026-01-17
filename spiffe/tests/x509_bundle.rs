@@ -39,7 +39,7 @@ mod x509_bundle_tests {
 
         assert!(matches!(
             result.unwrap_err(),
-            X509BundleError::Certificate(CertificateError::ChainDecode(..))
+            X509BundleError::Certificate(CertificateError::ParseX509Certificate(..))
         ));
     }
 

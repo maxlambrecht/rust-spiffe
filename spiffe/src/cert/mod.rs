@@ -3,7 +3,10 @@
 //! These types wrap DER-encoded bytes and validate them at construction time.
 
 use crate::cert::error::{CertificateError, PrivateKeyError};
-use crate::cert::parsing::parse_der_encoded_bytes_as_x509_certificate;
+use crate::cert::parsing::{
+    extract_spiffe_ids_from_uri_san, parse_der_encoded_bytes_as_x509_certificate,
+};
+use crate::SpiffeId;
 use pkcs8::PrivateKeyInfo;
 use std::convert::TryFrom;
 use zeroize::Zeroize;
@@ -23,12 +26,22 @@ impl Certificate {
         &self.0
     }
 
-    /// Constructs a certificate from DER bytes, validating them.
-    pub(crate) fn from_der_bytes(bytes: Vec<u8>) -> Result<Self, CertificateError> {
-        parse_der_encoded_bytes_as_x509_certificate(&bytes)?;
-        Ok(Self(bytes))
+    /// Extracts the SPIFFE ID from the certificate's URI SAN.
+    ///
+    /// This requires the certificate to contain **exactly one** URI SAN that parses
+    /// as a SPIFFE ID.
+    ///
+    /// # Errors
+    /// - [`CertificateError::MissingSpiffeId`] if no SPIFFE ID is present in the URI SAN.
+    /// - [`CertificateError::MultipleSpiffeIds`] if multiple SPIFFE IDs are present.
+    /// - [`CertificateError::TooManyUriSanEntries`] if the certificate has more than 32 URI SAN entries.
+    /// - [`CertificateError::ParseX509Certificate`] for parsing errors.
+    pub fn spiffe_id(&self) -> Result<SpiffeId, CertificateError> {
+        let x509 = parse_der_encoded_bytes_as_x509_certificate(self.as_bytes())?;
+        extract_single_spiffe_id_from_uri_san(&x509)
     }
 }
+
 impl AsRef<[u8]> for Certificate {
     fn as_ref(&self) -> &[u8] {
         &self.0
@@ -58,7 +71,7 @@ impl TryFrom<Vec<u8>> for Certificate {
 /// Invariant: instances are always validated as parseable PKCS#8.
 ///
 /// This type is zeroized on drop.
-#[derive(Debug, Clone, Eq, PartialEq, Zeroize)]
+#[derive(Clone, Eq, PartialEq, Zeroize)]
 #[zeroize(drop)]
 pub struct PrivateKey(Vec<u8>);
 
@@ -93,4 +106,42 @@ impl TryFrom<Vec<u8>> for PrivateKey {
         PrivateKeyInfo::try_from(bytes.as_slice()).map_err(PrivateKeyError::DecodePkcs8)?;
         Ok(Self(bytes))
     }
+}
+
+impl std::fmt::Debug for PrivateKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PrivateKey")
+            .field("len", &self.0.len())
+            .finish()
+    }
+}
+
+/// Extracts a SPIFFE ID from a DER-encoded X.509 certificate.
+///
+/// This requires the certificate to contain **exactly one** URI SAN that parses
+/// as a SPIFFE ID.
+///
+/// # Errors
+/// - [`CertificateError::MissingSpiffeId`] if no SPIFFE ID is present in the URI SAN.
+/// - [`CertificateError::MultipleSpiffeIds`] if multiple SPIFFE IDs are present.
+/// - [`CertificateError::TooManyUriSanEntries`] if the certificate has more than 32 URI SAN entries.
+/// - [`CertificateError::ParseX509Certificate`] for parsing errors.
+pub fn spiffe_id_from_der(der: &[u8]) -> Result<SpiffeId, CertificateError> {
+    let x509 = parse_der_encoded_bytes_as_x509_certificate(der)?;
+    extract_single_spiffe_id_from_uri_san(&x509)
+}
+
+pub(crate) fn extract_single_spiffe_id_from_uri_san(
+    cert: &x509_parser::certificate::X509Certificate<'_>,
+) -> Result<SpiffeId, CertificateError> {
+    let mut ids = extract_spiffe_ids_from_uri_san(cert)?.into_iter();
+
+    let Some(first) = ids.next() else {
+        return Err(CertificateError::MissingSpiffeId);
+    };
+    if ids.next().is_some() {
+        return Err(CertificateError::MultipleSpiffeIds);
+    }
+
+    Ok(first)
 }

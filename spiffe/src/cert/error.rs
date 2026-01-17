@@ -1,6 +1,7 @@
 //! Error types for certificate and private key parsing/validation.
 
-use asn1::{ASN1DecodeErr, ASN1EncodeErr};
+use x509_parser::asn1_rs::Oid;
+use crate::SpiffeIdError;
 use x509_parser::error::X509Error;
 
 /// An error that may arise parsing and validating X.509 certificates.
@@ -9,23 +10,37 @@ use x509_parser::error::X509Error;
 pub enum CertificateError {
     /// An X.509 extension cannot be found.
     #[error("X.509 extension is missing: {0}")]
-    MissingX509Extension(String),
+    MissingX509Extension(Oid<'static>),
 
     /// Unexpected X.509 extension encountered.
     #[error("unexpected X.509 extension: {0}")]
     UnexpectedExtension(String),
 
-    /// Failed decoding a concatenated chain of DER certificates.
-    #[error("failed decoding chain of DER certificates")]
-    ChainDecode(#[from] ASN1DecodeErr),
-
-    /// Failed re-encoding a parsed certificate back into DER.
-    #[error("failed encoding DER certificate")]
-    CertEncode(#[from] ASN1EncodeErr),
-
     /// Error returned by the X.509 parsing library.
     #[error("failed parsing X.509 certificate")]
     ParseX509Certificate(#[from] X509Error),
+
+    /// The certificate does not contain any URI SAN that is a SPIFFE ID.
+    #[error("certificate is missing SPIFFE ID in URI SAN")]
+    MissingSpiffeId,
+
+    /// The certificate contains more than one URI SAN that parses as a SPIFFE ID.
+    #[error("certificate contains multiple SPIFFE IDs in URI SAN")]
+    MultipleSpiffeIds,
+
+    /// The certificate has too many URI SAN entries to process safely.
+    #[error("certificate has too many URI SAN entries (max {max})")]
+    TooManyUriSanEntries {
+        /// Maximum number of URI SAN entries that will be inspected before aborting.
+        ///
+        /// This bound exists to prevent excessive resource usage when processing
+        /// malformed or adversarial certificates.
+        max: usize,
+    },
+
+    /// A URI SAN looked like a candidate but failed SPIFFE ID parsing.
+    #[error("failed to parse SPIFFE ID from URI SAN: {0}")]
+    InvalidSpiffeId(#[from] SpiffeIdError),
 }
 
 /// An error that may arise decoding private keys.

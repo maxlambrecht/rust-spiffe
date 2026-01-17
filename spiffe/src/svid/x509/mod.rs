@@ -5,7 +5,7 @@ mod validations;
 use crate::cert::error::{CertificateError, PrivateKeyError};
 use crate::cert::parsing::to_certificate_vec;
 use crate::cert::{Certificate, PrivateKey};
-use crate::spiffe_id::{SpiffeId, SpiffeIdError};
+use crate::spiffe_id::SpiffeId;
 use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
 use std::convert::TryFrom;
 use std::sync::Arc;
@@ -57,14 +57,6 @@ pub enum X509SvidError {
     /// 'keyCertSign' as key usage must be present in intermediate certificate.
     #[error("signing certificate must have 'keyCertSign' set as key usage")]
     SigningCertificateMissingKeyCertSign,
-
-    /// No URI Subject Alternative Names found.
-    #[error("leaf certificate misses the SPIFFE-ID in the URI SAN")]
-    MissingSpiffeId,
-
-    /// The URI Subject Alternative Name is not a valid SPIFFE ID.
-    #[error("failed to parse SPIFFE ID from certificate URI SAN: {0}")]
-    InvalidSpiffeId(#[from] SpiffeIdError),
 
     /// Error processing or validating the X.509 certificates.
     #[error(transparent)]
