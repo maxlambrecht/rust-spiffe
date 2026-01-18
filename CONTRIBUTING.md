@@ -17,8 +17,14 @@ Thank you for your interest in contributing to the Rust SPIFFE libraries!
 git clone https://github.com/maxlambrecht/rust-spiffe.git
 cd rust-spiffe
 
-# Run all checks (formatting, linting, building, testing)
+# Quick check (formatting + linting + build, no tests)
+make check
+
+# Full check (formatting + linting + build + tests)
 make all
+
+# Run full CI checks locally (includes MSRV verification)
+make ci
 
 # Run integration tests (requires SPIRE setup)
 make integration-tests
@@ -26,8 +32,8 @@ make integration-tests
 
 ## Code Style
 
-- Follow standard Rust formatting (`cargo fmt`)
-- Run `cargo clippy` and address warnings
+- Follow standard Rust formatting (`make fmt` or `cargo fmt`)
+- Run `make lint` to check for clippy warnings (or `cargo clippy` directly)
 - Ensure all public APIs are documented (`#![deny(missing_docs)]`)
 - No `unsafe` code blocks (enforced by `#![deny(unsafe_code)]`)
 
@@ -36,7 +42,10 @@ make integration-tests
 ### Unit Tests
 
 ```bash
-# Test a specific crate
+# Run tests on all crates (default features only)
+make test
+
+# Test a specific crate (full feature matrix)
 make spiffe
 make spiffe-rustls
 make spire-api
@@ -77,7 +86,7 @@ run them locally.
 
 1. **Fork and branch**: Create a feature branch from `main`
 2. **Make changes**: Follow code style guidelines
-3. **Test**: Ensure all tests pass (`make all`)
+3. **Test**: Ensure all tests pass (`make all` or `make ci` for full CI checks)
 4. **Document**: Update README/docs if needed
 5. **Submit**: Open a PR with a clear description
 
@@ -85,8 +94,9 @@ Reviews are done on a best-effort basis. Please allow time for feedback.
 
 ### PR Checklist
 
-- [ ] Code follows style guidelines
+- [ ] Code follows style guidelines (`make fmt-check`, `make lint`)
 - [ ] All tests pass (`make all`)
+- [ ] MSRV compatibility verified (`make msrv` or `make ci`)
 - [ ] Integration tests pass (if applicable)
 - [ ] Documentation updated (if needed)
 - [ ] CHANGELOG updated (if applicable)

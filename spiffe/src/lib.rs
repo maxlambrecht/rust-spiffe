@@ -37,6 +37,23 @@
 //! # }
 //! ```
 //!
+//! For JWT-based workloads, use [`JwtSource`] (requires the `jwt-source` feature):
+//!
+//! ```no_run
+//! # #[cfg(feature = "jwt-source")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::{TrustDomain, JwtSource};
+//!
+//! let source = JwtSource::new().await?;
+//! let _jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//! let trust_domain = TrustDomain::try_from("example.org")?;
+//! let _bundle = source
+//!     .bundle_for_trust_domain(&trust_domain)?
+//!     .ok_or("missing bundle")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! For direct Workload API access, use [`WorkloadApiClient`] (requires a `workload-api-*` feature):
 //!
 //! ```no_run
@@ -54,9 +71,9 @@
 //!
 //! The crate has **no default features** — everything is opt-in.
 //!
-//! Most users should enable `x509-source` (for X.509 workloads) or a `workload-api-*` bundle (for
-//! direct Workload API access). The granular features exist to let you minimize dependency surface
-//! when you only need X.509 or only need JWT.
+//! Most users should enable `x509-source` (for X.509 workloads), `jwt-source` (for JWT workloads),
+//! or a `workload-api-*` bundle (for direct Workload API access). The granular features exist to
+//! let you minimize dependency surface when you only need X.509 or only need JWT.
 //!
 //! | Feature | Description |
 //! |---------|-------------|
@@ -87,11 +104,13 @@
 //! |---------|-------------|
 //! | `workload-api-core` | Workload API infrastructure only (transport/proto/client plumbing; no X.509/JWT parsing/types) |
 //! | `x509-source` | High-level X.509 watcher/caching built on the Workload API (recommended for most X.509 workloads) |
+//! | `jwt-source` | High-level JWT watcher/caching built on the Workload API (recommended for most JWT workloads) |
 //!
 //! **Notes:**
 //!
 //! - The `x509` feature gates heavy X.509 parsing dependencies.
 //! - For most X.509 workloads, prefer `x509-source`, which provides automatic caching and rotation handling.
+//! - For most JWT workloads, prefer `jwt-source`, which provides automatic bundle caching and on-demand SVID fetching.
 //! - For direct Workload API usage, prefer `workload-api-x509` or `workload-api-jwt` when you only need one,
 //!   and `workload-api` (or `workload-api-full`) when you need both.
 //!
@@ -128,7 +147,33 @@
 //!
 //! For advanced X.509 source configuration, see the [`x509_source`] module.
 //!
-//! ## JWT SVIDs
+//! ## JWT (recommended)
+//!
+//! ```no_run
+//! # #[cfg(feature = "jwt-source")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::{TrustDomain, JwtSource};
+//!
+//! let source = JwtSource::new().await?;
+//!
+//! // Fetch JWT SVID for specific audiences
+//! let jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//!
+//! // Access JWT bundle for a trust domain
+//! let trust_domain = TrustDomain::try_from("example.org")?;
+//! let bundle = source
+//!     .bundle_for_trust_domain(&trust_domain)?
+//!     .ok_or("missing bundle")?;
+//!
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! For advanced JWT source configuration, see the [`jwt_source`] module.
+//!
+//! ## Direct Workload API access (JWT)
+//!
+//! For direct access without caching, use [`WorkloadApiClient`]:
 //!
 //! ```no_run
 //! # #[cfg(all(feature = "workload-api", feature = "jwt"))]
@@ -179,6 +224,9 @@ pub mod workload_api;
 #[cfg(feature = "x509-source")]
 pub mod x509_source;
 
+#[cfg(feature = "jwt-source")]
+pub mod jwt_source;
+
 // Core identifiers
 pub use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 
@@ -218,6 +266,16 @@ pub use crate::workload_api::{WorkloadApiClient, WorkloadApiError};
 // For advanced configuration types, see the [`x509_source`] module.
 #[cfg(feature = "x509-source")]
 pub use crate::x509_source::{
-    ReconnectConfig, ResourceLimits, X509Source, X509SourceBuilder, X509SourceError,
-    X509SourceUpdates,
+    ReconnectConfig as X509ReconnectConfig, ResourceLimits as X509ResourceLimits, X509Source,
+    X509SourceBuilder, X509SourceError, X509SourceUpdates,
 };
+
+// JWT Source
+//
+// High-level watcher/caching abstraction for JWT bundles. Available with `jwt-source` feature.
+// Primary types are re-exported at the crate root for ergonomics.
+// For advanced configuration types, see the [`jwt_source`] module.
+#[cfg(feature = "jwt-source")]
+pub use crate::jwt_source::{JwtSource, JwtSourceBuilder, JwtSourceError, JwtSourceUpdates};
+#[cfg(feature = "jwt-source")]
+pub use crate::jwt_source::{ReconnectConfig, ResourceLimits};
