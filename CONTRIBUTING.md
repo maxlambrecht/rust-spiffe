@@ -2,6 +2,10 @@
 
 Thank you for your interest in contributing to the Rust SPIFFE libraries!
 
+This project values clear APIs, disciplined changes, and a low-noise contribution process.
+
+---
+
 ## Development Setup
 
 ### Prerequisites
@@ -28,14 +32,18 @@ make ci
 
 # Run integration tests (requires SPIRE setup)
 make integration-tests
-```
+````
+
+---
 
 ## Code Style
 
-- Follow standard Rust formatting (`make fmt` or `cargo fmt`)
-- Run `make lint` to check for clippy warnings (or `cargo clippy` directly)
-- Ensure all public APIs are documented (`#![deny(missing_docs)]`)
-- No `unsafe` code blocks (enforced by `#![deny(unsafe_code)]`)
+* Follow standard Rust formatting (`make fmt` or `cargo fmt`)
+* Run `make lint` to check for clippy warnings (or `cargo clippy` directly)
+* Ensure all public APIs are documented (`#![deny(missing_docs)]`)
+* No `unsafe` code blocks (enforced by `#![deny(unsafe_code)]`)
+
+---
 
 ## Testing
 
@@ -53,7 +61,8 @@ make spire-api
 
 ### Integration Tests
 
-Integration tests require a running SPIRE agent. See `.github/workflows/scripts/run-spire.sh` for setup instructions.
+Integration tests require a running SPIRE agent. See
+`.github/workflows/scripts/run-spire.sh` for setup instructions.
 
 ```bash
 # Run all integration tests
@@ -78,9 +87,11 @@ cargo +nightly install cargo-fuzz --locked
 make fuzz
 ```
 
-Fuzz tests are not required for every pull request, but contributors
-touching parsing, validation, or security-sensitive code are encouraged to
-run them locally.
+Fuzz tests are not required for every pull request, but contributors touching
+parsing, validation, or security-sensitive code are encouraged to run them
+locally.
+
+---
 
 ## Pull Request Process
 
@@ -94,36 +105,72 @@ Reviews are done on a best-effort basis. Please allow time for feedback.
 
 ### PR Checklist
 
-- [ ] Code follows style guidelines (`make fmt-check`, `make lint`)
-- [ ] All tests pass (`make all`)
-- [ ] MSRV compatibility verified (`make msrv` or `make ci`)
-- [ ] Integration tests pass (if applicable)
-- [ ] Documentation updated (if needed)
-- [ ] CHANGELOG updated (if applicable)
+* [ ] Code follows style guidelines (`make fmt-check`, `make lint`)
+* [ ] All tests pass (`make all`)
+* [ ] MSRV compatibility verified (`make msrv` or `make ci`)
+* [ ] Integration tests pass (if applicable)
+* [ ] Documentation updated (if needed)
+* [ ] CHANGELOG updated (if applicable)
+
+---
+
+## Contribution Conventions
+
+This project follows **Conventional Commits** and **Conventional Pull Requests**.
+
+### Pull Requests
+
+* PR titles must follow the format:
+  `<type>(<scope>): <description>`
+* Example:
+  `feat(spiffe): add JwtSource API`
+* PRs are squash-merged; the PR title becomes the commit message.
+
+### Branches
+
+* Branches are short-lived and named using:
+  `<type>/<short-description>`
+* Examples:
+
+    * `feat/jwt-source`
+    * `fix/bundle-rotation`
+    * `chore/release-0.11.0`
+* Branches are deleted after merge.
+
+### Commits
+
+* Commits must follow Conventional Commits.
+* Release commits use the format:
+  `chore(release): <crate> <version>`
+
+---
 
 ## CI and Policy Checks
 
 Pull requests are checked using automated CI, including:
 
-- Formatting and linting
-- Unit and integration tests
-- Dependency vulnerability scanning (`cargo-audit`)
-- Dependency, license, and source policy checks (`cargo-deny`)
+* Formatting and linting
+* Unit and integration tests
+* Dependency vulnerability scanning (`cargo-audit`)
+* Dependency, license, and source policy checks (`cargo-deny`)
 
 New dependencies must comply with the existing policy defined in `deny.toml`.
+
+---
 
 ## Feature Development
 
 ### Adding New Features
 
-- Keep features opt-in (no default features)
-- Gate behind feature flags in `Cargo.toml`
-- Update feature matrix in crate documentation
-- Add tests for new functionality
+* Keep features opt-in (no default features)
+* Gate functionality behind feature flags in `Cargo.toml`
+* Update the feature matrix in crate documentation
+* Add tests for new functionality
+
+---
 
 ## Questions?
 
-- Open an issue for bugs or feature requests
-- Check existing issues and PRs before creating new ones
-- Be respectful and constructive in discussions
-
+* Open an issue for bugs or feature requests
+* Check existing issues and PRs before creating new ones
+* Be respectful and constructive in discussions
