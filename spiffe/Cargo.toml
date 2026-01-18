@@ -107,6 +107,9 @@ workload-api = ["workload-api-full"]
 # High-level X.509 watcher/caching API built on the Workload API.
 x509-source = ["workload-api"]
 
+# High-level JWT watcher/caching API built on the Workload API.
+jwt-source = ["workload-api", "jwt"]
+
 # JWT types + token parsing (no signature verification).
 jwt = ["dep:serde", "dep:serde_json", "dep:time", "dep:base64ct", "dep:zeroize"]
 

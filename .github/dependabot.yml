@@ -1,61 +1,56 @@
 version: 2
 
 updates:
-  # GitHub Actions
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
-    labels:
-      - dependencies
-      - ci
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "chore(ci)"
     groups:
       github-actions:
-        patterns:
-          - "*"
+        patterns: ["*"]
 
-  # spiffe crate
   - package-ecosystem: cargo
     directory: /spiffe
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - rust
+    open-pull-requests-limit: 5
+    labels: [dependencies, rust]
+    commit-message:
+      prefix: "chore(deps)"
     groups:
-      spiffe-minor-patch:
+      minor-patch:
         update-types: [minor, patch]
-      spiffe-major:
+      major:
         update-types: [major]
 
-  # spiffe-rustls crate
   - package-ecosystem: cargo
     directory: /spiffe-rustls
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - rust
+    open-pull-requests-limit: 5
+    labels: [dependencies, rust]
+    commit-message:
+      prefix: "chore(deps)"
     groups:
-      spiffe-rustls-minor-patch:
+      minor-patch:
         update-types: [minor, patch]
-      spiffe-rustls-major:
+      major:
         update-types: [major]
 
-  # spire-api crate
   - package-ecosystem: cargo
     directory: /spire-api
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
-    labels:
-      - dependencies
-      - rust
+    open-pull-requests-limit: 5
+    labels: [dependencies, rust]
+    commit-message:
+      prefix: "chore(deps)"
     groups:
-      spire-api-minor-patch:
+      minor-patch:
         update-types: [minor, patch]
-      spire-api-major:
+      major:
         update-types: [major]

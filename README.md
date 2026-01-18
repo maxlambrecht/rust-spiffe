@@ -125,12 +125,20 @@ Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 git clone https://github.com/maxlambrecht/rust-spiffe.git
 cd rust-spiffe
 
-# Run tests 
+# Quick check (formatting + linting + build, no tests)
+make check
+
+# Full test suite (formatting + linting + build + tests)
 make all
+
+# Run full CI checks locally (includes MSRV verification)
+make ci
 
 # Run integration tests (requires SPIRE setup)
 make integration-tests
 ```
+
+See `make help` for all available targets.
 
 ### Reporting Issues
 

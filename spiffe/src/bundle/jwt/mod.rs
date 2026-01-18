@@ -255,6 +255,28 @@ impl JwtBundle {
         self.add_jwt_authority(authority);
         Ok(())
     }
+
+    /// Returns an iterator over all JWT authorities in this bundle.
+    ///
+    /// The iterator yields `&Arc<JwtAuthority>` values, allowing access to each
+    /// authority's key ID and JWK JSON without consuming the bundle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::{TrustDomain, JwtBundle};
+    ///
+    /// let trust_domain = TrustDomain::new("example.org")?;
+    /// let bundle = JwtBundle::new(trust_domain);
+    ///
+    /// for authority in bundle.jwt_authorities() {
+    ///     println!("Key ID: {}", authority.key_id());
+    /// }
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    pub fn jwt_authorities(&self) -> impl Iterator<Item = &Arc<JwtAuthority>> {
+        self.jwt_authorities.values()
+    }
 }
 
 impl JwtBundleSet {

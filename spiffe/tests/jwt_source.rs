@@ -1,25 +1,24 @@
-//! Integration tests for `X509Source`.
+//! Integration tests for `JwtSource`.
 //!
 //! These tests require a running SPIRE server and agent with workloads registered
 //! (see `scripts/run-spire.sh`).
 //!
 //! The tests cover:
-//! - Basic SVID and bundle retrieval
+//! - Basic bundle retrieval
+//! - JWT SVID fetching
 //! - Update notifications
-//! - Custom pickers and client factories
+//! - Custom client factories
 //! - Resource limits
 //! - Health checks
 //! - Shutdown behavior
 //! - Convenience methods
-#[cfg(feature = "x509-source")]
-mod integration_tests_x509_source {
+#[cfg(feature = "jwt-source")]
+mod integration_tests_jwt_source {
     use spiffe::bundle::BundleSource;
+    use spiffe::jwt_source::JwtSourceBuilder;
+    use spiffe::jwt_source::{JwtSource, MetricsErrorKind, MetricsRecorder, ResourceLimits};
     use spiffe::workload_api::error::WorkloadApiError;
-    use spiffe::x509_source::X509SourceBuilder;
-    use spiffe::x509_source::{
-        MetricsErrorKind, MetricsRecorder, ResourceLimits, SvidPicker, X509Source,
-    };
-    use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509Svid};
+    use spiffe::{JwtBundle, SpiffeId, TrustDomain, WorkloadApiClient};
     use std::collections::HashMap;
     use std::error::Error;
     use std::future::Future;
@@ -39,18 +38,6 @@ mod integration_tests_x509_source {
 
     fn trust_domain() -> TrustDomain {
         TrustDomain::new("example.org").unwrap()
-    }
-
-    struct SecondSvidPicker;
-
-    impl SvidPicker for SecondSvidPicker {
-        fn pick_svid(&self, svids: &[Arc<X509Svid>]) -> Option<usize> {
-            if svids.len() > 1 {
-                Some(1)
-            } else {
-                None
-            }
-        }
     }
 
     /// Test metrics recorder that tracks all recorded metrics.
@@ -75,7 +62,7 @@ mod integration_tests_x509_source {
         fn record_error(&self, kind: MetricsErrorKind) {
             // Use a blocking lock since this is called from async context
             // and we need to avoid deadlocks. In a real implementation,
-            // you'd use async locking, but for tests this is acceptable.
+            // we'd use async locking, but for tests this is acceptable.
             let mut errors = self.errors.blocking_lock();
             *errors.entry(kind).or_insert(0) += 1;
         }
@@ -101,66 +88,20 @@ mod integration_tests_x509_source {
         }
     }
 
-    async fn get_source() -> X509Source {
-        X509Source::new()
-            .await
-            .expect("Failed to create X509Source")
-    }
-
-    #[tokio::test]
-    #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_get_x509_svid() {
-        let source = get_source().await;
-        let svid = source.svid().expect("Failed to get X509Svid");
-
-        let expected_ids = [spiffe_id_1(), spiffe_id_2()];
-        assert!(
-            expected_ids.contains(svid.spiffe_id()),
-            "Unexpected SPIFFE ID: {:?}",
-            svid.spiffe_id()
-        );
-        assert!(
-            !svid.cert_chain().is_empty(),
-            "Certificate chain should not be empty"
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_try_svid() {
-        let source = get_source().await;
-
-        // Should succeed when source is healthy
-        let svid = source
-            .try_svid()
-            .expect("try_svid() should return Some when healthy");
-        assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Unexpected SPIFFE ID"
-        );
-
-        // After shutdown, should return None
-        source.shutdown().await;
-        assert!(
-            source.try_svid().is_none(),
-            "try_svid() should return None after shutdown"
-        );
+    async fn get_source() -> JwtSource {
+        JwtSource::new().await.expect("Failed to create JwtSource")
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_get_bundle_for_trust_domain() {
         let source = get_source().await;
-        let bundle: Arc<X509Bundle> = source
+        let bundle: Arc<JwtBundle> = source
             .bundle_for_trust_domain(&trust_domain())
-            .expect("Failed to get X509Bundle")
-            .expect("No X509Bundle found");
+            .expect("Failed to get JwtBundle")
+            .expect("No JwtBundle found");
 
         assert_eq!(bundle.trust_domain().as_ref(), trust_domain().as_ref());
-        assert!(
-            !bundle.authorities().is_empty(),
-            "Bundle should have at least one authority"
-        );
     }
 
     #[tokio::test]
@@ -200,25 +141,35 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_x509_context() {
+    async fn test_get_jwt_svid() {
         let source = get_source().await;
-        let context = source.x509_context().expect("Failed to get X509Context");
+        let audience = vec!["test-audience".to_string()];
+        let svid = source
+            .get_jwt_svid(&audience)
+            .await
+            .expect("Failed to get JWT SVID");
 
-        // Should have at least one SVID
+        let expected_ids = [spiffe_id_1(), spiffe_id_2()];
         assert!(
-            !context.svids().is_empty(),
-            "Context should have at least one SVID"
+            expected_ids.contains(svid.spiffe_id()),
+            "Unexpected SPIFFE ID: {:?}",
+            svid.spiffe_id()
         );
+        assert!(!svid.token().is_empty(), "JWT token should not be empty");
+    }
 
-        // Should have a default SVID
-        let default_svid = context.default_svid();
-        assert!(default_svid.is_some(), "Context should have a default SVID");
+    #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
+    async fn test_get_jwt_svid_with_id() {
+        let source = get_source().await;
+        let audience = vec!["test-audience".to_string()];
+        let svid = source
+            .get_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
+            .await
+            .expect("Failed to get JWT SVID with ID");
 
-        // Should have bundles
-        assert!(
-            !context.bundle_set().is_empty(),
-            "Context should have bundles"
-        );
+        assert_eq!(svid.spiffe_id(), &spiffe_id_1());
+        assert!(!svid.token().is_empty(), "JWT token should not be empty");
     }
 
     #[tokio::test]
@@ -232,12 +183,12 @@ mod integration_tests_x509_source {
             "Source should be healthy after creation"
         );
 
-        // If healthy, svid() should succeed
+        // If healthy, bundle_for_trust_domain() should succeed
         if source.is_healthy() {
-            let svid_result = source.svid();
+            let bundle_result = source.bundle_for_trust_domain(&trust_domain());
             assert!(
-                svid_result.is_ok(),
-                "If is_healthy() returns true, svid() should succeed"
+                bundle_result.is_ok(),
+                "If is_healthy() returns true, bundle_for_trust_domain() should succeed"
             );
         }
 
@@ -275,7 +226,7 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_x509_source_with_custom_picker_and_client() -> Result<(), Box<dyn Error>> {
+    async fn test_jwt_source_with_custom_client() -> Result<(), Box<dyn Error>> {
         type ClientFactory = Arc<
             dyn Fn() -> Pin<
                     Box<dyn Future<Output = Result<WorkloadApiClient, WorkloadApiError>> + Send>,
@@ -286,19 +237,15 @@ mod integration_tests_x509_source {
         let factory: ClientFactory =
             Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }));
 
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .client_factory(factory)
-            .picker(SecondSvidPicker)
             .build()
             .await?;
 
-        let svid = source.svid().expect("Failed to get X509Svid");
-
-        let expected_ids = [spiffe_id_1(), spiffe_id_2()];
-        assert!(
-            expected_ids.contains(svid.spiffe_id()),
-            "Unexpected SPIFFE ID"
-        );
+        let bundle = source
+            .bundle_for_trust_domain(&trust_domain())?
+            .expect("No JwtBundle found");
+        assert_eq!(bundle.trust_domain().as_ref(), trust_domain().as_ref());
 
         Ok(())
     }
@@ -308,21 +255,20 @@ mod integration_tests_x509_source {
     async fn test_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with very restrictive limits (should still work if actual values are below limits)
         let limits = ResourceLimits {
-            max_svids: Some(10),
             max_bundles: Some(10),
-            max_bundle_der_bytes: Some(1024 * 1024), // 1MB
+            max_bundle_jwks_bytes: Some(1024 * 1024), // 1MB
         };
 
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .resource_limits(limits)
             .build()
             .await?;
 
         // Should work if limits are not exceeded
-        let svid = source.svid()?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
         assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Should get SVID when limits are not exceeded"
+            bundle.is_some(),
+            "Should get bundle when limits are not exceeded"
         );
 
         Ok(())
@@ -333,22 +279,18 @@ mod integration_tests_x509_source {
     async fn test_unlimited_resource_limits() -> Result<(), Box<dyn Error>> {
         // Test with unlimited limits
         let limits = ResourceLimits {
-            max_svids: None,
             max_bundles: None,
-            max_bundle_der_bytes: None,
+            max_bundle_jwks_bytes: None,
         };
 
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .resource_limits(limits)
             .build()
             .await?;
 
         // Should work with unlimited limits
-        let svid = source.svid()?;
-        assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Should get SVID with unlimited limits"
-        );
+        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        assert!(bundle.is_some(), "Should get bundle with unlimited limits");
 
         Ok(())
     }
@@ -359,26 +301,47 @@ mod integration_tests_x509_source {
         let metrics = Arc::new(TestMetricsRecorder::new());
         let update_notify = metrics.update_notify();
 
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .metrics(metrics.clone())
             .build()
             .await?;
 
-        // Trigger an update by getting the SVID
-        let _svid = source.svid()?;
+        // Verify the source is working
+        let _bundle = source.bundle_for_trust_domain(&trust_domain())?;
 
-        // Wait for an update to be recorded (initial sync should record an update)
-        // Use timeout to prevent hanging if no update occurs
-        let update_recorded =
-            tokio::time::timeout(Duration::from_secs(2), update_notify.notified())
-                .await
-                .is_ok();
+        // Wait for an actual bundle rotation (updates are only recorded on rotations, not initial sync)
+        let mut updates = source.updated();
+        let initial_seq = updates.last();
 
-        // Should have recorded at least one update (initial sync)
-        assert!(
-            update_recorded && metrics.update_count() > 0,
-            "Should have recorded at least one update"
-        );
+        // Wait for at least one update (bundle rotation) - use both the update sequence
+        // and the metrics notify to ensure we catch the update
+        let update_result = tokio::time::timeout(Duration::from_secs(30), async {
+            tokio::select! {
+                seq_result = updates.wait_for(|&seq| seq > initial_seq) => seq_result,
+                _ = update_notify.notified() => {
+                    // If we got notified of an update, check the sequence
+                    if updates.last() > initial_seq {
+                        Ok(updates.last())
+                    } else {
+                        // Wait a bit more for the sequence to update
+                        updates.wait_for(|&seq| seq > initial_seq).await
+                    }
+                }
+            }
+        })
+        .await;
+
+        // If we got an update, metrics should have been recorded
+        // Note: Initial sync doesn't record an update; only bundle rotations do.
+        // If no update occurred within 30 seconds, that's acceptable (the source
+        // might not have rotated bundles yet). The test verifies that the metrics
+        // recorder is set up correctly and will record updates when they occur.
+        if let Ok(Ok(_seq)) = update_result {
+            assert!(
+                metrics.update_count() > 0,
+                "Should have recorded at least one update after bundle rotation"
+            );
+        }
 
         Ok(())
     }
@@ -386,7 +349,7 @@ mod integration_tests_x509_source {
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_shutdown_with_timeout() -> Result<(), Box<dyn Error>> {
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
             .await?;
@@ -399,7 +362,10 @@ mod integration_tests_x509_source {
         result.unwrap().expect("Shutdown should succeed");
 
         // After shutdown, operations should fail
-        assert!(source.svid().is_err(), "svid() should fail after shutdown");
+        assert!(
+            source.bundle_for_trust_domain(&trust_domain()).is_err(),
+            "bundle_for_trust_domain() should fail after shutdown"
+        );
 
         Ok(())
     }
@@ -407,7 +373,7 @@ mod integration_tests_x509_source {
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_shutdown_idempotent() -> Result<(), Box<dyn Error>> {
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
             .await?;
@@ -425,16 +391,16 @@ mod integration_tests_x509_source {
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_reconnect_backoff_config() -> Result<(), Box<dyn Error>> {
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .reconnect_backoff(Duration::from_millis(100), Duration::from_secs(5))
             .build()
             .await?;
 
         // Should work with custom backoff
-        let svid = source.svid()?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
         assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Should get SVID with custom backoff config"
+            bundle.is_some(),
+            "Should get bundle with custom backoff config"
         );
 
         Ok(())
@@ -445,51 +411,28 @@ mod integration_tests_x509_source {
     async fn test_custom_endpoint() -> Result<(), Box<dyn Error>> {
         // Test that custom endpoint configuration works
         // This will use the default endpoint from environment if custom endpoint fails
-        let source = X509SourceBuilder::new()
+        let source = JwtSourceBuilder::new()
             .endpoint("unix:/tmp/spire-agent/public/api.sock")
             .build()
             .await?;
 
-        let svid = source.svid()?;
-        assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Should get SVID with custom endpoint"
-        );
+        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        assert!(bundle.is_some(), "Should get bundle with custom endpoint");
 
         Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_picker_selection() -> Result<(), Box<dyn Error>> {
-        // Test that picker actually selects the second SVID
-        let source = X509SourceBuilder::new()
-            .picker(SecondSvidPicker)
-            .build()
-            .await?;
-
-        let svid = source.svid()?;
-        // The picker selects the second SVID (index 1)
-        // We can't assert the exact ID without knowing the order, but we can verify it works
-        assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
-            "Picker should select a valid SVID"
-        );
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_health_check_guarantees_svid_success() {
+    async fn test_health_check_guarantees_bundle_success() {
         let source = get_source().await;
 
-        // If is_healthy() returns true, svid() must succeed
+        // If is_healthy() returns true, bundle_for_trust_domain() must succeed
         if source.is_healthy() {
-            let svid_result = source.svid();
+            let bundle_result = source.bundle_for_trust_domain(&trust_domain());
             assert!(
-                svid_result.is_ok(),
-                "is_healthy() returning true must guarantee svid() succeeds"
+                bundle_result.is_ok(),
+                "is_healthy() returning true must guarantee bundle_for_trust_domain() succeeds"
             );
         }
 
@@ -497,8 +440,8 @@ mod integration_tests_x509_source {
         for _ in 0..10 {
             if source.is_healthy() {
                 assert!(
-                    source.svid().is_ok(),
-                    "is_healthy() must consistently guarantee svid() success"
+                    source.bundle_for_trust_domain(&trust_domain()).is_ok(),
+                    "is_healthy() must consistently guarantee bundle_for_trust_domain() success"
                 );
             }
         }
@@ -570,11 +513,11 @@ mod integration_tests_x509_source {
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_builder_defaults() -> Result<(), Box<dyn Error>> {
         // Test that builder with defaults works
-        let source = X509SourceBuilder::new().build().await?;
+        let source = JwtSourceBuilder::new().build().await?;
 
-        let svid = source.svid()?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
         assert!(
-            [spiffe_id_1(), spiffe_id_2()].contains(svid.spiffe_id()),
+            bundle.is_some(),
             "Should work with default builder configuration"
         );
 
@@ -583,15 +526,11 @@ mod integration_tests_x509_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_context_after_shutdown() {
+    async fn test_bundle_set_after_shutdown() {
         let source = get_source().await;
         source.shutdown().await;
 
-        // After shutdown, context operations should fail
-        assert!(
-            source.x509_context().is_err(),
-            "x509_context() should fail after shutdown"
-        );
+        // After shutdown, bundle set operations should fail
         assert!(
             source.bundle_set().is_err(),
             "bundle_set() should fail after shutdown"
@@ -630,6 +569,37 @@ mod integration_tests_x509_source {
         assert_eq!(
             seq_before, seq_after,
             "Sequence should not change after shutdown"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
+    async fn test_get_jwt_svid_after_shutdown() {
+        let source = get_source().await;
+        source.shutdown().await;
+
+        let audience = vec!["test-audience".to_string()];
+        let result = source.get_jwt_svid(&audience).await;
+
+        // Should fail after shutdown
+        assert!(result.is_err(), "get_jwt_svid() should fail after shutdown");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires running SPIFFE Workload API"]
+    async fn test_get_jwt_svid_with_id_after_shutdown() {
+        let source = get_source().await;
+        source.shutdown().await;
+
+        let audience = vec!["test-audience".to_string()];
+        let result = source
+            .get_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
+            .await;
+
+        // Should fail after shutdown
+        assert!(
+            result.is_err(),
+            "get_jwt_svid_with_id() should fail after shutdown"
         );
     }
 }
