@@ -70,10 +70,14 @@ jobs:
         run: make lint
 
   test:
-    name: Build + Test (feature matrices)
+    name: Build + Test (${{ matrix.crate }})
     runs-on: ubuntu-latest
-    needs: [fmt, lint]  # Wait for both to ensure code quality before testing
+    needs: [ fmt, lint ]
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [ spiffe, spire-api, spiffe-rustls ]
     steps:
       - name: Check out code
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -90,13 +94,14 @@ jobs:
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           workspaces: "spiffe spire-api spiffe-rustls"
-          shared-key: ${{ runner.os }}-cargo-base
+          shared-key: ${{ runner.os }}-cargo-${{ matrix.crate }}
           cache-on-failure: true
 
-      - name: Build and test all crates
-        run: make all
+      - name: Build + test (feature matrices)
+        run: make ${{ matrix.crate }}
 
       - name: Build examples
+        if: matrix.crate == 'spiffe-rustls'
         run: make examples
 
   integration:
