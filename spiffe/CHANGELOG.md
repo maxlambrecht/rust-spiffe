@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.11.0] - 2026-01-18
+
+### Highlights
+- **New: `JwtSource`** — high-level API for automatic JWT bundle watching and cached, on-demand JWT-SVID fetching.  
+  Provides API parity with `X509Source` and aligns with the canonical SPIFFE implementation (go-spiffe).
+
+### Added
+- `JwtSource`, a managed source for JWT bundles and JWT-SVIDs backed by the Workload API.
+- Automatic JWT bundle watching with in-memory caching and rotation handling.
+- On-demand JWT-SVID fetching via `get_jwt_svid()` and `get_jwt_svid_with_id()`.
+- Update notifications through the `updated()` handle.
+- Configurable resource limits for bundle count and JWKS size.
+- Optional metrics recorder integration.
+- Health checks via `is_healthy()`.
+- Graceful shutdown support (`shutdown()` and `shutdown_with_timeout()`).
+- Automatic reconnection with exponential backoff on transient failures.
+
+### Notes
+- This is an additive change and does not introduce breaking API changes.
+- `JwtSource` is opt-in and does not affect existing `X509Source` behavior.
+
+
 ## [0.10.2] – 2026-01-17
 
 ### Fixed

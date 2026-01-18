@@ -27,16 +27,16 @@ Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 ```toml
 [dependencies]
 # Minimal: only SPIFFE primitives 
-spiffe = "0.10"
+spiffe = "0.11"
 
 # OR X.509 workloads (recommended)
-# spiffe = { version = "0.10", features = ["x509-source"] }
+# spiffe = { version = "0.11", features = ["x509-source"] }
 
 # OR JWT workloads (recommended)
-# spiffe = { version = "0.10", features = ["jwt-source"] }
+# spiffe = { version = "0.11", features = ["jwt-source"] }
 
 # OR Direct Workload API usage
-# spiffe = { version = "0.10", features = ["workload-api"] }
+# spiffe = { version = "0.11", features = ["workload-api"] }
 ```
 
 ---
