@@ -1,4 +1,5 @@
 CARGO ?= cargo
+SHELL := /bin/bash
 
 -include make/fuzz.mk
 
