@@ -167,4 +167,47 @@ mod x509_svid_tests {
         }
         openssl::pkey::PKey::private_key_from_der(x509_svid.private_key().as_ref()).unwrap();
     }
+
+    /// Regression test for issue #147: X.509-SVID with an empty Subject Name (0-element RDNSequence).
+    ///
+    /// Historically, certificates whose Subject is present but empty triggered ASN.1 decoding
+    /// failures in some parsing paths, resulting in errors such as:
+    /// `InvalidX509Svid(Certificate(ChainDecode(EmptyBuffer)))`.
+    ///
+    /// This test ensures that `X509Svid::parse_from_der` continues to accept such certificates
+    /// and that the SPIFFE ID and associated key material remain usable.
+    #[test]
+    fn test_x509_svid_with_empty_subject_name_sequence() {
+        let cert_bytes: &[u8] = include_bytes!("testdata/svid/x509/empty-subject-name.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/empty-subject-name-key.der");
+
+        let x509_svid = X509Svid::parse_from_der(cert_bytes, key_bytes)
+            .expect("issue #147 regression: X509Svid::parse_from_der should succeed");
+
+        assert_eq!(
+            x509_svid.cert_chain().len(),
+            1,
+            "unexpected cert chain length"
+        );
+        assert_eq!(x509_svid.leaf().as_ref(), cert_bytes, "leaf cert mismatch");
+
+        assert_eq!(
+            x509_svid.private_key().as_ref(),
+            key_bytes,
+            "private key mismatch"
+        );
+
+        // SPIFFE ID extraction must work.
+        let expected = SpiffeId::from_str("spiffe://example.org/test-empty-subject")
+            .expect("test SPIFFE ID must be valid");
+        assert_eq!(x509_svid.spiffe_id(), &expected, "SPIFFE ID mismatch");
+
+        // Interop sanity checks
+        for cert in x509_svid.cert_chain() {
+            openssl::x509::X509::from_der(cert.as_ref())
+                .expect("OpenSSL should parse certificate DER");
+        }
+        openssl::pkey::PKey::private_key_from_der(x509_svid.private_key().as_ref())
+            .expect("OpenSSL should parse private key DER");
+    }
 }
