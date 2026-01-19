@@ -673,6 +673,7 @@ mod test {
     use p256::elliptic_curve::pkcs8::EncodePrivateKey;
     // use rand_core::OsRng;
     use p256::elliptic_curve::rand_core::OsRng;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn b64u(data: &[u8]) -> String {
         Base64UrlUnpadded::encode_string(data)
@@ -865,5 +866,87 @@ mod test {
         header.kid = kid;
 
         encode(&header, &claims, encoding_key).unwrap()
+    }
+
+    /// Build an ES256 public JWK JSON with `use = "jwt-svid"` (SPIFFE-compliant).
+    ///
+    /// Per SPIFFE spec §4.2.2, the `use` field for JWT bundle keys is `"jwt-svid"`
+    /// or `"x509-svid"` (not `"sig"` / `"enc"`).
+    fn make_es256_public_jwk_json_with_use_jwt_svid(
+        signing_key: &SigningKey,
+        kid: &str,
+    ) -> Vec<u8> {
+        let verifying_key = signing_key.verifying_key();
+        let point = verifying_key.to_encoded_point(false);
+
+        let x = point.x().expect("x coordinate missing");
+        let y = point.y().expect("y coordinate missing");
+
+        serde_json::to_vec(&serde_json::json!({
+            "kty": "EC",
+            "crv": "P-256",
+            "x": b64u(x),
+            "y": b64u(y),
+            "alg": "ES256",
+            "use": "jwt-svid",
+            "kid": kid,
+        }))
+        .expect("JWK should serialize")
+    }
+
+    /// Regression test: accept SPIFFE-compliant JWKs with `use = "jwt-svid"`.
+    ///
+    /// This test protects against rejecting valid SPIFFE JWT bundle keys due to
+    /// non-SPIFFE expectations around the JWK `use` field.
+    #[test]
+    fn test_accepts_jwk_with_use_jwt_svid() {
+        let kid = "test-key-id-jwt-svid";
+
+        let signing_key = SigningKey::random(&mut OsRng);
+
+        let pkcs8_der = signing_key
+            .to_pkcs8_der()
+            .expect("PKCS#8 DER serialization should succeed");
+        let encoding_key = EncodingKey::from_ec_der(pkcs8_der.as_bytes());
+
+        // Create JWK with SPIFFE-compliant `use`
+        let jwk_json = make_es256_public_jwk_json_with_use_jwt_svid(&signing_key, kid);
+        let authority = JwtAuthority::from_jwk_json(&jwk_json)
+            .expect("issue regression: should accept JWK with use=jwt-svid");
+
+        // Bundle set for trust domain
+        let trust_domain = TrustDomain::new("example.org").expect("valid trust domain");
+        let mut bundle = JwtBundle::new(trust_domain);
+        bundle.add_jwt_authority(authority);
+
+        let mut bundle_set = JwtBundleSet::default();
+        bundle_set.add_bundle(bundle);
+
+        let target_audience = vec!["audience".to_owned()];
+
+        let exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before UNIX_EPOCH")
+            .as_secs()
+            + 300;
+
+        let token = generate_token(
+            target_audience.clone(),
+            "spiffe://example.org/workload".to_string(),
+            None,                  // typ
+            Some(kid.to_string()), // kid
+            exp.try_into().unwrap(),
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        let svid = JwtSvid::parse_and_validate(&token, &bundle_set, &["audience"])
+            .expect("issue regression: JWT-SVID signed by use=jwt-svid key should validate");
+
+        assert_eq!(
+            svid.spiffe_id().to_string(),
+            "spiffe://example.org/workload"
+        );
+        assert_eq!(svid.audience(), &target_audience);
     }
 }
