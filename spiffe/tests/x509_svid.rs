@@ -184,7 +184,11 @@ mod x509_svid_tests {
         let x509_svid = X509Svid::parse_from_der(cert_bytes, key_bytes)
             .expect("issue #147 regression: X509Svid::parse_from_der should succeed");
 
-        assert_eq!(x509_svid.cert_chain().len(), 1, "unexpected cert chain length");
+        assert_eq!(
+            x509_svid.cert_chain().len(),
+            1,
+            "unexpected cert chain length"
+        );
         assert_eq!(x509_svid.leaf().as_ref(), cert_bytes, "leaf cert mismatch");
 
         assert_eq!(
