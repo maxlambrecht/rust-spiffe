@@ -1,14 +1,19 @@
 [package]
 name = "spiffe-rustls"
 version = "0.4.3"
-edition = "2021"
-rust-version = "1.85"
-license = "Apache-2.0"
-description = "SPIFFE/SPIRE integration for rustls"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/spiffe-rustls"
 readme = "README.md"
-repository = "https://github.com/maxlambrecht/rust-spiffe"
+description = "SPIFFE-based mTLS integration for rustls"
+categories = ["authentication", "network-programming"]
 keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
-categories = ["network-programming", "cryptography", "authentication"]
+
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 spiffe = { version = "^0.10.2", features = ["x509-source"] }

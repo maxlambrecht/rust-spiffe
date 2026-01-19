@@ -1,16 +1,21 @@
 [package]
 name = "spiffe"
 version = "0.11.0"
-edition = "2021"
-rust-version = "1.85"
-authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
-license = "Apache-2.0"
-description = "Rust client library implementation for SPIFFE"
-repository = "https://github.com/maxlambrecht/rust-spiffe"
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
 documentation = "https://docs.rs/spiffe"
 readme = "README.md"
-categories = ["cryptography"]
-keywords = ["spiffe", "x509", "jwt"]
+description = "SPIFFE identity types and sources for Rust"
+categories = ["authentication", "network-programming"]
+keywords = ["spiffe", "identity", "authentication", "x509", "jwt"]
+
+[package.metadata.docs.rs]
+no-default-features = true
+features = ["x509-source", "jwt-source", "jwt-verify-rust-crypto"]
+rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 thiserror = "2"
@@ -119,6 +124,3 @@ jwt-verify-aws-lc-rs = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/aws_lc_rs"]
 # Observability backends (optional).
 logging = ["dep:log"]
 tracing = ["dep:tracing", "logging"]
-
-[package.metadata.docs.rs]
-features = ["x509-source", "jwt", "jwt-verify-rust-crypto"]
