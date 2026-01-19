@@ -7,7 +7,13 @@ members = [
     "spiffe-rustls-grpc-examples",
     "xtask",
 ]
-
 exclude = [
     "spiffe/fuzz",
 ]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/maxlambrecht/rust-spiffe"
+authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
