@@ -320,6 +320,8 @@ impl JwtSvid {
         use jsonwebtoken::jwk::Jwk;
 
         // Parse untrusted token to extract trust domain, kid, and alg.
+        // Note: The `aud` claim size limit is enforced during Claims deserialization,
+        // rejecting oversized arrays before signature verification and other expensive processing.
         let untrusted = JwtSvid::parse_insecure(token)?;
 
         let jwt_authority = JwtSvid::find_jwt_authority(
@@ -474,7 +476,16 @@ impl FromStr for JwtSvid {
     }
 }
 
+/// Maximum number of audience values allowed in a JWT `aud` claim.
+///
+/// This limit prevents `DoS` attacks through excessive memory allocation when processing
+/// JWT tokens with large audience arrays. A typical JWT-SVID has 1-3 audience values.
+/// A limit of 32 is conservative and sufficient for legitimate use cases while preventing
+/// resource exhaustion from adversarial or malformed tokens.
+const MAX_JWT_AUDIENCE_COUNT: usize = 32;
+
 // Deserialize 'aud' claim being either a String or a sequence of strings.
+// Enforces MAX_JWT_AUDIENCE_COUNT during deserialization to prevent DoS attacks.
 fn string_or_seq_string<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -495,11 +506,24 @@ where
             Ok(vec![value.to_owned()])
         }
 
-        fn visit_seq<S>(self, visitor: S) -> Result<Self::Value, S::Error>
+        fn visit_seq<S>(self, mut visitor: S) -> Result<Self::Value, S::Error>
         where
             S: de::SeqAccess<'de>,
         {
-            Deserialize::deserialize(de::value::SeqAccessDeserializer::new(visitor))
+            // Enforce a hard upper bound during deserialization to cap allocations and prevent DoS attacks.
+            let mut result = Vec::new();
+            while let Some(elem) = visitor.next_element::<String>()? {
+                if result.len() >= MAX_JWT_AUDIENCE_COUNT {
+                    // Exceeded limit during deserialization - return error to prevent further allocation.
+                    // This error will surface as InvalidJson (deserialization errors map to InvalidJson),
+                    // which is appropriate since the token's JSON structure violates size constraints.
+                    return Err(de::Error::custom(format!(
+                        "JWT `aud` claim has too many entries (max {MAX_JWT_AUDIENCE_COUNT})"
+                    )));
+                }
+                result.push(elem);
+            }
+            Ok(result)
         }
     }
 
@@ -948,5 +972,91 @@ mod test {
             "spiffe://example.org/workload"
         );
         assert_eq!(svid.audience(), &target_audience);
+    }
+
+    /// Security test: JWT `aud` claim array size must be bounded to prevent `DoS` attacks.
+    ///
+    /// This test verifies that tokens with excessive `aud` claim values are rejected,
+    /// preventing `DoS` attacks through excessive memory allocation. The limit applies
+    /// to the token's `aud` claim content, not the caller's `expected_audience` parameter.
+    #[test]
+    fn test_jwt_audience_claim_size_limit() {
+        let kid = "test-key-id";
+        let signing_key = SigningKey::random(&mut OsRng);
+        let pkcs8_der = signing_key
+            .to_pkcs8_der()
+            .expect("PKCS#8 DER serialization should succeed");
+        let encoding_key = EncodingKey::from_ec_der(pkcs8_der.as_bytes());
+
+        let jwk_json = make_es256_public_jwk_json_with_use_jwt_svid(&signing_key, kid);
+        let authority = JwtAuthority::from_jwk_json(&jwk_json).expect("valid JWK JSON");
+
+        let trust_domain = TrustDomain::new("example.org").expect("valid trust domain");
+        let mut bundle = JwtBundle::new(trust_domain);
+        bundle.add_jwt_authority(authority);
+
+        let mut bundle_set = JwtBundleSet::default();
+        bundle_set.add_bundle(bundle);
+
+        // Test with excessive `aud` claim values in token (MAX_JWT_AUDIENCE_COUNT is 32, so 33 should trigger)
+        let excessive_audiences: Vec<String> = (0..33).map(|i| format!("aud{i}")).collect();
+        let oversized_token = generate_token(
+            excessive_audiences,
+            "spiffe://example.org/workload".to_string(),
+            None,
+            Some(kid.to_string()),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before UNIX_EPOCH")
+                .as_secs()
+                .try_into()
+                .unwrap(),
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        // Should reject token with excessive `aud` claim values during parsing
+        // (before expensive signature verification)
+        let result = JwtSvid::parse_and_validate(&oversized_token, &bundle_set, &["aud0"]);
+        assert!(
+            matches!(result, Err(JwtSvidError::InvalidJson(_))),
+            "should reject token with excessive `aud` claim array size during deserialization"
+        );
+
+        // Also verify parse_insecure rejects it early
+        let result_insecure = JwtSvid::parse_insecure(&oversized_token);
+        assert!(
+            matches!(result_insecure, Err(JwtSvidError::InvalidJson(_))),
+            "parse_insecure should reject oversized `aud` claim during deserialization"
+        );
+
+        // Verify that large expected_audience arrays from caller are still accepted (not rejected due to size)
+        // Create a token with an audience that matches one in the large expected_audience list
+        let matching_audience = "expected50".to_string();
+        let matching_token_audiences = vec![matching_audience.clone()];
+        let matching_token = generate_token(
+            matching_token_audiences,
+            "spiffe://example.org/workload".to_string(),
+            None,
+            Some(kid.to_string()),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock before UNIX_EPOCH")
+                .as_secs()
+                .try_into()
+                .unwrap(),
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        // Large expected_audience parameter should not cause rejection - validation should succeed
+        let large_expected_audiences: Vec<String> =
+            (0..100).map(|i| format!("expected{i}")).collect();
+        let result =
+            JwtSvid::parse_and_validate(&matching_token, &bundle_set, &large_expected_audiences);
+        assert!(
+            result.is_ok(),
+            "large expected_audience array should be accepted when audiences match"
+        );
     }
 }

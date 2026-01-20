@@ -18,6 +18,13 @@ pub const SPIFFE_SCHEME: &str = "spiffe";
 /// convenience for prefix checks and parsing.
 pub const SPIFFE_SCHEME_PREFIX: &str = "spiffe://";
 
+/// Maximum length for a SPIFFE ID URI in bytes, including the `spiffe://` prefix.
+///
+/// Per SPIFFE specification: "SPIFFE implementations MUST support SPIFFE URIs up to 2048 bytes
+/// in length and SHOULD NOT generate URIs of length greater than 2048 bytes."
+/// See: <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#23-maximum-spiffe-id-length>
+const MAX_SPIFFE_ID_URI_LENGTH: usize = 2048;
+
 /// A validated [SPIFFE ID].
 ///
 /// This type guarantees that the contained trust domain and path conform to
@@ -83,6 +90,13 @@ pub enum SpiffeIdError {
     /// Path cannot have a trailing slash.
     #[error("path cannot have a trailing slash")]
     TrailingSlash,
+
+    /// SPIFFE ID URI exceeds maximum allowed length.
+    #[error("SPIFFE ID URI exceeds maximum length ({max} bytes)")]
+    SpiffeIdTooLong {
+        /// Maximum allowed length for a SPIFFE ID URI.
+        max: usize,
+    },
 }
 
 impl SpiffeId {
@@ -109,6 +123,13 @@ impl SpiffeId {
         let id = id.as_ref();
         if id.is_empty() {
             return Err(SpiffeIdError::Empty);
+        }
+
+        // Enforce total SPIFFE ID URI length limit per SPIFFE specification.
+        if id.len() > MAX_SPIFFE_ID_URI_LENGTH {
+            return Err(SpiffeIdError::SpiffeIdTooLong {
+                max: MAX_SPIFFE_ID_URI_LENGTH,
+            });
         }
 
         let rest = id
@@ -314,6 +335,12 @@ impl TrustDomain {
 
         // Fast-path parse if this looks like a SPIFFE ID
         if let Some(rest) = id_or_name.strip_prefix(SPIFFE_SCHEME_PREFIX) {
+            if id_or_name.len() > MAX_SPIFFE_ID_URI_LENGTH {
+                return Err(SpiffeIdError::SpiffeIdTooLong {
+                    max: MAX_SPIFFE_ID_URI_LENGTH,
+                });
+            }
+
             let slash_pos = rest.find('/').unwrap_or(rest.len());
 
             if slash_pos == 0 {
@@ -441,6 +468,9 @@ fn validate_segment(seg: impl AsRef<str>) -> Result<(), SpiffeIdError> {
 /// - no empty segments ('//')
 /// - no dot segments ('/.', '/..')
 /// - only allowed ASCII chars in segments
+///
+/// Note: Total SPIFFE ID URI length (including spiffe:// prefix and trust domain)
+/// is enforced in `SpiffeId::new`, not here. This function only validates path format.
 fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
         return Err(SpiffeIdError::Empty);
@@ -881,5 +911,41 @@ mod trust_domain_tests {
 
         let id = SpiffeId::new("spiffe://example.org/service").unwrap();
         assert_eq!(id.trust_domain_name(), "example.org");
+    }
+
+    #[test]
+    fn test_spiffe_id_uri_length_limit() {
+        let trust_domain = "example.org";
+        let prefix_len = SPIFFE_SCHEME_PREFIX.len(); // 11 bytes: "spiffe://"
+        let td_len = trust_domain.len();
+
+        // Test with SPIFFE ID at maximum allowed length (2048 bytes total)
+        let max_path_len = MAX_SPIFFE_ID_URI_LENGTH - prefix_len - td_len;
+        let max_path = "/".to_string() + &"a".repeat(max_path_len - 1);
+        let id = format!("spiffe://{trust_domain}{max_path}");
+        assert_eq!(id.len(), MAX_SPIFFE_ID_URI_LENGTH);
+        assert!(
+            SpiffeId::new(&id).is_ok(),
+            "SPIFFE ID at max length (2048 bytes) should be accepted"
+        );
+
+        // Test with SPIFFE ID exceeding maximum length (2049 bytes)
+        let oversized_path = "/".to_string() + &"a".repeat(max_path_len);
+        let id = format!("spiffe://{trust_domain}{oversized_path}");
+        assert_eq!(id.len(), MAX_SPIFFE_ID_URI_LENGTH + 1);
+        let result = SpiffeId::new(&id);
+        assert!(
+            matches!(result, Err(SpiffeIdError::SpiffeIdTooLong { max: 2048 })),
+            "SPIFFE ID exceeding max length should be rejected"
+        );
+
+        // Test TrustDomain::new with oversized SPIFFE ID URI (when extracted from full SPIFFE ID)
+        let max_td = "a".repeat(MAX_SPIFFE_ID_URI_LENGTH - prefix_len);
+        let oversized_id = format!("spiffe://{max_td}a"); // 1 byte over limit
+        let result = TrustDomain::new(&oversized_id);
+        assert!(
+            matches!(result, Err(SpiffeIdError::SpiffeIdTooLong { max: 2048 })),
+            "TrustDomain::new should reject oversized SPIFFE ID URI"
+        );
     }
 }

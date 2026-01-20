@@ -210,4 +210,32 @@ mod x509_svid_tests {
         openssl::pkey::PKey::private_key_from_der(x509_svid.private_key().as_ref())
             .expect("OpenSSL should parse private key DER");
     }
+    /// Security test: Certificate chain length must be bounded to prevent DoS attacks.
+    ///
+    /// This test verifies that `X509Svid::parse_from_der` rejects certificate chains
+    /// exceeding `MAX_CERT_CHAIN_LENGTH` (16 certificates), preventing resource exhaustion.
+    #[test]
+    fn test_certificate_chain_length_limit() {
+        use spiffe::cert::error::CertificateError;
+
+        // Build a chain exceeding MAX_CERT_CHAIN_LENGTH by concatenating the test certificate chain.
+        let cert_chain: &[u8] = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+
+        let mut oversized_chain = Vec::new();
+        for _ in 0..9 {
+            oversized_chain.extend_from_slice(cert_chain);
+        }
+
+        let result = X509Svid::parse_from_der(&oversized_chain, key_bytes);
+        assert!(
+            matches!(
+                result,
+                Err(X509SvidError::Certificate(
+                    CertificateError::TooManyCertificates { max: 16 }
+                ))
+            ),
+            "should reject certificate chain exceeding MAX_CERT_CHAIN_LENGTH"
+        );
+    }
 }
