@@ -15,12 +15,74 @@ use x509_parser::prelude::GeneralName;
 const MAX_URI_SAN_ENTRIES: usize = 32;
 const MAX_URI_LENGTH: usize = 2048;
 
+/// Maximum number of certificates allowed in a certificate chain.
+///
+/// This limit prevents `DoS` attacks through excessive memory allocation and processing time.
+/// A typical SPIFFE X.509-SVID chain contains 1-3 certificates (leaf + intermediate(s) + optional root).
+/// A limit of 16 certificates is conservative and sufficient for legitimate use cases while preventing
+/// resource exhaustion attacks from adversarial or malformed inputs.
+const MAX_CERT_CHAIN_LENGTH: usize = 16;
+
 /// Takes a concatenated chain of DER-encoded certificates and parses it
 /// into a `Vec<Certificate>`.
+///
+/// # Security
+///
+/// This function enforces a maximum chain length to prevent `DoS` attacks through
+/// excessive memory allocation. See [`MAX_CERT_CHAIN_LENGTH`] for details.
+///
+/// **Note**: This function is intended for parsing certificate chains (e.g., X.509-SVID chains).
+/// For parsing X.509 bundles, use [`to_certificate_vec_unbounded`] instead, as bundles
+/// may legitimately contain many certificates.
 pub(crate) fn to_certificate_vec(
     cert_chain_der: &[u8],
 ) -> Result<Vec<Certificate>, CertificateError> {
     let mut rest = cert_chain_der;
+    let mut certs = Vec::new();
+
+    while !rest.is_empty() {
+        // Enforce maximum chain length before parsing to prevent resource exhaustion.
+        if certs.len() >= MAX_CERT_CHAIN_LENGTH {
+            return Err(CertificateError::TooManyCertificates {
+                max: MAX_CERT_CHAIN_LENGTH,
+            });
+        }
+
+        let (new_rest, _cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
+            Err::Incomplete(_) => {
+                CertificateError::ParseX509Certificate(X509Error::InvalidCertificate)
+            }
+            Err::Error(err) | Err::Failure(err) => CertificateError::ParseX509Certificate(err),
+        })?;
+
+        // Extract the certificate bytes from the original input by calculating
+        // the length of the certificate that was just parsed.
+        let cert_len = rest.len() - new_rest.len();
+        let cert_bytes = &rest[..cert_len];
+
+        // Validate and store the original DER bytes
+        certs.push(Certificate::try_from(cert_bytes)?);
+
+        rest = new_rest;
+    }
+
+    Ok(certs)
+}
+
+/// Takes a concatenated list of DER-encoded certificates and parses it
+/// into a `Vec<Certificate>` without enforcing a maximum length limit.
+///
+/// This function is intended for parsing X.509 bundles, which may legitimately
+/// contain many trust anchors. For certificate chains (e.g., X.509-SVID
+/// chains), use [`to_certificate_vec`] instead, which enforces a length limit.
+///
+/// **Note**: This function is intentionally unbounded. Callers must enforce
+/// input limits (e.g., via resource limits or size checks) if needed to prevent
+/// resource exhaustion from adversarial inputs.
+pub(crate) fn to_certificate_vec_unbounded(
+    cert_list_der: &[u8],
+) -> Result<Vec<Certificate>, CertificateError> {
+    let mut rest = cert_list_der;
     let mut certs = Vec::new();
 
     while !rest.is_empty() {

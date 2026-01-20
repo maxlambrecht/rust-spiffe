@@ -80,4 +80,36 @@ mod x509_bundle_tests {
         assert_eq!(b.trust_domain(), &trust_domain);
         assert_eq!(b.authorities().len(), 1);
     }
+
+    /// Test that X.509 bundles can contain many trust anchors without triggering chain length limits.
+    ///
+    /// Bundles are collections of trust anchors and may legitimately contain many certificates.
+    /// Unlike certificate chains, bundles are not subject to the MAX_CERT_CHAIN_LENGTH limit.
+    #[test]
+    fn test_x509_bundle_can_contain_many_certificates() {
+        let cert1: &[u8] = include_bytes!("testdata/bundle/x509/cert1.der");
+        let cert2: &[u8] = include_bytes!("testdata/bundle/x509/cert2.der");
+
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+
+        // Build a bundle with many trust anchors (more than MAX_CERT_CHAIN_LENGTH)
+        let mut many_certs = Vec::new();
+        for _ in 0..20 {
+            many_certs.extend_from_slice(cert1);
+            many_certs.extend_from_slice(cert2);
+        }
+
+        let result = X509Bundle::parse_from_der(trust_domain, &many_certs);
+        assert!(
+            result.is_ok(),
+            "bundle parsing should succeed with many trust anchors (bundles are not chain-limited)"
+        );
+
+        let bundle = result.unwrap();
+        // Assert bundle contains more than the chain limit to verify it's not bounded
+        assert!(
+            bundle.authorities().len() > 16,
+            "bundle should contain more than MAX_CERT_CHAIN_LENGTH (16) trust anchors"
+        );
+    }
 }

@@ -2,7 +2,7 @@
 
 use crate::bundle::BundleSource;
 use crate::cert::error::CertificateError;
-use crate::cert::parsing::to_certificate_vec;
+use crate::cert::parsing::to_certificate_vec_unbounded;
 use crate::cert::Certificate;
 use crate::spiffe_id::TrustDomain;
 use std::collections::BTreeMap;
@@ -80,11 +80,15 @@ impl X509Bundle {
     /// # Errors
     ///
     /// If the function cannot parse the inputs, a [`X509BundleError`] variant will be returned.
+    ///
+    /// **Note**: Bundles may contain many trust anchors, and no length limit
+    /// is enforced. This differs from certificate chains (e.g., X.509-SVID chains), which
+    /// are limited to prevent `DoS` attacks.
     pub fn parse_from_der(
         trust_domain: TrustDomain,
         bundle_der: &[u8],
     ) -> Result<Self, X509BundleError> {
-        let x509_authorities = to_certificate_vec(bundle_der)?;
+        let x509_authorities = to_certificate_vec_unbounded(bundle_der)?;
 
         Ok(Self {
             trust_domain,

@@ -38,6 +38,16 @@ pub enum CertificateError {
         max: usize,
     },
 
+    /// The certificate chain has too many certificates to process safely.
+    #[error("certificate chain has too many certificates (max {max})")]
+    TooManyCertificates {
+        /// Maximum number of certificates that will be parsed before aborting.
+        ///
+        /// This bound exists to prevent excessive memory allocation and processing time
+        /// when processing malformed or adversarial certificate chains.
+        max: usize,
+    },
+
     /// A URI SAN looked like a candidate but failed SPIFFE ID parsing.
     #[error("failed to parse SPIFFE ID from URI SAN: {0}")]
     InvalidSpiffeId(#[from] SpiffeIdError),
