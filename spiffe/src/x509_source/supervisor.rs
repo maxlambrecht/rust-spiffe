@@ -22,6 +22,15 @@ use tokio_util::sync::CancellationToken;
 /// - update validation rejections
 const MAX_CONSECUTIVE_SAME_ERROR: u32 = 3;
 
+/// Stream connection phase for diagnostics (distinguishes initial sync from steady-state supervisor).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum StreamPhase {
+    /// Initial sync phase during `X509Source` construction.
+    InitialSync,
+    /// Steady-state supervisor loop maintaining the stream.
+    Supervisor,
+}
+
 /// Allocation-free key type for error tracking categories.
 ///
 /// Used by `ErrorTracker` to group errors for log suppression without requiring
@@ -149,20 +158,29 @@ pub(super) async fn try_connect_stream(
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
+    _phase: StreamPhase,
+    supervisor_id: Option<u64>,
 ) -> Result<
     impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static,
     WorkloadApiError,
 > {
     match client.stream_x509_contexts().await {
         Ok(s) => {
+            let _id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
+
             if error_tracker.consecutive_count() > 0 {
                 info!(
-                    "Stream connection recovered after {} consecutive failures",
+                    "Stream connection recovered after {} consecutive failures (phase={:?}{})",
                     error_tracker.consecutive_count(),
+                    _phase,
+                    _id_suffix
                 );
             }
             error_tracker.reset();
-            info!("Connected to Workload API X509 context stream");
+            info!(
+                "Connected to Workload API X509 context stream (phase={:?}{})",
+                _phase, _id_suffix
+            );
             *backoff = min_backoff;
             Ok(s)
         }
@@ -262,23 +280,38 @@ async fn try_sync_once(
         };
 
     // Use shared stream connection logic (records StreamConnect metric on failure).
-    let mut stream =
-        match try_connect_stream(&client, min_backoff, backoff, error_tracker, metrics).await {
-            Ok(s) => s,
-            Err(e) => {
-                // Error already logged and metric recorded by try_connect_stream.
-                return Err(X509SourceError::Source(e));
-            }
-        };
+    let mut stream = match try_connect_stream(
+        &client,
+        min_backoff,
+        backoff,
+        error_tracker,
+        metrics,
+        StreamPhase::InitialSync,
+        None,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            // Error already logged and metric recorded by try_connect_stream.
+            return Err(X509SourceError::Source(e));
+        }
+    };
 
     match stream.next().await {
         Some(Ok(ctx)) => {
-            validate_context(&ctx, picker, limits, metrics)?;
+            validate_context(&ctx, picker, limits, metrics).inspect_err(|_e| {
+                warn!("Initial X509 context rejected; will retry: error={}", _e);
+            })?;
 
             Ok(Arc::new(ctx))
         }
         Some(Err(e)) => {
             // Record StreamError for stream read errors.
+            warn!(
+                "Initial sync: Workload API stream error; will retry: error={}",
+                e
+            );
             if let Some(m) = metrics {
                 m.record_error(MetricsErrorKind::StreamError);
             }
@@ -286,6 +319,7 @@ async fn try_sync_once(
         }
         None => {
             // Record StreamEnded for empty stream.
+            warn!("Initial sync: Workload API stream ended immediately; will retry");
             if let Some(m) = metrics {
                 m.record_error(MetricsErrorKind::StreamEnded);
             }
@@ -334,6 +368,9 @@ pub(super) fn next_backoff(current: Duration, max: Duration) -> Duration {
 
 impl Inner {
     pub(super) async fn run_update_supervisor(&self, cancellation_token: CancellationToken) {
+        let supervisor_id = fastrand::u64(..);
+        info!("Starting update supervisor: id={}", supervisor_id);
+
         let mut backoff = self.reconnect().min_backoff;
         let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
@@ -368,6 +405,8 @@ impl Inner {
                 &mut backoff,
                 &mut error_tracker,
                 self.metrics(),
+                StreamPhase::Supervisor,
+                Some(supervisor_id),
             )
             .await
             else {
@@ -383,7 +422,7 @@ impl Inner {
 
             // Process stream updates. Returns true if cancelled, false if reconnect needed.
             let cancelled = self
-                .process_stream_updates(&mut stream, &cancellation_token)
+                .process_stream_updates(&mut stream, &cancellation_token, supervisor_id)
                 .await;
             if cancelled {
                 return;
@@ -415,11 +454,11 @@ impl Inner {
                   + Send
                   + 'static),
         cancellation_token: &CancellationToken,
+        _supervisor_id: u64,
     ) -> bool {
         let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
         loop {
-            // Improvement: cancellation stays responsive even while awaiting stream.next().
             let item = tokio::select! {
                 () = cancellation_token.cancelled() => {
                     debug!("Cancellation signal received; stopping update loop");
@@ -459,12 +498,18 @@ impl Inner {
                     }
                 }
                 Some(Err(_e)) => {
-                    warn!("Workload API stream error; reconnecting: error={}", _e);
+                    warn!(
+                        "Workload API stream error; reconnecting: id={}, error={}",
+                        _supervisor_id, _e
+                    );
                     self.record_error(MetricsErrorKind::StreamError);
                     return false;
                 }
                 None => {
-                    warn!("Workload API stream ended; reconnecting");
+                    warn!(
+                        "Workload API stream ended; reconnecting: id={}",
+                        _supervisor_id
+                    );
                     self.record_error(MetricsErrorKind::StreamEnded);
                     return false;
                 }

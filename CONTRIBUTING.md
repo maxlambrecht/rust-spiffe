@@ -32,7 +32,7 @@ make ci
 
 # Run integration tests (requires SPIRE setup)
 make integration-tests
-````
+```
 
 ---
 
