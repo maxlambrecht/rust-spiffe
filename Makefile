@@ -128,7 +128,7 @@ test:
 quicktest:
 	$(info ==> Quick tests: primary runtime features)
 	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) \
-		--no-default-features --features x509-source,jwt-source,jwt
+		--no-default-features --features x509-source,jwt-source
 	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST)
 	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST)
 

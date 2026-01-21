@@ -8,7 +8,7 @@ use super::errors::MetricsErrorKind;
 /// # Example
 ///
 /// ```no_run
-/// use spiffe::{MetricsErrorKind, MetricsRecorder};
+/// use spiffe::jwt_source::{MetricsErrorKind, MetricsRecorder};
 /// use std::sync::Arc;
 ///
 /// struct MyMetrics;
