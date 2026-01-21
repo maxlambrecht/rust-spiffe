@@ -282,14 +282,14 @@ backend.
 
 ```toml
 [dependencies]
-spiffe = { version = "0.10", features = ["jwt-verify-rust-crypto"] }
+spiffe = { version = "0.11", features = ["jwt-verify-rust-crypto"] }
 ```
 
 #### Using the AWS-LC backend
 
 ```toml
 [dependencies]
-spiffe = { version = "0.10", features = ["jwt-verify-aws-lc-rs"] }
+spiffe = { version = "0.11", features = ["jwt-verify-aws-lc-rs"] }
 ```
 
 This enables local signature verification using JWT authorities from bundles:
@@ -417,7 +417,7 @@ facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `l
 
 ```toml
 [dependencies]
-spiffe = { version = "0.10", features = ["logging"] }
+spiffe = { version = "0.11", features = ["logging"] }
 ```
 
 **Note:** The `logging` feature is not included in the default `workload-api` feature.
@@ -433,7 +433,7 @@ or distributed tracing systems. When both `tracing` and `logging` features are e
 
 ```toml
 [dependencies]
-spiffe = { version = "0.10", features = ["tracing"] }
+spiffe = { version = "0.11", features = ["tracing"] }
 ```
 
 **Note:** The `tracing` and `logging` features are not mutually exclusive. When both
