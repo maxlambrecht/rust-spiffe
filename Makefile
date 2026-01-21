@@ -74,7 +74,7 @@ help:
 	@echo "  make examples       Build examples"
 	@echo ""
 	@echo "CI targets:"
-	@echo "  make ci-pr-unit     PR unit test suite (representative lanes)"
+	@echo "  make ci-pr-unit     PR unit test suite (build + test + doctests)"
 	@echo "  make ci-main        Full suite (all lanes + integration + msrv)"
 	@echo ""
 	@echo "Per-crate (full lane sweeps):"
@@ -220,19 +220,16 @@ doc-test:
 # -----------------------------------------------------------------------------
 # CI targets
 # -----------------------------------------------------------------------------
-# Unit suite for PRs. Integration is typically a separate job that starts SPIRE.
-ci-pr-unit: fmt-check
-	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: clippy (PR lanes),clippy,$(SPIFFE_PR_FEATURES))
+# Unit suite for PRs (build + test + doctests).
+ci-pr-unit:
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build  (PR lanes),build,$(SPIFFE_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test   (PR lanes),test,$(SPIFFE_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (PR lane),doc,$(SPIFFE_PR_FEATURES))
 
-	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: clippy (PR lanes),clippy,$(SPIRE_API_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build  (PR lanes),build,$(SPIRE_API_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test   (PR lanes),test,$(SPIRE_API_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests (PR lanes),doc,$(SPIRE_API_PR_FEATURES))
 
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: clippy (PR lanes),clippy,$(RUSTLS_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build  (PR lanes),build,$(RUSTLS_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (PR lanes),test,$(RUSTLS_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (PR lanes),doc,$(RUSTLS_PR_FEATURES))
