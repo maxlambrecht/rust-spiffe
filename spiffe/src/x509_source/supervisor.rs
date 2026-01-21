@@ -4,118 +4,55 @@ use super::limits::validate_context;
 use super::metrics::MetricsRecorder;
 use crate::prelude::{debug, info, warn};
 use crate::workload_api::error::WorkloadApiError;
+use crate::workload_api::supervisor_common::{
+    self, ErrorKey, ErrorTracker, StreamPhase, MAX_CONSECUTIVE_SAME_ERROR,
+};
 use crate::workload_api::x509_context::X509Context;
 use crate::workload_api::WorkloadApiClient;
 use crate::x509_source::source::Inner;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tokio_util::sync::CancellationToken;
 
-/// Supervisor policy: maximum number of consecutive identical errors before suppressing WARN logs.
-///
-/// Applies to:
-/// - client creation failures
-/// - stream connection failures
-/// - update validation rejections
-const MAX_CONSECUTIVE_SAME_ERROR: u32 = 3;
-
-/// Stream connection phase for diagnostics (distinguishes initial sync from steady-state supervisor).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum StreamPhase {
-    /// Initial sync phase during `X509Source` construction.
-    InitialSync,
-    /// Steady-state supervisor loop maintaining the stream.
-    Supervisor,
-}
-
-/// Allocation-free key type for error tracking categories.
-///
-/// Used by `ErrorTracker` to group errors for log suppression without requiring
-/// string literals or heap allocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum ErrorKey {
-    /// Client creation failures.
-    ClientCreation,
-    /// Stream connection failures.
-    StreamConnect,
-    /// Update rejection failures.
-    UpdateRejected,
-}
-
-/// Helper for tracking repeated errors to suppress log noise.
-///
-/// This tracks consecutive occurrences of the same error kind and suppresses
-/// log warnings after the first N consecutive occurrences. For the first N
-/// consecutive occurrences of each error kind, logs are emitted at WARN level.
-/// After that, logs are downgraded to DEBUG level to reduce noise.
-///
-/// When a different error kind occurs or errors stop, the counter resets.
-pub(super) struct ErrorTracker {
-    last_error_kind: Option<ErrorKey>,
-    consecutive_same_error: u32,
-    max_consecutive: u32,
-}
-
-impl ErrorTracker {
-    pub(super) fn new(max_consecutive: u32) -> Self {
-        Self {
-            last_error_kind: None,
-            consecutive_same_error: 0,
-            max_consecutive,
-        }
-    }
-
-    pub(super) fn record_error(&mut self, error_kind: ErrorKey) -> bool {
-        let should_warn = self.last_error_kind != Some(error_kind)
-            || self.consecutive_same_error < self.max_consecutive;
-
-        if self.last_error_kind == Some(error_kind) {
-            self.consecutive_same_error += 1;
-        } else {
-            self.consecutive_same_error = 1;
-            self.last_error_kind = Some(error_kind);
-        }
-
-        should_warn
-    }
-
-    pub(super) fn reset(&mut self) {
-        self.consecutive_same_error = 0;
-        self.last_error_kind = None;
-    }
-
-    pub(super) fn consecutive_count(&self) -> u32 {
-        self.consecutive_same_error
-    }
-}
-
 /// Attempts to create a Workload API client.
 ///
-/// Records metrics and logs errors. Resets backoff to `min_backoff` on success.
+/// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
+/// Does not sleep; the caller is responsible for backoff progression and sleeping.
+///
+/// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
+/// for steady-state reconnections (not for initial sync).
+/// Attempts to create a Workload API client.
+///
+/// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
 /// Does not sleep; the caller is responsible for backoff progression and sleeping.
 ///
 /// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
-    min_backoff: Duration,
-    backoff: &mut Duration,
+    _min_backoff: Duration,
+    _backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<WorkloadApiClient, WorkloadApiError> {
     match (make_client)().await {
         Ok(c) => {
-            if error_tracker.consecutive_count() > 0 {
+            // Only log recovery if there were significant consecutive failures (>= 3) of the same type
+            if error_tracker.last_error_kind() == Some(ErrorKey::ClientCreation)
+                && error_tracker.consecutive_count() >= 3
+            {
                 debug!(
                     "Client creation recovered after {} consecutive failures",
                     error_tracker.consecutive_count()
                 );
             }
-            error_tracker.reset();
-            *backoff = min_backoff;
+            // Only reset tracker if the last error was client creation (actual recovery).
+            // Don't reset if tracking stream connection errors (e.g., NoIdentityIssued).
+            if error_tracker.last_error_kind() == Some(ErrorKey::ClientCreation) {
+                error_tracker.reset();
+            }
             Ok(c)
         }
         Err(e) => {
@@ -126,13 +63,13 @@ pub(super) async fn try_create_client(
                 warn!(
                     "Failed to create WorkloadApiClient; retrying: error={}, backoff_ms={}",
                     e,
-                    backoff.as_millis()
+                    _backoff.as_millis()
                 );
             } else {
                 debug!(
                     "Failed to create WorkloadApiClient (repeated); retrying: error={}, backoff_ms={}, consecutive_failures={}",
                     e,
-                    backoff.as_millis(),
+                    _backoff.as_millis(),
                     error_tracker.consecutive_count()
                 );
             }
@@ -168,7 +105,10 @@ pub(super) async fn try_connect_stream(
         Ok(s) => {
             let _id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
 
-            if error_tracker.consecutive_count() > 0 {
+            // Only log recovery if the last error was a stream connection failure
+            if error_tracker.last_error_kind() == Some(ErrorKey::StreamConnect)
+                && error_tracker.consecutive_count() > 0
+            {
                 info!(
                     "Stream connection recovered after {} consecutive failures (phase={:?}{})",
                     error_tracker.consecutive_count(),
@@ -185,6 +125,24 @@ pub(super) async fn try_connect_stream(
             Ok(s)
         }
         Err(e) => {
+            // Handle "no identity issued" as a distinct transient state
+            if matches!(e, WorkloadApiError::NoIdentityIssued) {
+                let error_kind = ErrorKey::NoIdentityIssued;
+                let should_warn = error_tracker.record_error(error_kind);
+
+                if should_warn {
+                    warn!("No identity issued yet; waiting before retry");
+                } else {
+                    debug!(
+                        "No identity issued yet (repeated); waiting before retry: consecutive_failures={}",
+                        error_tracker.consecutive_count()
+                    );
+                }
+
+                // Don't record this as a stream error metric (it's expected/transient)
+                return Err(e);
+            }
+
             let error_kind = ErrorKey::StreamConnect;
             let should_warn = error_tracker.record_error(error_kind);
 
@@ -220,7 +178,7 @@ pub(super) async fn initial_sync_with_retry(
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<Arc<X509Context>, X509SourceError> {
     let mut backoff = reconnect.min_backoff;
-    let mut error_tracker = ErrorTracker::new(3);
+    let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
     loop {
         if cancel.is_cancelled() {
@@ -239,7 +197,7 @@ pub(super) async fn initial_sync_with_retry(
         .await
         {
             Ok(v) => return Ok(v),
-            Err(_e) => {
+            Err(e) => {
                 // Record InitialSyncFailed as an umbrella metric for any failed attempt.
                 // Specific metrics (ClientCreation, StreamConnect, StreamError, StreamEnded,
                 // LimitMaxSvids, LimitMaxBundles, LimitMaxBundleDerBytes, NoSuitableSvid)
@@ -252,7 +210,21 @@ pub(super) async fn initial_sync_with_retry(
                 if sleep_or_cancel(cancel, backoff).await {
                     return Err(X509SourceError::Closed);
                 }
-                backoff = next_backoff(backoff, reconnect.max_backoff);
+                // Choose backoff policy based on error type
+                match &e {
+                    X509SourceError::Source(WorkloadApiError::NoIdentityIssued) => {
+                        // Use slower backoff for "no identity issued" (expected transient state)
+                        backoff = next_backoff_for_no_identity(backoff);
+                        warn!(
+                            "Initial sync: no identity issued, using backoff_ms={}",
+                            backoff.as_millis()
+                        );
+                    }
+                    _ => {
+                        // Use standard exponential backoff for other errors
+                        backoff = next_backoff(backoff, reconnect.max_backoff);
+                    }
+                }
             }
         }
     }
@@ -328,43 +300,7 @@ async fn try_sync_once(
     }
 }
 
-pub(super) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) -> bool {
-    tokio::select! {
-        () = token.cancelled() => true,
-        () = sleep(dur) => false,
-    }
-}
-
-/// Exponential backoff with small jitter.
-///
-/// Computes the next backoff duration by:
-/// 1. Doubling the current duration (exponential growth)
-/// 2. Clamping to the maximum duration
-/// 3. Adding small jitter (0-10% of the base) to prevent synchronized reconnect storms
-///
-/// The jitter is especially important in container fleets that start simultaneously.
-///
-/// Note: Jitter is calculated in milliseconds, which may result in sub-millisecond
-/// precision loss for very small durations. This is acceptable for backoff purposes.
-#[allow(clippy::cast_possible_truncation)]
-pub(super) fn next_backoff(current: Duration, max: Duration) -> Duration {
-    let cur = current.as_millis().min(u128::from(u64::MAX)) as u64;
-    let max = max.as_millis().min(u128::from(u64::MAX)) as u64;
-
-    let base = (cur.saturating_mul(2)).min(max);
-    if base == 0 {
-        return Duration::from_millis(0);
-    }
-
-    let jitter = base / 10;
-    let add = if jitter > 0 {
-        fastrand::u64(0..=jitter)
-    } else {
-        0
-    };
-
-    Duration::from_millis((base.saturating_add(add)).min(max))
-}
+pub(super) use supervisor_common::{next_backoff, next_backoff_for_no_identity, sleep_or_cancel};
 
 impl Inner {
     pub(super) async fn run_update_supervisor(&self, cancellation_token: CancellationToken) {
@@ -399,7 +335,7 @@ impl Inner {
                 continue;
             };
 
-            let Ok(mut stream) = try_connect_stream(
+            match try_connect_stream(
                 &client,
                 self.reconnect().min_backoff,
                 &mut backoff,
@@ -409,33 +345,50 @@ impl Inner {
                 Some(supervisor_id),
             )
             .await
-            else {
-                if self
-                    .backoff_and_maybe_cancel(&cancellation_token, backoff)
-                    .await
-                {
-                    return;
-                }
-                backoff = next_backoff(backoff, self.reconnect().max_backoff);
-                continue;
-            };
-
-            // Process stream updates. Returns true if cancelled, false if reconnect needed.
-            let cancelled = self
-                .process_stream_updates(&mut stream, &cancellation_token, supervisor_id)
-                .await;
-            if cancelled {
-                return;
-            }
-
-            // Stream ended or errored. Sleep/backoff before retrying.
-            if self
-                .backoff_and_maybe_cancel(&cancellation_token, backoff)
-                .await
             {
-                return;
+                Ok(mut stream) => {
+                    // Process stream updates. Returns true if cancelled, false if reconnect needed.
+                    let cancelled = self
+                        .process_stream_updates(&mut stream, &cancellation_token, supervisor_id)
+                        .await;
+                    if cancelled {
+                        return;
+                    }
+
+                    // Stream ended or errored. Sleep/backoff before retrying.
+                    if self
+                        .backoff_and_maybe_cancel(&cancellation_token, backoff)
+                        .await
+                    {
+                        return;
+                    }
+                    backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                }
+                Err(stream_err) => {
+                    // Choose backoff policy based on error type
+                    match stream_err {
+                        WorkloadApiError::NoIdentityIssued => {
+                            // Use slower backoff for "no identity issued" (expected transient state)
+                            backoff = next_backoff_for_no_identity(backoff);
+                            warn!(
+                                "No identity issued: using backoff_ms={}",
+                                backoff.as_millis()
+                            );
+                        }
+                        _ => {
+                            // Use standard exponential backoff for other errors
+                            backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                        }
+                    }
+
+                    if self
+                        .backoff_and_maybe_cancel(&cancellation_token, backoff)
+                        .await
+                    {
+                        return;
+                    }
+                }
             }
-            backoff = next_backoff(backoff, self.reconnect().max_backoff);
         }
     }
 
