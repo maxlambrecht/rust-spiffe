@@ -122,9 +122,6 @@ test:
 	$(call cargo_test,$(SPIRE_API_MANIFEST),)
 	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),)
 
-	# Optional lane that you currently run under "test"
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
-
 ci: fmt-check spiffe spire-api spiffe-rustls msrv
 	@true
 

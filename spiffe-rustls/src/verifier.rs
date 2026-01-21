@@ -931,6 +931,10 @@ fn join_trust_domains<'a>(tds: impl Iterator<Item = &'a spiffe::TrustDomain>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "parking-lot")]
+    use parking_lot::Mutex;
+    #[cfg(not(feature = "parking-lot"))]
+    use std::sync::Mutex;
     use rustls::client::danger::ServerCertVerifier;
     use rustls::pki_types::{
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
