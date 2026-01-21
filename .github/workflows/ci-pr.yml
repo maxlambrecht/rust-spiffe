@@ -68,7 +68,7 @@ jobs:
         run: make lint
 
   test:
-    name: Quick tests
+    name: Unit Tests
     runs-on: ubuntu-latest
     needs: [fmt, lint]
     timeout-minutes: 20
