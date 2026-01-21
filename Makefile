@@ -35,6 +35,12 @@ SPIFFE_RUSTLS_MANIFEST := spiffe-rustls/Cargo.toml
 SPIRE_API_MANIFEST     := spire-api/Cargo.toml
 
 # -----------------------------------------------------------------------------
+# Feature lane sentinel
+# -----------------------------------------------------------------------------
+# Use a sentinel to represent "default features" lanes in shell loops.
+DEFAULT_LANE := @default
+
+# -----------------------------------------------------------------------------
 # Target catalog
 # -----------------------------------------------------------------------------
 .PHONY: \
@@ -106,8 +112,6 @@ RUSTLS_DEV_FEATURES := \
 
 SPIRE_API_DEV_FEATURES := \
   $(DEFAULT_LANE)
-
-DEFAULT_LANE := @default
 
 # PR lanes (ci-pr-unit): default to the dev lanes.
 SPIFFE_PR_FEATURES := $(SPIFFE_DEV_FEATURES)
@@ -283,11 +287,11 @@ coverage:
 	@set -euo pipefail; \
 	for feat in $(SPIFFE_ALL_FEATURES); do \
 	  extra=""; \
-	  if [ -n "$$feat" ]; then \
+	  if [ "$$feat" = "$(DEFAULT_LANE)" ]; then \
+	    echo "---- spiffe lane: default"; \
+	  else \
 	    echo "---- spiffe lane: --no-default-features --features $$feat"; \
 	    extra="--no-default-features --features $$feat"; \
-	  else \
-	    echo "---- spiffe lane: default"; \
 	  fi; \
 	  $(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --all-targets $$extra; \
 	done
@@ -299,11 +303,11 @@ coverage:
 	@set -euo pipefail; \
 	for feat in $(RUSTLS_ALL_FEATURES); do \
 	  extra=""; \
-	  if [ -n "$$feat" ]; then \
+	  if [ "$$feat" = "$(DEFAULT_LANE)" ]; then \
+	    echo "---- spiffe-rustls lane: default"; \
+	  else \
 	    echo "---- spiffe-rustls lane: --no-default-features --features $$feat"; \
 	    extra="--no-default-features --features $$feat"; \
-	  else \
-	    echo "---- spiffe-rustls lane: default"; \
 	  fi; \
 	  $(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --all-targets $$extra; \
 	done
@@ -371,11 +375,28 @@ lanes:
 	@echo "SPIFFE_DEV_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_DEV_FEATURES)
 	@echo ""
-	@echo "RUSTLS_DEV_FEATURES:"
-	@printf "  %s\n" $(RUSTLS_DEV_FEATURES)
+	@echo "SPIFFE_PR_FEATURES:"
+	@printf "  %s\n" $(SPIFFE_PR_FEATURES)
 	@echo ""
 	@echo "SPIFFE_ALL_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_ALL_FEATURES)
 	@echo ""
+
+	@echo "RUSTLS_DEV_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_DEV_FEATURES)
+	@echo ""
+	@echo "RUSTLS_PR_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_PR_FEATURES)
+	@echo ""
 	@echo "RUSTLS_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_ALL_FEATURES)
+	@echo ""
+
+	@echo "SPIRE_API_DEV_FEATURES:"
+	@printf "  %s\n" $(SPIRE_API_DEV_FEATURES)
+	@echo ""
+	@echo "SPIRE_API_PR_FEATURES:"
+	@printf "  %s\n" $(SPIRE_API_PR_FEATURES)
+	@echo ""
+	@echo "SPIRE_API_ALL_FEATURES:"
+	@printf "  %s\n" $(SPIRE_API_ALL_FEATURES)
