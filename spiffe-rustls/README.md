@@ -170,6 +170,7 @@ let client_cfg = mtls_client(source)
     .trust_domain_policy(
         TrustDomainPolicy::LocalOnly("example.org".try_into()?)
     )
+    .with_alpn_protocols(&[b"h2"])  // Optional: for gRPC/HTTP/2
     .build()?;
 ```
 
@@ -198,6 +199,7 @@ let server_cfg = mtls_server(source)
     .trust_domain_policy(
         TrustDomainPolicy::LocalOnly("example.org".try_into()?)
     )
+    .with_alpn_protocols(&[b"h2"])  // Optional: for gRPC/HTTP/2
     .build()?;
 ```
 
@@ -232,6 +234,59 @@ Each builder:
 * `TrustDomainPolicy::AnyInBundleSet` *(default)*
 * `TrustDomainPolicy::AllowList`
 * `TrustDomainPolicy::LocalOnly`
+
+---
+
+### Advanced Configuration
+
+#### ALPN (Application-Layer Protocol Negotiation)
+
+Configure ALPN protocols for protocol negotiation during the TLS handshake.
+Protocols are advertised in order of preference (most preferred first):
+
+```rust
+use spiffe_rustls::mtls_client;
+
+let source = spiffe::X509Source::new().await?;
+
+// HTTP/2 preferred, HTTP/1.1 fallback
+let config = mtls_client(source)
+    .with_alpn_protocols([b"h2".as_ref(), b"http/1.1".as_ref()])
+    .build()?;
+
+// Also accepts owned vectors
+let protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+let config = mtls_client(source)
+    .with_alpn_protocols(protocols)
+    .build()?;
+```
+
+Common protocols:
+* `b"h2"` — HTTP/2 (required for gRPC)
+* `b"http/1.1"` — HTTP/1.1
+
+#### Config Customization (Advanced)
+
+For configuration not directly exposed by the builder, use `with_config_customizer`.
+The customizer runs **last**, after all other builder settings (including ALPN)
+have been applied, allowing you to override any configuration:
+
+```rust
+use spiffe_rustls::mtls_server;
+
+let source = spiffe::X509Source::new().await?;
+
+let config = mtls_server(source)
+    .with_config_customizer(|cfg| {
+        // Example: adjust cipher suite preferences
+        // cfg.cipher_suites = ...;
+    })
+    .build()?;
+```
+
+**Warning:** Do not modify or replace the verifier or certificate resolver, as they
+are required for SPIFFE authentication and authorization. Safe to modify: ALPN, cipher
+suites, protocol versions, and other non-security-critical settings.
 
 ---
 

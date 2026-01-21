@@ -42,13 +42,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build rustls client config with:
     // - Authorization: only accept servers with the specified SPIFFE IDs
     // - Trust Domain Policy: only trust certificates from the allowed trust domains
-    let mut client_cfg = mtls_client(source.clone())
+    // - ALPN: HTTP/2 (required for gRPC)
+    let client_cfg = mtls_client(source.clone())
         .authorize(authorizer::exact(allowed_server_ids)?)
         .trust_domain_policy(AllowList(allowed_trust_domains))
+        .with_alpn_protocols([b"h2"])
         .build()?;
-
-    // gRPC requires HTTP/2 via ALPN.
-    client_cfg.alpn_protocols = vec![b"h2".to_vec()];
 
     let uri: Uri = "https://example.org:50051".parse()?;
 
