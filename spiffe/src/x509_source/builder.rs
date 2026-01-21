@@ -62,24 +62,24 @@ pub(super) fn normalize_reconnect(reconnect: ReconnectConfig) -> ReconnectConfig
 /// # Examples
 ///
 /// ```rust
-/// use spiffe::ResourceLimits;
+/// use spiffe::X509ResourceLimits;
 ///
 /// // Limited resources
-/// let limits = ResourceLimits {
+/// let limits = X509ResourceLimits {
 ///     max_svids: Some(100),
 ///     max_bundles: Some(200),
 ///     max_bundle_der_bytes: Some(4 * 1024 * 1024), // 4MB
 /// };
 ///
 /// // Unlimited (no limits enforced)
-/// let unlimited = ResourceLimits {
+/// let unlimited = X509ResourceLimits {
 ///     max_svids: None,
 ///     max_bundles: None,
 ///     max_bundle_der_bytes: None,
 /// };
 ///
 /// // Mixed (some limits, some unlimited)
-/// let mixed = ResourceLimits {
+/// let mixed = X509ResourceLimits {
 ///     max_svids: Some(50),
 ///     max_bundles: None,  // Unlimited bundles
 ///     max_bundle_der_bytes: Some(1024 * 1024), // 1MB
@@ -122,9 +122,9 @@ impl ResourceLimits {
     /// # Examples
     ///
     /// ```rust
-    /// use spiffe::ResourceLimits;
+    /// use spiffe::X509ResourceLimits;
     ///
-    /// let unlimited = ResourceLimits::unlimited();
+    /// let unlimited = X509ResourceLimits::unlimited();
     /// assert_eq!(unlimited.max_svids, None);
     /// assert_eq!(unlimited.max_bundles, None);
     /// assert_eq!(unlimited.max_bundle_der_bytes, None);
@@ -144,9 +144,9 @@ impl ResourceLimits {
     /// # Examples
     ///
     /// ```rust
-    /// use spiffe::ResourceLimits;
+    /// use spiffe::X509ResourceLimits;
     ///
-    /// let limits = ResourceLimits::default_limits();
+    /// let limits = X509ResourceLimits::default_limits();
     /// assert_eq!(limits.max_svids, Some(100));
     /// assert_eq!(limits.max_bundles, Some(200));
     /// ```
@@ -162,14 +162,14 @@ impl ResourceLimits {
 /// # Example
 ///
 /// ```no_run
-/// use spiffe::{ResourceLimits, X509Source, X509SourceBuilder};
+/// use spiffe::{X509ResourceLimits, X509Source, X509SourceBuilder};
 /// use std::time::Duration;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = X509Source::builder()
 ///     .endpoint("unix:/tmp/spire-agent/public/api.sock")
 ///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30))
-///     .resource_limits(ResourceLimits {
+///     .resource_limits(X509ResourceLimits {
 ///         max_svids: Some(100),
 ///         max_bundles: Some(500),
 ///         max_bundle_der_bytes: Some(5 * 1024 * 1024),
@@ -350,9 +350,9 @@ impl X509SourceBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// use spiffe::{ResourceLimits, X509SourceBuilder};
+    /// use spiffe::{X509ResourceLimits, X509SourceBuilder};
     ///
-    /// let limits = ResourceLimits {
+    /// let limits = X509ResourceLimits {
     ///     max_svids: Some(50),
     ///     max_bundles: Some(500),
     ///     max_bundle_der_bytes: Some(5 * 1024 * 1024), // 5MB
@@ -360,7 +360,7 @@ impl X509SourceBuilder {
     /// let builder = X509SourceBuilder::new().resource_limits(limits);
     ///
     /// // Or disable limits:
-    /// let unlimited = ResourceLimits::unlimited();
+    /// let unlimited = X509ResourceLimits::unlimited();
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
@@ -376,7 +376,7 @@ impl X509SourceBuilder {
     /// # Examples
     ///
     /// ```no_run
-    /// use spiffe::{MetricsErrorKind, MetricsRecorder, X509SourceBuilder};
+    /// use spiffe::{X509SourceBuilder, x509_source::{MetricsErrorKind, MetricsRecorder}};
     /// use std::sync::Arc;
     ///
     /// struct MyMetrics;

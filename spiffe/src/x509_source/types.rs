@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// ```no_run
 /// use spiffe::X509Svid;
 /// use std::sync::Arc;
-/// use spiffe::x509_source::types::SvidPicker;
+/// use spiffe::x509_source::SvidPicker;
 ///
 /// #[derive(Debug)]
 /// struct HintPicker {

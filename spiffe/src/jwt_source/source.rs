@@ -279,7 +279,7 @@ impl JwtSource {
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let source = JwtSource::builder()
-    ///     .endpoint("unix:///tmp/spire-agent/public/api.sock".try_into()?)
+    ///     .endpoint("unix:///tmp/spire-agent/public/api.sock")
     ///     .build()
     ///     .await?;
     ///

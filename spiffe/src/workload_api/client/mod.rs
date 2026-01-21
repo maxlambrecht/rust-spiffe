@@ -142,7 +142,7 @@ impl WorkloadApiClient {
     ///
     /// ```no_run
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// # use spiffe::{Endpoint, WorkloadApiClient};
+    /// # use spiffe::{WorkloadApiClient, transport::Endpoint};
     /// # use tonic::transport::Channel;
     /// let endpoint = "tcp://127.0.0.1:8080".parse::<Endpoint>()?;
     /// let channel = Channel::from_shared("http://127.0.0.1:8080")?

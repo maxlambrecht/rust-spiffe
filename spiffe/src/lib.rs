@@ -25,7 +25,7 @@
 //! ```no_run
 //! # #[cfg(feature = "x509-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{TrustDomain, X509Source};
+//! use spiffe::{bundle::BundleSource, TrustDomain, X509Source};
 //!
 //! let source = X509Source::new().await?;
 //! let _svid = source.svid()?;
@@ -42,7 +42,7 @@
 //! ```no_run
 //! # #[cfg(feature = "jwt-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{TrustDomain, JwtSource};
+//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
 //!
 //! let source = JwtSource::new().await?;
 //! let _jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
@@ -152,7 +152,7 @@
 //! ```no_run
 //! # #[cfg(feature = "jwt-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{TrustDomain, JwtSource};
+//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
 //!
 //! let source = JwtSource::new().await?;
 //!

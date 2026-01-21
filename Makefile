@@ -24,7 +24,7 @@ SPIRE_API_MANIFEST     := spire-api/Cargo.toml
   lint \
   msrv \
   spiffe spiffe-rustls spire-api \
-  test
+  test, test-ci
 
 help:
 	@echo "Targets:"
@@ -35,6 +35,7 @@ help:
 	@echo "  make check             Quick check (fmt + clippy + build, no tests)"
 	@echo "  make lint              Run clippy on all crates"
 	@echo "  make test              Run tests on all crates (default features)"
+	@echo "  make test-ci           Run tests on all crates (with main features)"
 	@echo "  make msrv              Verify MSRV ($(MSRV)) across key lanes"
 	@echo "  make integration-tests Run integration tests"
 	@echo "  make spiffe            Clippy/build/test across spiffe feature lanes"
@@ -122,8 +123,12 @@ test:
 	$(call cargo_test,$(SPIRE_API_MANIFEST),)
 	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),)
 
-ci: fmt-check spiffe spire-api spiffe-rustls msrv
-	@true
+test-ci:
+	$(info ==> Tests: primary runtime features)
+	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) \
+		--no-default-features --features x509-source,jwt-source
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST)
+	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST)
 
 # -----------------------------------------------------------------------------
 # Coverage (cargo llvm-cov)
