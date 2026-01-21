@@ -7,7 +7,7 @@ license = "Apache-2.0"
 publish = false
 
 [dependencies]
-spiffe = { version = "0.10", features = ["x509-source"]}
+spiffe = { version = "0.11", features = ["x509-source"]}
 spiffe-rustls = { path = "../spiffe-rustls", features = ["ring"] }
 
 # gRPC stack

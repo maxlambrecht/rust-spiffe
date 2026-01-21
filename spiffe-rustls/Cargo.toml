@@ -1,6 +1,6 @@
 [package]
 name = "spiffe-rustls"
-version = "0.4.3"
+version = "0.4.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -16,7 +16,7 @@ keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-spiffe = { version = "^0.10.2", features = ["x509-source"] }
+spiffe = { version = "0.11", features = ["x509-source"] }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
 tokio = { version = "1", default-features = false, features = ["rt", "sync"] }
 tokio-util = "0.7"
