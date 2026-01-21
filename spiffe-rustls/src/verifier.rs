@@ -933,8 +933,6 @@ mod tests {
     use super::*;
     #[cfg(feature = "parking-lot")]
     use parking_lot::Mutex;
-    #[cfg(not(feature = "parking-lot"))]
-    use std::sync::Mutex;
     use rustls::client::danger::ServerCertVerifier;
     use rustls::pki_types::{
         CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
@@ -943,6 +941,8 @@ mod tests {
     use rustls::RootCertStore;
     use spiffe::{SpiffeId, TrustDomain};
     use std::collections::{BTreeMap, BTreeSet};
+    #[cfg(not(feature = "parking-lot"))]
+    use std::sync::Mutex;
     use std::sync::{Arc, OnceLock};
 
     fn ensure_provider() {
