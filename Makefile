@@ -32,6 +32,7 @@ MSRV ?= 1.85.0
 
 SPIFFE_MANIFEST        := spiffe/Cargo.toml
 SPIFFE_RUSTLS_MANIFEST := spiffe-rustls/Cargo.toml
+SPIFFE_RUSTLS_TOKIO_MANIFEST := spiffe-rustls-tokio/Cargo.toml
 SPIRE_API_MANIFEST     := spire-api/Cargo.toml
 
 # -----------------------------------------------------------------------------
@@ -55,8 +56,8 @@ DEFAULT_LANE := @default
   examples \
   audit deny \
   lanes \
-  spiffe spire-api spiffe-rustls \
-  spiffe-all-lanes rustls-all-lanes
+  spiffe spire-api spiffe-rustls spiffe-rustls-tokio \
+  spiffe-all-lanes rustls-all-lanes rustls-tokio-all-lanes
 
 help:
 	@echo "Common targets:"
@@ -80,6 +81,7 @@ help:
 	@echo "Per-crate (full lane sweeps):"
 	@echo "  make spiffe"
 	@echo "  make spiffe-rustls"
+	@echo "  make spiffe-rustls-tokio"
 	@echo "  make spire-api"
 	@echo ""
 	@echo "Other:"
@@ -113,9 +115,13 @@ RUSTLS_DEV_FEATURES := \
 SPIRE_API_DEV_FEATURES := \
   $(DEFAULT_LANE)
 
+RUSTLS_TOKIO_DEV_FEATURES := \
+  $(DEFAULT_LANE)
+
 # PR lanes (ci-pr-unit): default to the dev lanes.
 SPIFFE_PR_FEATURES := $(SPIFFE_DEV_FEATURES)
 RUSTLS_PR_FEATURES := $(RUSTLS_DEV_FEATURES)
+RUSTLS_TOKIO_PR_FEATURES := $(RUSTLS_TOKIO_DEV_FEATURES)
 SPIRE_API_PR_FEATURES := $(SPIRE_API_DEV_FEATURES)
 
 # Full matrix lanes (main CI + coverage).
@@ -150,6 +156,9 @@ RUSTLS_ALL_FEATURES := \
   ring,logging,parking-lot
 
 SPIRE_API_ALL_FEATURES := \
+  $(DEFAULT_LANE)
+
+RUSTLS_TOKIO_ALL_FEATURES := \
   $(DEFAULT_LANE)
 
 # -----------------------------------------------------------------------------
@@ -201,21 +210,25 @@ lint: fmt-check
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: clippy (dev lanes),clippy,$(SPIFFE_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: clippy (dev lanes),clippy,$(SPIRE_API_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: clippy (dev lanes),clippy,$(RUSTLS_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: clippy (dev lanes),clippy,$(RUSTLS_TOKIO_DEV_FEATURES))
 
 build:
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build (dev lanes),build,$(SPIFFE_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build (dev lanes),build,$(SPIRE_API_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build (dev lanes),build,$(RUSTLS_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: build (dev lanes),build,$(RUSTLS_TOKIO_DEV_FEATURES))
 
 test:
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test (dev lanes),test,$(SPIFFE_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test (dev lanes),test,$(SPIRE_API_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test (dev lanes),test,$(RUSTLS_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test (dev lanes),test,$(RUSTLS_TOKIO_DEV_FEATURES))
 
 doc-test:
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (dev lane),doc,$(SPIFFE_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests,doc,$(SPIRE_API_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests,doc,$(RUSTLS_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests,doc,$(RUSTLS_TOKIO_DEV_FEATURES))
 
 # -----------------------------------------------------------------------------
 # CI targets
@@ -234,9 +247,13 @@ ci-pr-unit:
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (PR lanes),test,$(RUSTLS_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (PR lanes),doc,$(RUSTLS_PR_FEATURES))
 
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: build  (PR lanes),build,$(RUSTLS_TOKIO_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test   (PR lanes),test,$(RUSTLS_TOKIO_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests (PR lanes),doc,$(RUSTLS_TOKIO_PR_FEATURES))
+
 # Full suite for local validation (roughly matches main CI policy).
 # CI runs these as separate jobs for parallelism.
-ci-main: fmt-check lint spiffe spire-api spiffe-rustls integration-tests msrv audit deny
+ci-main: fmt-check lint spiffe spire-api spiffe-rustls spiffe-rustls-tokio integration-tests msrv audit deny
 
 # -----------------------------------------------------------------------------
 # Per-crate targets (full lane sweeps)
@@ -261,6 +278,13 @@ rustls-all-lanes:
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (all lanes),test,$(RUSTLS_ALL_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (all lanes),doc,$(RUSTLS_ALL_FEATURES))
 
+spiffe-rustls-tokio: rustls-tokio-all-lanes
+rustls-tokio-all-lanes:
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: clippy (all lanes),clippy,$(RUSTLS_TOKIO_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: build  (all lanes),build,$(RUSTLS_TOKIO_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test   (all lanes),test,$(RUSTLS_TOKIO_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests (all lanes),doc,$(RUSTLS_TOKIO_ALL_FEATURES))
+
 # -----------------------------------------------------------------------------
 # Integration tests (SPIRE)
 # -----------------------------------------------------------------------------
@@ -270,6 +294,7 @@ integration-tests:
 	status=0; \
 	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --features x509-source,jwt-source,jwt -- --ignored || status=1; \
 	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored || status=1; \
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_TOKIO_MANIFEST) -- --ignored || status=1; \
 	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) -- --ignored || status=1; \
 	exit $$status
 
@@ -312,6 +337,19 @@ coverage:
 	# rustls integration (ignored)
 	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --all-targets -- --ignored
 
+	# rustls-tokio
+	@set -euo pipefail; \
+	for feat in $(RUSTLS_TOKIO_ALL_FEATURES); do \
+	  extra=""; \
+	  if [ "$$feat" = "$(DEFAULT_LANE)" ]; then \
+	    echo "---- spiffe-rustls-tokio lane: default"; \
+	  else \
+	    echo "---- spiffe-rustls-tokio lane: --no-default-features --features $$feat"; \
+	    extra="--no-default-features --features $$feat"; \
+	  fi; \
+	  $(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_TOKIO_MANIFEST) test --all-targets $$extra; \
+	done
+
 	# spire-api
 	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test --all-targets
 	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test --all-targets -- --ignored
@@ -342,6 +380,10 @@ msrv:
 	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
 	$(call _msrv_doc,$(SPIFFE_RUSTLS_MANIFEST),)
+
+	$(info ==> spiffe-rustls-tokio (MSRV))
+	$(call _msrv_test,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),)
+	$(call _msrv_doc,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),)
 
 # -----------------------------------------------------------------------------
 # Examples
@@ -387,6 +429,16 @@ lanes:
 	@echo ""
 	@echo "RUSTLS_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_ALL_FEATURES)
+	@echo ""
+
+	@echo "RUSTLS_TOKIO_DEV_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_TOKIO_DEV_FEATURES)
+	@echo ""
+	@echo "RUSTLS_TOKIO_PR_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_TOKIO_PR_FEATURES)
+	@echo ""
+	@echo "RUSTLS_TOKIO_ALL_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_TOKIO_ALL_FEATURES)
 	@echo ""
 
 	@echo "SPIRE_API_DEV_FEATURES:"

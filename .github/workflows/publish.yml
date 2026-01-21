@@ -41,7 +41,15 @@ jobs:
 
       # Publish spiffe-rustls crate
       - name: Publish spiffe-rustls
-        if: startsWith(github.ref, 'refs/tags/spiffe-rustls-')
+        if: startsWith(github.ref, 'refs/tags/spiffe-rustls-') &&
+            !startsWith(github.ref, 'refs/tags/spiffe-rustls-tokio-')
         run: |
           cd spiffe-rustls
+          cargo publish
+
+      # Publish spiffe-rustls-tokio crate
+      - name: Publish spiffe-rustls-tokio
+        if: startsWith(github.ref, 'refs/tags/spiffe-rustls-tokio-')
+        run: |
+          cd spiffe-rustls-tokio
           cargo publish

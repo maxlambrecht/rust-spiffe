@@ -4,6 +4,7 @@ members = [
     "spiffe",
     "spire-api",
     "spiffe-rustls",
+    "spiffe-rustls-tokio",
     "spiffe-rustls-grpc-examples",
     "xtask",
 ]
