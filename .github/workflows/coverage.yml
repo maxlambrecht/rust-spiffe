@@ -51,7 +51,7 @@ jobs:
             --lcov \
             --output-path lcov.info \
             --ignore-filename-regex 'proto/|pb/|spire-api-sdk/|build\.rs|spiffe-rustls-grpc-examples/src/|xtask/src/' \
-            test --workspace
+            test
 
           .github/workflows/scripts/filter-lcov.sh lcov.info
 
