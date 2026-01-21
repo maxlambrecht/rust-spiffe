@@ -92,7 +92,7 @@ jobs:
           cache-on-failure: true
 
       - name: Run PR test suite
-        run: make quicktest
+        run: make test-ci
 
   integration:
     name: Integration Tests (SPIRE)
