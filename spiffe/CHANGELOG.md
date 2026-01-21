@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.11.1] - 2026-01-11
+
+### Fixed
+
+* Fixed incorrect retry behavior when the Workload API returns `NoIdentityIssued`, avoiding tight retry loops and excessive log noise.
+* Ensured consistent retry and backoff semantics across X.509 and JWT supervisors.
+
+### Changed
+
+* Refactored shared supervisor logic into a new `supervisor_common` module to remove duplication and improve maintainability.
+* Improved supervisor diagnostics, including clearer lifecycle, recovery, and stream connectivity logging.
+
+### Security / Hardening
+
+* Enforced a maximum X.509 certificate chain length (16) to mitigate resource-exhaustion inputs.
+* Clarified parsing behavior by allowing unbounded X.509 bundles while keeping certificate chains bounded.
+* Enforced the SPIFFE spec maximum URI length (2048 bytes) for SPIFFE IDs.
+* Capped JWT-SVID `aud` claim entries (32) during deserialization to limit pre-verification allocations.
+
+
 ## [0.11.0] - 2026-01-18
 
 ### Highlights
