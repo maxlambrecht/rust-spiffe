@@ -1,6 +1,6 @@
 [package]
 name = "spire-api"
-version = "0.5.1"
+version = "0.5.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -16,7 +16,7 @@ keywords = ["spiffe", "spire", "identity", "authentication", "grpc"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-spiffe = { version = "0.10", features = ["x509", "jwt", "transport-grpc"] }
+spiffe = { version = "0.11", features = ["x509", "jwt", "transport-grpc"] }
 tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
 prost = { version = "0.14" }
 tonic-prost = "0.14"
