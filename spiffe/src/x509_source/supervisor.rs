@@ -31,7 +31,7 @@ use tokio_util::sync::CancellationToken;
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
     _min_backoff: Duration,
-    _backoff: &mut Duration,
+    backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<WorkloadApiClient, WorkloadApiError> {
@@ -61,13 +61,13 @@ pub(super) async fn try_create_client(
                 warn!(
                     "Failed to create WorkloadApiClient; retrying: error={}, backoff_ms={}",
                     e,
-                    _backoff.as_millis()
+                    backoff.as_millis()
                 );
             } else {
                 debug!(
                     "Failed to create WorkloadApiClient (repeated); retrying: error={}, backoff_ms={}, consecutive_failures={}",
                     e,
-                    _backoff.as_millis(),
+                    backoff.as_millis(),
                     error_tracker.consecutive_count()
                 );
             }
@@ -92,7 +92,7 @@ pub(super) async fn try_connect_stream(
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
-    _phase: StreamPhase,
+    phase: StreamPhase,
     supervisor_id: Option<u64>,
 ) -> Result<
     impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static,
@@ -100,7 +100,7 @@ pub(super) async fn try_connect_stream(
 > {
     match client.stream_x509_contexts().await {
         Ok(s) => {
-            let _id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
+            let id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
 
             // Only log recovery if the last error was a stream connection failure
             if error_tracker.last_error_kind() == Some(ErrorKey::StreamConnect)
@@ -109,14 +109,14 @@ pub(super) async fn try_connect_stream(
                 info!(
                     "Stream connection recovered after {} consecutive failures (phase={:?}{})",
                     error_tracker.consecutive_count(),
-                    _phase,
-                    _id_suffix
+                    phase,
+                    id_suffix
                 );
             }
             error_tracker.reset();
             info!(
                 "Connected to Workload API X509 context stream (phase={:?}{})",
-                _phase, _id_suffix
+                phase, id_suffix
             );
             *backoff = min_backoff;
             Ok(s)
@@ -269,18 +269,15 @@ async fn try_sync_once(
 
     match stream.next().await {
         Some(Ok(ctx)) => {
-            validate_context(&ctx, picker, limits, metrics).inspect_err(|_e| {
-                warn!("Initial X509 context rejected; will retry: error={}", _e);
+            validate_context(&ctx, picker, limits, metrics).inspect_err(|e| {
+                warn!("Initial X509 context rejected; will retry: error={e}");
             })?;
 
             Ok(Arc::new(ctx))
         }
         Some(Err(e)) => {
             // Record StreamError for stream read errors.
-            warn!(
-                "Initial sync: Workload API stream error; will retry: error={}",
-                e
-            );
+            warn!("Initial sync: Workload API stream error; will retry: error={e}",);
             if let Some(m) = metrics {
                 m.record_error(MetricsErrorKind::StreamError);
             }
@@ -404,7 +401,7 @@ impl Inner {
                   + Send
                   + 'static),
         cancellation_token: &CancellationToken,
-        _supervisor_id: u64,
+        supervisor_id: u64,
     ) -> bool {
         let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
@@ -430,16 +427,16 @@ impl Inner {
                             }
                             info!("X509 context updated");
                         }
-                        Err(_e) => {
+                        Err(e) => {
                             let should_warn =
                                 update_rejection_tracker.record_error(ErrorKey::UpdateRejected);
 
                             if should_warn {
-                                warn!("Rejected X509 context update: error={}", _e);
+                                warn!("Rejected X509 context update: error={e}");
                             } else {
                                 debug!(
                                     "Rejected X509 context update (repeated): error={}, consecutive_rejections={}",
-                                    _e,
+                                    e,
                                     update_rejection_tracker.consecutive_count()
                                 );
                             }
@@ -447,19 +444,16 @@ impl Inner {
                         }
                     }
                 }
-                Some(Err(_e)) => {
+                Some(Err(e)) => {
                     warn!(
                         "Workload API stream error; reconnecting: id={}, error={}",
-                        _supervisor_id, _e
+                        supervisor_id, e
                     );
                     self.record_error(MetricsErrorKind::StreamError);
                     return false;
                 }
                 None => {
-                    warn!(
-                        "Workload API stream ended; reconnecting: id={}",
-                        _supervisor_id
-                    );
+                    warn!("Workload API stream ended; reconnecting: id={supervisor_id}");
                     self.record_error(MetricsErrorKind::StreamEnded);
                     return false;
                 }

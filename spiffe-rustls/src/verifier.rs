@@ -28,6 +28,7 @@ use x509_parser::oid_registry;
 // - parking_lot never poisons => always Ok
 // - std::sync::Mutex may poison => map to Err(())
 #[cfg(feature = "parking-lot")]
+#[allow(clippy::unnecessary_wraps)] // keep signature uniform with std (poisoning) implementation
 fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
     Ok(m.lock())
 }
@@ -40,6 +41,7 @@ fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
 // Unify Condvar::wait() across std/parking_lot.
 // Both consume the guard and return a guard.
 #[cfg(feature = "parking-lot")]
+#[allow(clippy::unnecessary_wraps)] // keep signature uniform with std (poisoning) implementation
 fn condvar_wait<'a, T>(
     cv: &Condvar,
     mut guard: MutexGuard<'a, T>,
@@ -474,12 +476,9 @@ impl SpiffeServerCertVerifier {
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
-            Err(_e) => {
+            Err(e) => {
                 debug!(
-                "failed to build server verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
-                trust_domain,
-                _e
-            );
+                "failed to build server verifier for trust domain {trust_domain}: {e}; returning empty schemes (handshake will fail)");
                 Vec::new()
             }
         }
@@ -712,12 +711,9 @@ impl SpiffeClientCertVerifier {
 
         match self.get_or_build_inner(trust_domain) {
             Ok(v) => v.supported_verify_schemes(),
-            Err(_e) => {
+            Err(e) => {
                 debug!(
-                "failed to build client verifier for trust domain {}: {}; returning empty schemes (handshake will fail)",
-                trust_domain,
-                _e
-            );
+                "failed to build client verifier for trust domain {trust_domain}: {e}; returning empty schemes (handshake will fail)");
                 Vec::new()
             }
         }
@@ -831,7 +827,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 /// The policy check is still enforced during certificate verification in
 /// `get_or_build_inner`, so this fallback does not weaken security.
 fn advertised_verify_schemes(
-    _label: &str,
+    label: &str,
     gen: u64,
     last_logged_gen: &Mutex<Option<u64>>,
     snap: &MaterialSnapshot,
@@ -883,12 +879,10 @@ fn advertised_verify_schemes(
     };
 
     if should_log {
-        let _snapshot_tds = join_trust_domains(snap.roots_by_td.keys());
+        let snapshot_tds = join_trust_domains(snap.roots_by_td.keys());
         error!(
-            "{}: trust domain policy excludes all trust domains in current bundle set \
-            (snapshot trust domains: {}); falling back to scheme union to surface policy error",
-            _label, _snapshot_tds
-        );
+            "{label}: trust domain policy excludes all trust domains in current bundle set \
+            (snapshot trust domains: {snapshot_tds}); falling back to scheme union to surface policy error");
     }
 
     // Build union of schemes from all trust domains
@@ -899,11 +893,9 @@ fn advertised_verify_schemes(
     for (td, roots) in &snap.roots_by_td {
         let schemes = match build_union_schemes(td, roots.clone()) {
             Ok(s) => s,
-            Err(_e) => {
+            Err(e) => {
                 debug!(
-                    "{}: failed to build verifier for trust domain {} while computing scheme union: {}",
-                    _label, td, _e
-                );
+                    "{label}: failed to build verifier for trust domain {td} while computing scheme union: {e}");
                 continue;
             }
         };
@@ -917,7 +909,7 @@ fn advertised_verify_schemes(
 
     if union.is_empty() {
         error!(
-            "{_label}: failed to build verifiers for all trust domains; returning empty schemes (handshake will fail)"
+            "{label}: failed to build verifiers for all trust domains; returning empty schemes (handshake will fail)"
         );
     }
 

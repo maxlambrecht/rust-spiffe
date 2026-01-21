@@ -505,11 +505,8 @@ impl JwtSource {
         self.inner.cancel.cancel();
 
         if let Some(handle) = self.inner.supervisor.lock().await.take() {
-            if let Err(_e) = handle.await {
-                warn!(
-                    "Error joining supervisor task during shutdown: error={}",
-                    _e
-                );
+            if let Err(e) = handle.await {
+                warn!("Error joining supervisor task during shutdown: error={e}");
                 self.inner
                     .record_error(MetricsErrorKind::SupervisorJoinFailed);
             }
@@ -554,11 +551,8 @@ impl JwtSource {
 
         match tokio::time::timeout(timeout, &mut handle).await {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(_e)) => {
-                warn!(
-                    "Error joining supervisor task during shutdown: error={}",
-                    _e
-                );
+            Ok(Err(e)) => {
+                warn!("Error joining supervisor task during shutdown: error={e}");
                 self.inner
                     .record_error(MetricsErrorKind::SupervisorJoinFailed);
                 Ok(())
