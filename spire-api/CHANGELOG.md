@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.2] – 2026-01-21
+
+### Changed
+
+Updated spiffe dependency to 0.11.x, aligning with the latest SPIFFE core improvements and fixes.
+
 ## [0.5.1] – 2026-01-03
 
 ### Changed
