@@ -118,10 +118,50 @@ test-ci: test integration-tests
 	@true
 
 coverage:
-	$(info ==> Coverage: unit tests + ignored integration tests)
+	$(info ==> Coverage: unit + integration tests across feature lanes)
 	cargo llvm-cov clean --workspace
-	cargo llvm-cov --workspace test
-	cargo llvm-cov --workspace test -- --ignored
+
+	# -----------------------
+	# spiffe (feature lanes)
+	# -----------------------
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features x509
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features transport
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features transport-grpc
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features workload-api
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features workload-api-full
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features x509-source
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-source
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-verify-rust-crypto
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-verify-aws-lc-rs
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features logging
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features tracing
+
+	# Integration tests for spiffe (SPIRE-dependent)
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test \
+		--features x509-source,jwt-source -- --ignored
+
+	# -----------------------
+	# spiffe-rustls (lanes)
+	# -----------------------
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features aws-lc-rs
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features ring,tracing
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features ring,logging,parking-lot
+
+	# Integration tests
+	cargo llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test -- --ignored
+
+	# -----------------------
+	# spire-api
+	# -----------------------
+	cargo llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test
+	cargo llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test -- --ignored
+
+	# -----------------------
+	# Emit final combined LCOV
+	# -----------------------
 	cargo llvm-cov report \
 		--lcov \
 		--output-path lcov.info \
