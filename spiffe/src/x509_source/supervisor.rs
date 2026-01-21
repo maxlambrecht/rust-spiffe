@@ -19,14 +19,12 @@ use tokio_util::sync::CancellationToken;
 /// Attempts to create a Workload API client.
 ///
 /// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
-/// Does not sleep; the caller is responsible for backoff progression and sleeping.
 ///
 /// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
 /// Attempts to create a Workload API client.
 ///
 /// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
-/// Does not sleep; the caller is responsible for backoff progression and sleeping.
 ///
 /// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
@@ -85,7 +83,6 @@ pub(super) async fn try_create_client(
 /// Attempts to connect to the X.509 context stream.
 ///
 /// Records metrics and logs errors. Resets backoff to `min_backoff` on success.
-/// Does not sleep; the caller is responsible for backoff progression and sleeping.
 ///
 /// On error, records `StreamConnect` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
