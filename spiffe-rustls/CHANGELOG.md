@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.5] – 2026-01-21
+
+### Added
+- Add `with_alpn_protocols(...)` to client and server builders to configure rustls ALPN protocols.
+- Add `with_config_customizer(...)` as an advanced escape hatch to customize
+  the final rustls configuration after SPIFFE verification is wired.
+
+### Changed
+- Expand documentation with an “Advanced Configuration” section covering
+  ALPN and configuration customization.
+
+### Notes
+- No changes to SPIFFE verification or authentication behavior.
+
+
 ## [0.4.4] – 2026-01-21
 
 ### Changed
