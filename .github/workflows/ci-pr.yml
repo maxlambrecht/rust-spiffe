@@ -92,7 +92,10 @@ jobs:
           cache-on-failure: true
 
       - name: Run PR test suite
-        run: make test-ci
+        run: make ci-pr-unit
+
+      - name: Build examples
+        run: make examples
 
   integration:
     name: Integration Tests (SPIRE)

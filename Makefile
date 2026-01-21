@@ -1,11 +1,32 @@
+# -----------------------------------------------------------------------------
+# Workspace Makefile
+# -----------------------------------------------------------------------------
+#
+# This repository contains multiple Rust crates with feature-gated surfaces.
+# This Makefile is designed to be:
+# - developer-friendly (simple, predictable targets)
+# - CI-oriented (explicit feature lanes, integration, MSRV, coverage)
+#
+# Quick map:
+# - Development:   fmt-check | lint | build | test | check | all
+# - PR CI:         ci-pr-unit        (integration runs as a separate job)
+# - Main CI:       spiffe / spiffe-rustls (full lane sweeps), spire-api, msrv
+# - SPIRE tests:   integration-tests (ignored tests requiring SPIRE)
+# - Docs:          doc-test          (catch example drift early)
+# - Examples:      examples          (compile example binaries)
+# - Coverage:      coverage          (llvm-cov → lcov.info)
+#
+# Notes:
+# - `spiffe` has no default features; dev/test targets exercise meaningful
+#   feature sets instead of relying on defaults.
+# - Feature lanes are expressed as comma-separated feature lists (no spaces),
+#   allowing safe iteration in shell loops.
+# -----------------------------------------------------------------------------
+
 CARGO ?= cargo
 SHELL := /bin/bash
 
 -include make/fuzz.mk
-
-# -----------------------------------------------------------------------------
-# Policy
-# -----------------------------------------------------------------------------
 
 MSRV ?= 1.85.0
 
@@ -13,80 +34,58 @@ SPIFFE_MANIFEST        := spiffe/Cargo.toml
 SPIFFE_RUSTLS_MANIFEST := spiffe-rustls/Cargo.toml
 SPIRE_API_MANIFEST     := spire-api/Cargo.toml
 
+# -----------------------------------------------------------------------------
+# Target catalog
+# -----------------------------------------------------------------------------
 .PHONY: \
-  all audit \
-  check ci clean coverage \
-  deny \
-  examples \
-  fmt fmt-check full \
-  help \
+  help clean \
+  fmt fmt-check \
+  lint build test check all \
+  doc-test \
+  ci-pr-unit ci-main \
   integration-tests \
-  lint \
+  coverage \
   msrv \
-  spiffe spiffe-rustls spire-api \
-  test, test-ci
+  examples \
+  audit deny \
+  lanes \
+  spiffe spire-api spiffe-rustls \
+  spiffe-all-lanes rustls-all-lanes
 
 help:
-	@echo "Targets:"
-	@echo "  make all               Run all crate checks (spiffe, spire-api, spiffe-rustls)"
-	@echo "  make full              all + integration-tests"
-	@echo "  make ci                Run full CI checks (all + msrv)"
-	@echo "  make coverage          Generate combined coverage (feature lanes + integration) -> lcov.info"
-	@echo "  make check             Quick check (fmt + clippy + build, no tests)"
-	@echo "  make lint              Run clippy on all crates"
-	@echo "  make test              Run tests on all crates (default features)"
-	@echo "  make test-ci           Run tests on all crates (with main features)"
-	@echo "  make msrv              Verify MSRV ($(MSRV)) across key lanes"
-	@echo "  make integration-tests Run integration tests"
-	@echo "  make spiffe            Clippy/build/test across spiffe feature lanes"
-	@echo "  make spire-api         Clippy/build/test"
-	@echo "  make spiffe-rustls     Clippy/build/test (default + aws-lc-rs + tracing lane)"
-	@echo "  make examples          Build all examples"
-	@echo "  make audit             Run cargo-audit (requires cargo-audit)"
-	@echo "  make deny              Run cargo-deny (requires cargo-deny)"
-	@echo "  make fmt | fmt-check   rustfmt"
-	@echo "  make fuzz              Run fuzz tests (see make/fuzz.mk)"
-	@echo "  make clean             cargo clean"
+	@echo "Common targets:"
+	@echo "  make fmt            Format code"
+	@echo "  make fmt-check      Check formatting"
+	@echo "  make lint           Clippy (-D warnings)"
+	@echo "  make build          Build"
+	@echo "  make test           Test (meaningful dev lanes)"
+	@echo "  make check          fmt-check + lint + build"
+	@echo "  make all            check + test + doc-test + examples"
+	@echo "  make clean          cargo clean"
+	@echo ""
+	@echo "Docs / examples:"
+	@echo "  make doc-test       Run doctests explicitly"
+	@echo "  make examples       Build examples"
+	@echo ""
+	@echo "CI targets:"
+	@echo "  make ci-pr-unit     PR unit test suite (representative lanes)"
+	@echo "  make ci-main        Full suite (all lanes + integration + msrv)"
+	@echo ""
+	@echo "Per-crate (full lane sweeps):"
+	@echo "  make spiffe"
+	@echo "  make spiffe-rustls"
+	@echo "  make spire-api"
+	@echo ""
+	@echo "Other:"
+	@echo "  make integration-tests   Run ignored tests requiring SPIRE"
+	@echo "  make coverage            Generate combined LCOV at ./lcov.info"
+	@echo "  make msrv                MSRV policy checks (representative lanes)"
+	@echo "  make audit | deny        Dependency checks"
+	@echo "  make fuzz                Fuzz targets (see make/fuzz.mk)"
+	@echo "  make lanes               Print lane definitions"
 
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
-
-# $(call cargo_build,<manifest>,<extra args>)
-define cargo_build
-	$(CARGO) build --manifest-path $(1) $(2)
-endef
-
-# $(call cargo_test,<manifest>,<extra args>)
-define cargo_test
-	$(CARGO) test --manifest-path $(1) --all-targets $(2)
-endef
-
-# $(call cargo_clippy,<manifest>,<extra args>)
-define cargo_clippy
-	$(CARGO) clippy --manifest-path $(1) --all-targets $(2)
-endef
-
-# $(call cargo_clippy_deny_warnings,<manifest>,<extra args>)
-define cargo_clippy_deny_warnings
-	$(CARGO) clippy --manifest-path $(1) --all-targets $(2) -- -D warnings
-endef
-
-# MSRV helpers (cargo +<toolchain>)
-# $(call msrv_test,<manifest>,<extra args>)
-define msrv_test
-	cargo +$(MSRV) test --manifest-path $(1) --all-targets $(2)
-endef
-
-# -----------------------------------------------------------------------------
-# Global targets
-# -----------------------------------------------------------------------------
-
-all: fmt-check spiffe spire-api spiffe-rustls
-	@true
-
-full: all integration-tests
-	@true
+clean:
+	$(CARGO) clean
 
 fmt:
 	$(CARGO) fmt
@@ -94,135 +93,178 @@ fmt:
 fmt-check:
 	$(CARGO) fmt --check
 
-clean:
-	$(CARGO) clean
+# -----------------------------------------------------------------------------
+# Feature lanes (comma-separated feature sets; no spaces)
+# -----------------------------------------------------------------------------
+# spiffe: dev lanes should be meaningful (spiffe has no default features).
+SPIFFE_DEV_FEATURES := \
+  x509-source,jwt-source,jwt,jwt-verify-rust-crypto,tracing
+
+RUSTLS_DEV_FEATURES := \
+  $(DEFAULT_LANE) \
+  aws-lc-rs
+
+SPIRE_API_DEV_FEATURES := \
+  $(DEFAULT_LANE)
+
+DEFAULT_LANE := @default
+
+# PR lanes (ci-pr-unit): default to the dev lanes.
+SPIFFE_PR_FEATURES := $(SPIFFE_DEV_FEATURES)
+RUSTLS_PR_FEATURES := $(RUSTLS_DEV_FEATURES)
+SPIRE_API_PR_FEATURES := $(SPIRE_API_DEV_FEATURES)
+
+# Full matrix lanes (main CI + coverage).
+SPIFFE_ALL_FEATURES := \
+  x509 \
+  transport \
+  transport-grpc \
+  workload-api-core \
+  workload-api-x509 \
+  workload-api-jwt \
+  workload-api-full \
+  x509-source \
+  jwt-source \
+  jwt \
+  jwt-verify-rust-crypto \
+  jwt-verify-aws-lc-rs \
+  logging \
+  tracing \
+  workload-api-full,logging \
+  workload-api-full,tracing \
+  workload-api-full,tracing,jwt-verify-rust-crypto \
+  workload-api-full,tracing,jwt-verify-aws-lc-rs \
+  x509-source,logging \
+  x509-source,tracing \
+  jwt-source,logging \
+  jwt-source,tracing
+
+RUSTLS_ALL_FEATURES := \
+  $(DEFAULT_LANE) \
+  aws-lc-rs \
+  ring,tracing \
+  ring,logging,parking-lot
+
+SPIRE_API_ALL_FEATURES := \
+  $(DEFAULT_LANE)
 
 # -----------------------------------------------------------------------------
-# Convenience targets
+# Runner helpers
 # -----------------------------------------------------------------------------
+#
+# Iterate feature sets and construct cargo flags safely.
+#
+# $(call _run_feature_lanes,<manifest>,<label>,<cmd>,<features_list>)
+define _run_feature_lanes
+	@set -euo pipefail; \
+	manifest="$(1)"; \
+	label="$(2)"; \
+	cmd="$(3)"; \
+	features_list='$(4)'; \
+	echo "==> $$label"; \
+	for feat in $$features_list; do \
+	  extra=""; \
+	  if [ "$$feat" = "$(DEFAULT_LANE)" ]; then \
+	    echo "---- lane: default"; \
+	  else \
+	    echo "---- lane: --no-default-features --features $$feat"; \
+	    extra="--no-default-features --features $$feat"; \
+	  fi; \
+	  case "$$cmd" in \
+	    clippy) $(CARGO) clippy --manifest-path $$manifest --all-targets $$extra -- -D warnings ;; \
+	    build)  $(CARGO) build  --manifest-path $$manifest $$extra ;; \
+	    test)   $(CARGO) test   --manifest-path $$manifest --all-targets $$extra ;; \
+	    doc)    $(CARGO) test   --manifest-path $$manifest --doc $$extra ;; \
+	    *) echo "unknown cmd: $$cmd" >&2; exit 2 ;; \
+	  esac; \
+	done
+endef
 
-check: fmt-check
-	$(info ==> Quick check: clippy + build)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIRE_API_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),)
+# MSRV helpers (keep policy lanes consistent and readable).
+define _msrv_test
+	cargo +$(MSRV) test --manifest-path $(1) --all-targets $(2)
+endef
 
-	$(call cargo_build,$(SPIFFE_MANIFEST),)
-	$(call cargo_build,$(SPIRE_API_MANIFEST),)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),)
+define _msrv_doc
+	cargo +$(MSRV) test --manifest-path $(1) --doc $(2)
+endef
+
+check: fmt-check lint build
+
+all: check test doc-test examples
 
 lint: fmt-check
-	$(info ==> Lint: clippy on all crates)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIRE_API_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: clippy (dev lanes),clippy,$(SPIFFE_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: clippy (dev lanes),clippy,$(SPIRE_API_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: clippy (dev lanes),clippy,$(RUSTLS_DEV_FEATURES))
+
+build:
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build (dev lanes),build,$(SPIFFE_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build (dev lanes),build,$(SPIRE_API_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build (dev lanes),build,$(RUSTLS_DEV_FEATURES))
 
 test:
-	$(info ==> Test: run tests on all crates)
-	$(call cargo_test,$(SPIFFE_MANIFEST),)
-	$(call cargo_test,$(SPIRE_API_MANIFEST),)
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test (dev lanes),test,$(SPIFFE_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test (dev lanes),test,$(SPIRE_API_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test (dev lanes),test,$(RUSTLS_DEV_FEATURES))
 
-test-ci:
-	$(info ==> Tests: primary runtime features)
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) \
-		--no-default-features --features x509-source,jwt-source
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST)
-	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST)
+doc-test:
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (dev lane),doc,$(SPIFFE_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests,doc,$(SPIRE_API_DEV_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests,doc,$(RUSTLS_DEV_FEATURES))
 
 # -----------------------------------------------------------------------------
-# Coverage (cargo llvm-cov)
+# CI targets
 # -----------------------------------------------------------------------------
+# Unit suite for PRs. Integration is typically a separate job that starts SPIRE.
+ci-pr-unit: fmt-check
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: clippy (PR lanes),clippy,$(SPIFFE_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build  (PR lanes),build,$(SPIFFE_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test   (PR lanes),test,$(SPIFFE_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (PR lane),doc,$(SPIFFE_PR_FEATURES))
 
-coverage:
-	$(info ==> Coverage: unit + integration tests across feature lanes)
-	$(CARGO) llvm-cov clean --workspace
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: clippy (PR lanes),clippy,$(SPIRE_API_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build  (PR lanes),build,$(SPIRE_API_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test   (PR lanes),test,$(SPIRE_API_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests (PR lanes),doc,$(SPIRE_API_PR_FEATURES))
 
-	# -----------------------
-	# spiffe (feature lanes)
-	# -----------------------
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features x509
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features transport
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features transport-grpc
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features workload-api
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features workload-api-full
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features x509-source
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-source
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-verify-rust-crypto
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features jwt-verify-aws-lc-rs
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features logging
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --no-default-features --features tracing
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: clippy (PR lanes),clippy,$(RUSTLS_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build  (PR lanes),build,$(RUSTLS_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (PR lanes),test,$(RUSTLS_PR_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (PR lanes),doc,$(RUSTLS_PR_FEATURES))
 
-	# Integration tests for spiffe (SPIRE-dependent)
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test \
-		--features x509-source,jwt-source,jwt -- --ignored
-
-	# -----------------------
-	# spiffe-rustls (lanes)
-	# -----------------------
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features aws-lc-rs
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features ring,tracing
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --no-default-features --features ring,logging,parking-lot
-
-	# Integration tests
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test -- --ignored
-
-	# -----------------------
-	# spire-api
-	# -----------------------
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test
-	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test -- --ignored
-
-	# -----------------------
-	# Emit final combined LCOV
-	# -----------------------
-	$(CARGO) llvm-cov report \
-		--lcov \
-		--output-path lcov.info \
-		--ignore-filename-regex 'proto/|pb/|spire-api-sdk/|build\.rs|spiffe-rustls-grpc-examples/src/|xtask/src/'
+# Full suite for local validation (roughly matches main CI policy).
+# CI runs these as separate jobs for parallelism.
+ci-main: fmt-check lint spiffe spire-api spiffe-rustls integration-tests msrv audit deny
 
 # -----------------------------------------------------------------------------
-# MSRV policy check
+# Per-crate targets (full lane sweeps)
 # -----------------------------------------------------------------------------
-# Keep MSRV lanes limited but representative of the major feature surfaces.
+spiffe: spiffe-all-lanes
+spiffe-all-lanes:
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: clippy (all lanes),clippy,$(SPIFFE_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build  (all lanes),build,$(SPIFFE_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test   (all lanes),test,$(SPIFFE_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (all lanes),doc,$(SPIFFE_ALL_FEATURES))
 
-msrv:
-	$(info ==> MSRV policy check: Rust $(MSRV))
-	cargo +$(MSRV) --version
+spire-api:
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: clippy,clippy,$(SPIRE_API_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build,build,$(SPIRE_API_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test,test,$(SPIRE_API_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests,doc,$(SPIRE_API_ALL_FEATURES))
 
-	$(info ==> spiffe (MSRV))
-	$(call msrv_test,$(SPIFFE_MANIFEST),)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features transport)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-rust-crypto)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features logging)
-	$(call msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features tracing)
-
-	$(info ==> spire-api (MSRV))
-	$(call msrv_test,$(SPIRE_API_MANIFEST),)
-
-	$(info ==> spiffe-rustls (MSRV))
-	$(call msrv_test,$(SPIFFE_RUSTLS_MANIFEST),)
-	$(call msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
-	$(call msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging)
-	$(call msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,parking-lot)
+spiffe-rustls: rustls-all-lanes
+rustls-all-lanes:
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: clippy (all lanes),clippy,$(RUSTLS_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build  (all lanes),build,$(RUSTLS_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (all lanes),test,$(RUSTLS_ALL_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (all lanes),doc,$(RUSTLS_ALL_FEATURES))
 
 # -----------------------------------------------------------------------------
 # Integration tests (SPIRE)
 # -----------------------------------------------------------------------------
-
 integration-tests:
-	$(info ==> Run integration tests)
+	$(info ==> Run integration tests (ignored))
 	@set -euo pipefail; \
 	status=0; \
 	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --features x509-source,jwt-source,jwt -- --ignored || status=1; \
@@ -231,139 +273,85 @@ integration-tests:
 	exit $$status
 
 # -----------------------------------------------------------------------------
-# spiffe
+# Coverage (cargo llvm-cov)
 # -----------------------------------------------------------------------------
+# Coverage focuses on unit + integration paths and emits a combined LCOV file.
+coverage:
+	$(info ==> Coverage: unit + integration across feature lanes -> lcov.info)
+	$(CARGO) llvm-cov clean --workspace
 
-spiffe:
-	$(info ==> spiffe: clippy (feature lanes))
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features x509)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features transport)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-core)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-x509)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-jwt)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features x509-source)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-rust-crypto)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features logging)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features tracing)
+	@set -euo pipefail; \
+	for feat in $(SPIFFE_ALL_FEATURES); do \
+	  extra=""; \
+	  if [ -n "$$feat" ]; then \
+	    echo "---- spiffe lane: --no-default-features --features $$feat"; \
+	    extra="--no-default-features --features $$feat"; \
+	  else \
+	    echo "---- spiffe lane: default"; \
+	  fi; \
+	  $(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test --all-targets $$extra; \
+	done
 
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,logging)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,logging)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,tracing)
+	# spiffe integration lane (ignored)
+	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test \
+	  --features x509-source,jwt-source,jwt -- --ignored
 
-	$(info ==> spiffe: build (feature lanes))
-	$(call cargo_build,$(SPIFFE_MANIFEST),)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features x509)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features transport)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-core)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-x509)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-jwt)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features x509-source)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-rust-crypto)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features logging)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features tracing)
+	@set -euo pipefail; \
+	for feat in $(RUSTLS_ALL_FEATURES); do \
+	  extra=""; \
+	  if [ -n "$$feat" ]; then \
+	    echo "---- spiffe-rustls lane: --no-default-features --features $$feat"; \
+	    extra="--no-default-features --features $$feat"; \
+	  else \
+	    echo "---- spiffe-rustls lane: default"; \
+	  fi; \
+	  $(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --all-targets $$extra; \
+	done
 
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,logging)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,logging)
-	$(call cargo_build,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,tracing)
+	# rustls integration (ignored)
+	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_RUSTLS_MANIFEST) test --all-targets -- --ignored
 
-	$(info ==> spiffe: test (feature lanes))
-	$(call cargo_test,$(SPIFFE_MANIFEST),)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features x509)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features transport)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-core)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-x509)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-jwt)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-rust-crypto)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-verify-aws-lc-rs)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features logging)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features tracing)
+	# spire-api
+	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test --all-targets
+	$(CARGO) llvm-cov --no-report --manifest-path $(SPIRE_API_MANIFEST) test --all-targets -- --ignored
 
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,logging)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-rust-crypto)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features workload-api-full,tracing,jwt-verify-aws-lc-rs)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,logging)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,tracing)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,logging)
-	$(call cargo_test,$(SPIFFE_MANIFEST),--no-default-features --features jwt-source,tracing)
+	$(CARGO) llvm-cov report \
+	  --lcov \
+	  --output-path lcov.info \
+	  --ignore-filename-regex 'proto/|pb/|spire-api-sdk/|build\.rs|spiffe-rustls-grpc-examples/src/|xtask/src/'
 
 # -----------------------------------------------------------------------------
-# spire-api
+# MSRV policy checks
 # -----------------------------------------------------------------------------
+msrv:
+	$(info ==> MSRV policy check: Rust $(MSRV))
+	cargo +$(MSRV) --version
 
-spire-api:
-	$(info ==> spire-api: clippy)
-	$(call cargo_clippy_deny_warnings,$(SPIRE_API_MANIFEST),)
+	$(info ==> spiffe (MSRV))
+	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509)
+	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
+	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto)
+	$(call _msrv_doc,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto)
 
-	$(info ==> spire-api: build)
-	$(call cargo_build,$(SPIRE_API_MANIFEST),)
+	$(info ==> spire-api (MSRV))
+	$(call _msrv_test,$(SPIRE_API_MANIFEST),)
+	$(call _msrv_doc,$(SPIRE_API_MANIFEST),)
 
-	$(info ==> spire-api: test)
-	$(call cargo_test,$(SPIRE_API_MANIFEST),)
-
-# -----------------------------------------------------------------------------
-# spiffe-rustls
-# -----------------------------------------------------------------------------
-
-spiffe-rustls:
-	$(info ==> spiffe-rustls: clippy)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_clippy_deny_warnings,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
-
-	$(info ==> spiffe-rustls: build)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
-
-	$(info ==> spiffe-rustls: test)
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),)
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,tracing)
-	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features ring,logging,parking-lot)
+	$(info ==> spiffe-rustls (MSRV))
+	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),)
+	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
+	$(call _msrv_doc,$(SPIFFE_RUSTLS_MANIFEST),)
 
 # -----------------------------------------------------------------------------
 # Examples
 # -----------------------------------------------------------------------------
-
 examples:
 	$(info ==> Build examples)
-	$(call cargo_build,$(SPIFFE_RUSTLS_MANIFEST),--examples)
+	$(CARGO) build --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --examples
 
 # -----------------------------------------------------------------------------
 # Dependency checks
 # -----------------------------------------------------------------------------
-
 audit:
 	$(info ==> Dependency audit (cargo-audit))
 	@command -v cargo-audit >/dev/null 2>&1 || { echo "Error: cargo-audit not found. Install with: cargo install cargo-audit"; exit 1; }
@@ -375,3 +363,19 @@ deny:
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "Error: cargo-deny not found. Install with: cargo install cargo-deny"; exit 1; }
 	$(CARGO) generate-lockfile
 	$(CARGO) deny check
+
+# -----------------------------------------------------------------------------
+# Lane introspection
+# -----------------------------------------------------------------------------
+lanes:
+	@echo "SPIFFE_DEV_FEATURES:"
+	@printf "  %s\n" $(SPIFFE_DEV_FEATURES)
+	@echo ""
+	@echo "RUSTLS_DEV_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_DEV_FEATURES)
+	@echo ""
+	@echo "SPIFFE_ALL_FEATURES:"
+	@printf "  %s\n" $(SPIFFE_ALL_FEATURES)
+	@echo ""
+	@echo "RUSTLS_ALL_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_ALL_FEATURES)
