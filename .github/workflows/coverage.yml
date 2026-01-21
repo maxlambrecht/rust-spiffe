@@ -9,9 +9,8 @@ jobs:
   coverage:
     name: Run tests and generate coverage report
     runs-on: ubuntu-latest
+
     env:
-      RUSTFLAGS: "-Cinstrument-coverage -C link-dead-code"
-      LLVM_PROFILE_FILE: "target/coverage/%p-%m.profraw"
       SPIFFE_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/public/api.sock"
       SPIFFE_ENDPOINT_SOCKET_FEDERATED: "unix:/tmp/spire-agent-federated/public/api.sock"
       SPIRE_ADMIN_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/admin/api.sock"
@@ -33,43 +32,22 @@ jobs:
       - name: Install LLVM tools
         run: rustup component add llvm-tools-preview
 
-      - name: Install grcov
-        run: cargo install grcov --locked
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
 
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      - name: Run tests (full)
+      - name: Generate LCOV coverage report
         run: |
-          mkdir -p target/coverage
-          make full
-
-      # Coverage is restricted to hand-written library code.
-      # Generated protobuf code, examples, and tooling are intentionally excluded.
-      - name: Generate Coveralls JSON report
-        run: |
-          grcov . \
-            --binary-path ./target/debug/ \
-            -t coveralls \
-            --service-name github \
-            --service-job-id "${{ github.run_id }}" \
-            -s . \
-            --ignore-not-existing \
-            --ignore "$HOME/.cargo/**" \
-            --ignore "*/proto/**" \
-            --ignore "*/pb/**" \
-            --ignore "*/spire-api-sdk/**" \
-            --ignore "*/build.rs" \
-            --ignore "*/spiffe-rustls-grpc-examples/src/**" \
-            --ignore "*/xtask/src/**" \
-            --keep-only '*/src/**' \
-            > coveralls.json
+          make coverage
+          .github/workflows/scripts/filter-lcov.sh lcov.info
 
       - name: Upload coverage to Coveralls
         uses: coverallsapp/github-action@5cbfd81b66ca5d10c19b062c04de0199c215fb6e # v2.3.7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          file: ./coveralls.json
+          file: ./lcov.info
 
       - name: Clean up SPIRE
         if: always()
