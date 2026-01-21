@@ -45,6 +45,13 @@ pub struct SpiffeId {
 /// is guaranteed to contain only characters allowed by the SPIFFE
 /// specification:
 /// <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#21-trust-domain>.
+///
+/// Trust domains **must be lowercase**. Inputs containing uppercase letters
+/// or other disallowed characters are rejected with
+/// [`SpiffeIdError::BadTrustDomainChar`] instead of being silently normalized.
+///
+/// If you accept user-provided trust domain names, normalize them (e.g., convert
+/// to lowercase and validate) before constructing a `TrustDomain`.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TrustDomain {
     name: String,
