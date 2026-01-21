@@ -90,9 +90,9 @@ impl MaterialWatcher {
                                         break;
                                     }
                                 }
-                                Err(_e) => {
+                                Err(e) => {
                                     // Keep last known-good material; do not increment generation on failure
-                                    error!("failed rebuilding rustls material; keeping previous: {_e}");
+                                    error!("failed rebuilding rustls material; keeping previous: {e}");
                                 }
                             }
                         } else {
@@ -142,11 +142,11 @@ fn build_material<S: X509MaterialSource>(source: &S, generation: u64) -> Result<
             Ok(roots) => {
                 roots_by_td.insert(trust_domain.clone(), roots);
             }
-            Err(_e) => {
+            Err(e) => {
                 // This is expected when a trust domain's bundle has no valid/acceptable root
                 // certificates (e.g., EmptyRootStore). We log and continue with other trust
                 // domains. We only fail if no usable root stores can be built for any trust domain.
-                warn!("Failed to build root cert store for trust domain {trust_domain}: {_e}");
+                warn!("Failed to build root cert store for trust domain {trust_domain}: {e}");
             }
         }
     }

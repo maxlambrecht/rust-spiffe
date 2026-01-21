@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
     _min_backoff: Duration,
-    _backoff: &mut Duration,
+    backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<WorkloadApiClient, WorkloadApiError> {
@@ -86,7 +86,7 @@ pub(super) async fn try_connect_stream(
     backoff: &mut Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
-    _phase: StreamPhase,
+    phase: StreamPhase,
     supervisor_id: Option<u64>,
 ) -> Result<
     impl tokio_stream::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static,
@@ -94,7 +94,7 @@ pub(super) async fn try_connect_stream(
 > {
     match client.stream_jwt_bundles().await {
         Ok(s) => {
-            let _id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
+            let id_suffix = supervisor_id.map_or_else(String::new, |id| format!(", id={id}"));
 
             // Only log recovery if the last error was a stream connection failure
             if error_tracker.last_error_kind() == Some(ErrorKey::StreamConnect)
@@ -103,14 +103,14 @@ pub(super) async fn try_connect_stream(
                 info!(
                     "Stream connection recovered after {} consecutive failures (phase={:?}{})",
                     error_tracker.consecutive_count(),
-                    _phase,
-                    _id_suffix
+                    phase,
+                    id_suffix
                 );
             }
             error_tracker.reset();
             info!(
                 "Connected to Workload API JWT bundle stream (phase={:?}{})",
-                _phase, _id_suffix
+                phase, id_suffix
             );
             *backoff = min_backoff;
             Ok(s)
@@ -257,18 +257,15 @@ async fn try_sync_once(
 
     match stream.next().await {
         Some(Ok(bundle_set)) => {
-            validate_bundle_set(&bundle_set, limits, metrics).inspect_err(|_e| {
-                warn!("Initial JWT bundle set rejected; will retry: error={}", _e);
+            validate_bundle_set(&bundle_set, limits, metrics).inspect_err(|e| {
+                warn!("Initial JWT bundle set rejected; will retry: error={e}");
             })?;
 
             Ok(Arc::new(bundle_set))
         }
         Some(Err(e)) => {
             // Record StreamError for stream read errors.
-            warn!(
-                "Initial sync: Workload API stream error; will retry: error={}",
-                e
-            );
+            warn!("Initial sync: Workload API stream error; will retry: error={e}");
             if let Some(m) = metrics {
                 m.record_error(MetricsErrorKind::StreamError);
             }
@@ -392,7 +389,7 @@ impl Inner {
                   + Send
                   + 'static),
         cancellation_token: &CancellationToken,
-        _supervisor_id: u64,
+        supervisor_id: u64,
     ) -> bool {
         let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
@@ -418,16 +415,16 @@ impl Inner {
                             }
                             info!("JWT bundle set updated");
                         }
-                        Err(_e) => {
+                        Err(e) => {
                             let should_warn =
                                 update_rejection_tracker.record_error(ErrorKey::UpdateRejected);
 
                             if should_warn {
-                                warn!("Rejected JWT bundle set update: error={}", _e);
+                                warn!("Rejected JWT bundle set update: error={e}");
                             } else {
                                 debug!(
                                     "Rejected JWT bundle set update (repeated): error={}, consecutive_rejections={}",
-                                    _e,
+                                    e,
                                     update_rejection_tracker.consecutive_count()
                                 );
                             }
@@ -435,19 +432,13 @@ impl Inner {
                         }
                     }
                 }
-                Some(Err(_e)) => {
-                    warn!(
-                        "Workload API stream error; reconnecting: id={}, error={}",
-                        _supervisor_id, _e
-                    );
+                Some(Err(e)) => {
+                    warn!("Workload API stream error; reconnecting: id={supervisor_id}, error={e}");
                     self.record_error(MetricsErrorKind::StreamError);
                     return false;
                 }
                 None => {
-                    warn!(
-                        "Workload API stream ended; reconnecting: id={}",
-                        _supervisor_id
-                    );
+                    warn!("Workload API stream ended; reconnecting: id={supervisor_id}");
                     self.record_error(MetricsErrorKind::StreamEnded);
                     return false;
                 }

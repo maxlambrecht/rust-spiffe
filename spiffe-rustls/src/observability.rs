@@ -3,7 +3,10 @@
 //! Behavior:
 //! - `tracing` feature => emit `tracing::*` events (preferred when enabled)
 //! - `logging` feature (without `tracing`) => emit `log::*` records
-//! - Neither enabled => macros are no-ops
+//! - Neither enabled => macros consume variables via `format_args!` but produce no output
+//!
+//! This ensures that variables passed to logging macros are always consumed,
+//! preventing `unused_variable` warnings when observability features are disabled.
 
 #[allow(unused_macros)]
 macro_rules! log_debug {
@@ -15,6 +18,10 @@ macro_rules! log_debug {
         #[cfg(all(not(feature = "tracing"), feature = "logging"))]
         {
             log::debug!($($arg)*);
+        }
+        #[cfg(not(any(feature = "tracing", feature = "logging")))]
+        {
+            let _ = format_args!($($arg)*);
         }
     };
 }
@@ -30,6 +37,10 @@ macro_rules! log_info {
         {
             log::info!($($arg)*);
         }
+        #[cfg(not(any(feature = "tracing", feature = "logging")))]
+        {
+            let _ = format_args!($($arg)*);
+        }
     };
 }
 
@@ -44,6 +55,10 @@ macro_rules! log_warn {
         {
             log::warn!($($arg)*);
         }
+        #[cfg(not(any(feature = "tracing", feature = "logging")))]
+        {
+            let _ = format_args!($($arg)*);
+        }
     };
 }
 
@@ -57,6 +72,10 @@ macro_rules! log_error {
         #[cfg(all(not(feature = "tracing"), feature = "logging"))]
         {
             log::error!($($arg)*);
+        }
+        #[cfg(not(any(feature = "tracing", feature = "logging")))]
+        {
+            let _ = format_args!($($arg)*);
         }
     };
 }
