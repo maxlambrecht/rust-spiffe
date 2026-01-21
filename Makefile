@@ -23,8 +23,9 @@ SPIRE_API_MANIFEST     := spire-api/Cargo.toml
   integration-tests \
   lint \
   msrv \
+  quicktest \
   spiffe spiffe-rustls spire-api \
-  test
+  test test-ci
 
 help:
 	@echo "Targets:"
@@ -122,7 +123,16 @@ test:
 	$(call cargo_test,$(SPIRE_API_MANIFEST),)
 	$(call cargo_test,$(SPIFFE_RUSTLS_MANIFEST),)
 
-ci: fmt-check spiffe spire-api spiffe-rustls msrv
+.PHONY: quicktest test-ci
+
+quicktest:
+	$(info ==> Quick tests: primary runtime features)
+	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) \
+		--no-default-features --features x509-source,jwt-source,jwt
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST)
+	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST)
+
+test-ci: fmt-check lint quicktest
 	@true
 
 # -----------------------------------------------------------------------------
