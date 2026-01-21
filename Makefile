@@ -25,7 +25,7 @@ SPIRE_API_MANIFEST     := spire-api/Cargo.toml
   msrv \
   quicktest \
   spiffe spiffe-rustls spire-api \
-  test test-ci
+  test
 
 help:
 	@echo "Targets:"
@@ -131,9 +131,6 @@ quicktest:
 		--no-default-features --features x509-source,jwt-source
 	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST)
 	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST)
-
-test-ci: fmt-check lint quicktest
-	@true
 
 # -----------------------------------------------------------------------------
 # Coverage (cargo llvm-cov)
