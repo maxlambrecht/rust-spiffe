@@ -38,21 +38,9 @@ jobs:
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh
 
-      - name: Run tests (full)
-        run: make full
-
-      # Generate coverage using cargo llvm-cov
       - name: Generate LCOV coverage report
         run: |
-          cargo llvm-cov clean --workspace
-
-          cargo llvm-cov \
-            --workspace \
-            --lcov \
-            --output-path lcov.info \
-            --ignore-filename-regex 'proto/|pb/|spire-api-sdk/|build\.rs|spiffe-rustls-grpc-examples/src/|xtask/src/' \
-            test
-
+          make coverage
           .github/workflows/scripts/filter-lcov.sh lcov.info
 
       - name: Upload coverage to Coveralls

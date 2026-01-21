@@ -14,7 +14,18 @@ SPIFFE_MANIFEST        := spiffe/Cargo.toml
 SPIFFE_RUSTLS_MANIFEST := spiffe-rustls/Cargo.toml
 SPIRE_API_MANIFEST     := spire-api/Cargo.toml
 
-.PHONY: help fmt fmt-check clean all full msrv integration-tests spiffe spire-api spiffe-rustls check lint test ci examples audit deny
+.PHONY: \
+  all audit \
+  check ci clean coverage \
+  deny \
+  examples \
+  fmt fmt-check full \
+  help \
+  integration-tests \
+  lint \
+  msrv \
+  spiffe spiffe-rustls spire-api \
+  test test-ci
 
 help:
 	@echo "Targets:"
@@ -102,6 +113,19 @@ test:
 
 ci: fmt-check spiffe spire-api spiffe-rustls msrv
 	@true
+
+test-ci: test integration-tests
+	@true
+
+coverage:
+	$(info ==> Coverage: unit tests + ignored integration tests)
+	cargo llvm-cov clean --workspace
+	cargo llvm-cov --workspace test
+	cargo llvm-cov --workspace test -- --ignored
+	cargo llvm-cov report \
+		--lcov \
+		--output-path lcov.info \
+		--ignore-filename-regex 'proto/|pb/|spire-api-sdk/|build\.rs|spiffe-rustls-grpc-examples/src/|xtask/src/'
 
 # -----------------------------------------------------------------------------
 # MSRV policy check
