@@ -56,6 +56,7 @@
 #![allow(clippy::result_large_err)]
 
 pub(crate) mod pb;
+pub(crate) mod supervisor_common;
 
 pub mod client;
 pub mod endpoint;
