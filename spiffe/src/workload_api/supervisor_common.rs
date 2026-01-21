@@ -93,7 +93,6 @@ impl ErrorTracker {
     }
 }
 
-
 pub(crate) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) -> bool {
     tokio::select! {
         () = token.cancelled() => true,
