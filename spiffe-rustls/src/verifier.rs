@@ -939,7 +939,7 @@ mod tests {
     use rustls::RootCertStore;
     use spiffe::{SpiffeId, TrustDomain};
     use std::collections::{BTreeMap, BTreeSet};
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::{Arc, OnceLock};
 
     fn ensure_provider() {
         static ONCE: OnceLock<()> = OnceLock::new();
@@ -1378,7 +1378,7 @@ mod tests {
         struct MutableMaterial(Arc<Mutex<Arc<MaterialSnapshot>>>);
         impl MaterialProvider for MutableMaterial {
             fn current_material(&self) -> Arc<MaterialSnapshot> {
-                self.0.lock().unwrap().clone()
+                lock_mutex(&self.0).unwrap().clone()
             }
         }
 
@@ -1412,7 +1412,7 @@ mod tests {
         assert!(!s1.is_empty());
 
         // Swap snapshot generation.
-        *provider.0.lock().unwrap() = snap2;
+        *lock_mutex(&provider.0).unwrap() = snap2;
 
         let s2 = verifier.supported_verify_schemes();
         assert!(!s2.is_empty());
