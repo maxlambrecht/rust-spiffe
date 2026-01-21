@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.2] – 2026-01-21
+
+### Fixed
+- Ensure observability macros always consume their arguments to avoid
+  `unused_variable` warnings when neither `logging` nor `tracing` is enabled.
+- Resolve clippy warnings in edge-case feature combinations.
+
+### Notes
+- No public API changes.
+
+
 ## [0.11.1] - 2026-01-11
 
 ### Fixed
