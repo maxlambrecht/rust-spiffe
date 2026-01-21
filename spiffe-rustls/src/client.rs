@@ -8,6 +8,9 @@ use rustls::ClientConfig;
 use spiffe::X509Source;
 use std::sync::Arc;
 
+/// Function type for customizing a `ClientConfig`.
+type ClientConfigCustomizer = Box<dyn FnOnce(&mut ClientConfig) + Send>;
+
 /// Builds a [`rustls::ClientConfig`] backed by a live SPIFFE `X509Source`.
 ///
 /// The resulting client configuration:
@@ -64,6 +67,8 @@ pub struct ClientConfigBuilder {
     source: Arc<X509Source>,
     authorizer: Arc<dyn Authorizer>,
     trust_domain_policy: TrustDomainPolicy,
+    alpn_protocols: Vec<Vec<u8>>,
+    config_customizer: Option<ClientConfigCustomizer>,
 }
 
 impl std::fmt::Debug for ClientConfigBuilder {
@@ -72,6 +77,8 @@ impl std::fmt::Debug for ClientConfigBuilder {
             .field("source", &"<Arc<X509Source>>")
             .field("authorizer", &"<Arc<dyn Authorizer>>")
             .field("trust_domain_policy", &self.trust_domain_policy)
+            .field("alpn_protocols", &self.alpn_protocols)
+            .field("config_customizer", &self.config_customizer.is_some())
             .finish()
     }
 }
@@ -82,11 +89,14 @@ impl ClientConfigBuilder {
     /// Defaults:
     /// - Authorization: accepts any SPIFFE ID (authentication only)
     /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
+    /// - ALPN protocols: empty (no ALPN)
     pub fn new(source: X509Source) -> Self {
         Self {
             source: Arc::new(source),
             authorizer: Arc::new(crate::authorizer::any()),
             trust_domain_policy: TrustDomainPolicy::default(),
+            alpn_protocols: Vec::new(),
+            config_customizer: None,
         }
     }
 
@@ -137,6 +147,71 @@ impl ClientConfigBuilder {
         self
     }
 
+    /// Sets the ALPN (Application-Layer Protocol Negotiation) protocols.
+    ///
+    /// The protocols are advertised during the TLS handshake. Common values:
+    /// - `b"h2"` for HTTP/2 (required for gRPC)
+    /// - `b"http/1.1"` for HTTP/1.1
+    ///
+    /// Protocols should be specified in order of preference (most preferred first).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe_rustls::mtls_client;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = spiffe::X509Source::new().await?;
+    /// let config = mtls_client(source)
+    ///     .with_alpn_protocols([b"h2"])
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_alpn_protocols<I, P>(mut self, protocols: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<[u8]>,
+    {
+        self.alpn_protocols = protocols.into_iter().map(|p| p.as_ref().to_vec()).collect();
+        self
+    }
+
+    /// Applies a customizer function to the `ClientConfig` after it's built.
+    ///
+    /// This is an **advanced** API for configuration not directly exposed by the builder.
+    /// The customizer is called **last**, after all other builder settings (including
+    /// ALPN) have been applied, allowing you to override any configuration.
+    ///
+    /// **Warning:** Do not modify or replace the verifier or client certificate resolver,
+    /// as they are required for SPIFFE authentication and authorization. Safe to modify:
+    /// ALPN, cipher suites, protocol versions, and other non-security-critical settings.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe_rustls::mtls_client;
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let source = spiffe::X509Source::new().await?;
+    /// let config = mtls_client(source)
+    ///     .with_config_customizer(|cfg| {
+    ///         // Example: adjust cipher suite preferences
+    ///     })
+    ///     .build()?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn with_config_customizer<F>(mut self, customizer: F) -> Self
+    where
+        F: FnOnce(&mut ClientConfig) + Send + 'static,
+    {
+        self.config_customizer = Some(Box::new(customizer));
+        self
+    }
+
     /// Builds the `rustls::ClientConfig`.
     ///
     /// The returned configuration:
@@ -172,10 +247,17 @@ impl ClientConfigBuilder {
             self.trust_domain_policy,
         ));
 
-        let cfg = ClientConfig::builder()
+        let mut cfg = ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(verifier)
             .with_client_cert_resolver(resolver);
+
+        cfg.alpn_protocols = self.alpn_protocols;
+
+        // Apply customizer last
+        if let Some(customizer) = self.config_customizer {
+            customizer(&mut cfg);
+        }
 
         Ok(cfg)
     }

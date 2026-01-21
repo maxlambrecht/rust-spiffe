@@ -52,13 +52,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // - Authorization: accept clients from the specified trust domains
     // - Trust Domain Policy: only trust certificates from our local trust domain
     //   (defense-in-depth: even if federation provides other bundles, we ignore them)
-    let mut server_cfg = mtls_server(source.clone())
+    // - ALPN: HTTP/2 (required for gRPC)
+    let server_cfg = mtls_server(source.clone())
         .authorize(authorizer::trust_domains(allowed_trust_domains)?)
         .trust_domain_policy(LocalOnly(local_trust_domain))
+        .with_alpn_protocols([b"h2"])
         .build()?;
-
-    // gRPC requires HTTP/2 via ALPN.
-    server_cfg.alpn_protocols = vec![b"h2".to_vec()];
 
     let addr = "127.0.0.1:50051".parse()?;
     eprintln!("gRPC server listening on https://{addr}");
