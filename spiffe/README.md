@@ -383,6 +383,29 @@ Enables **offline JWT-SVID verification** using a **pure Rust cryptography backe
 * Recommended default for offline verification
 * Required only when validating untrusted JWTs locally
 
+When enabled, [`JwtSvid::parse_and_validate`] performs JWT-SVID validation:
+
+- **Signature verification** using keys from the trust domain's JWT bundle
+- **`exp` claim**: tokens must not be expired
+- **`aud` claim**: must intersect the `expected_audience` parameter
+  (empty audience arrays are rejected)
+- **`sub` claim**: must be present and parse as a valid SPIFFE ID
+- **`kid` header**: must be present and match a key in the bundle
+
+Note: `nbf`, `iat`, and `iss` claims are not validated. See the
+[`JwtSvid::parse_and_validate`] documentation for complete details.
+
+```rust
+use spiffe::{bundle::BundleSource, JwtBundle, JwtSvid};
+
+fn validate_token<B: BundleSource<Item = JwtBundle>>(
+    token: &str,
+    bundles: &B,
+) -> Result<JwtSvid, spiffe::JwtSvidError> {
+    JwtSvid::parse_and_validate(token, bundles, &["my-service"])
+}
+```
+
 ---
 
 ### `jwt-verify-aws-lc-rs`
@@ -391,6 +414,9 @@ Enables **offline JWT-SVID verification** using **AWS-LC** via `aws-lc-rs`.
 
 * Alternative cryptography backend
 * Mutually exclusive with `jwt-verify-rust-crypto`
+
+Validation semantics are identical to `jwt-verify-rust-crypto`; only the cryptographic
+backend differs.
 
 ---
 
@@ -438,6 +464,34 @@ spiffe = { version = "0.11", features = ["tracing"] }
 
 **Note:** The `tracing` and `logging` features are not mutually exclusive. When both
 features are enabled, events are emitted via `tracing`.
+
+---
+
+### Workload API core (advanced)
+
+In addition to the higher-level bundles (`workload-api-x509`, `workload-api-jwt`,
+`workload-api`, `workload-api-full`), the crate exposes a lower-level
+`workload-api-core` feature:
+
+```toml
+[dependencies]
+spiffe = { version = "0.11", features = ["workload-api-core"] }
+```
+
+This feature includes:
+
+- **Transport layer** (`transport-grpc`): endpoint parsing and gRPC connector
+- **Runtime dependencies**: `tokio`, `tonic`, `tokio-stream`, `tokio-util`
+- **Protobuf types**: generated Workload API message definitions
+
+**Excluded** (not included in `workload-api-core`):
+
+- X.509 parsing (`x509` feature)
+- JWT parsing (`jwt` feature)
+- High-level client methods that require parsed SVIDs/bundles
+
+Use `workload-api-core` if you want to build a custom client or integrate with
+alternative SVID/bundle representations while reusing the transport layer.
 
 ---
 
@@ -518,17 +572,17 @@ the advisory until upstream releases a fix.
 
 ### Common Operations
 
-| Task                | Code                                                     |
-|---------------------|----------------------------------------------------------|
-| Create X.509 source | `X509Source::new().await?`                               |
-| Create JWT source   | `JwtSource::new().await?`                                |
-| Get current SVID    | `source.svid()?`                                         |
-| Get JWT SVID        | `source.get_jwt_svid(&["aud"]).await?`                   |
-| Get bundle          | `source.bundle_for_trust_domain(&td)?.ok_or("missing")?` |
-| Fetch JWT SVID (direct) | `client.fetch_jwt_svid(&["aud"], None).await?`        |
-| Parse SPIFFE ID     | `SpiffeId::new("spiffe://td/path")?`                     |
-| Check health        | `source.is_healthy()`                                    |
-| Watch for updates   | `source.updated()`                                       |
+| Task                    | Code                                                     |
+|-------------------------|----------------------------------------------------------|
+| Create X.509 source     | `X509Source::new().await?`                               |
+| Create JWT source       | `JwtSource::new().await?`                                |
+| Get current SVID        | `source.svid()?`                                         |
+| Get JWT SVID            | `source.get_jwt_svid(&["aud"]).await?`                   |
+| Get bundle              | `source.bundle_for_trust_domain(&td)?.ok_or("missing")?` |
+| Fetch JWT SVID (direct) | `client.fetch_jwt_svid(&["aud"], None).await?`           |
+| Parse SPIFFE ID         | `SpiffeId::new("spiffe://td/path")?`                     |
+| Check health            | `source.is_healthy()`                                    |
+| Watch for updates       | `source.updated()`                                       |
 
 ### Error Handling
 

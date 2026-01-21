@@ -276,6 +276,16 @@ pub use crate::x509_source::{
 // Primary types are re-exported at the crate root for ergonomics.
 // For advanced configuration types, see the [`jwt_source`] module.
 #[cfg(feature = "jwt-source")]
-pub use crate::jwt_source::{JwtSource, JwtSourceBuilder, JwtSourceError, JwtSourceUpdates};
-#[cfg(feature = "jwt-source")]
-pub use crate::jwt_source::{ReconnectConfig, ResourceLimits};
+pub use crate::jwt_source::{
+    JwtSource,
+    JwtSourceBuilder,
+    JwtSourceError,
+    JwtSourceUpdates,
+    // Configuration types: both generic and JWT-specific aliases are available.
+    // Prefer the aliased names (`JwtReconnectConfig`, `JwtResourceLimits`) when
+    // both X.509 and JWT sources are enabled to avoid ambiguity.
+    ReconnectConfig,
+    ReconnectConfig as JwtReconnectConfig,
+    ResourceLimits,
+    ResourceLimits as JwtResourceLimits,
+};
