@@ -1358,7 +1358,7 @@ mod tests {
     #[test]
     fn extract_spiffe_id_with_cache_hits_best_effort() {
         // This test validates the cache wiring (hit path) without requiring timing/alloc assertions.
-        let cache = Mutex::new(CertParseCache::new());
+        let cache: Mutex<CertParseCache> = Mutex::new(CertParseCache::new());
         let cert = cert_with_spiffe();
 
         // First call populates (best effort).
