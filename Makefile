@@ -49,7 +49,7 @@ DEFAULT_LANE := @default
   fmt fmt-check \
   lint build test check all \
   doc-test \
-  ci-pr-unit ci-main \
+  ci ci-pr \
   integration-tests \
   coverage \
   msrv \
@@ -75,8 +75,8 @@ help:
 	@echo "  make examples       Build examples"
 	@echo ""
 	@echo "CI targets:"
-	@echo "  make ci-pr-unit     PR unit test suite (build + test + doctests)"
-	@echo "  make ci-main        Full suite (all lanes + integration + msrv)"
+	@echo "  make ci-pr          PR unit test suite (build + test + doctests)"
+	@echo "  make ci             Full validation suite (all lanes + integration + msrv + audit)"
 	@echo ""
 	@echo "Per-crate (full lane sweeps):"
 	@echo "  make spiffe"
@@ -233,8 +233,7 @@ doc-test:
 # -----------------------------------------------------------------------------
 # CI targets
 # -----------------------------------------------------------------------------
-# Unit suite for PRs (build + test + doctests).
-ci-pr-unit:
+ci-pr:
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build  (PR lanes),build,$(SPIFFE_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test   (PR lanes),test,$(SPIFFE_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (PR lane),doc,$(SPIFFE_PR_FEATURES))
@@ -251,9 +250,10 @@ ci-pr-unit:
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test   (PR lanes),test,$(RUSTLS_TOKIO_PR_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests (PR lanes),doc,$(RUSTLS_TOKIO_PR_FEATURES))
 
-# Full suite for local validation (roughly matches main CI policy).
-# CI runs these as separate jobs for parallelism.
-ci-main: fmt-check lint spiffe spire-api spiffe-rustls spiffe-rustls-tokio integration-tests msrv audit deny
+# -----------------------------------------------------------------------------
+# Local validation targets
+# -----------------------------------------------------------------------------
+ci: fmt-check lint spiffe spire-api spiffe-rustls spiffe-rustls-tokio integration-tests msrv audit deny
 
 # -----------------------------------------------------------------------------
 # Per-crate targets (full lane sweeps)
