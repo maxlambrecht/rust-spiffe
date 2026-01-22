@@ -8,11 +8,11 @@
 #![warn(clippy::unwrap_used)]
 #![warn(clippy::expect_used)]
 
-//! Rust client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
+//! Client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 //!
-//! This crate provides standards-compliant access to SPIFFE identities and trust material.
-//! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs, trust bundles, and
-//! related metadata, using strongly typed APIs aligned with the SPIFFE specifications.
+//! Provides standards-compliant access to SPIFFE identities and trust material.
+//! Supports fetching and watching X.509 and JWT SVIDs and trust bundles using
+//! strongly typed APIs aligned with the SPIFFE specifications.
 //!
 //! ## Quick Start
 //!

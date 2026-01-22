@@ -1,6 +1,6 @@
 //! X.509 Source: high-level watcher/caching abstraction.
 //!
-//! This module provides the [`X509Source`] type and related configuration types
+//! Provides the [`X509Source`] type and related configuration types
 //! for automatic SVID/bundle watching and caching.
 //!
 //! Available with the `x509-source` feature.

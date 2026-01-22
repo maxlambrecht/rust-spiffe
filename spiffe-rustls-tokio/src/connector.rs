@@ -12,7 +12,7 @@ use tokio_rustls::TlsConnector as TokioTlsConnector;
 
 /// A TLS connector that extracts peer SPIFFE identity from established connections.
 ///
-/// This is a wrapper around [`tokio_rustls::TlsConnector`] that automatically extracts
+/// Wrapper around [`tokio_rustls::TlsConnector`] that automatically extracts
 /// the peer's SPIFFE ID from their certificate after a successful TLS handshake.
 ///
 /// # Example

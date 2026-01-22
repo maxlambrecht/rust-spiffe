@@ -1,6 +1,6 @@
 //! JWT Source: high-level watcher/caching abstraction for JWT bundles.
 //!
-//! This module provides the [`JwtSource`] type and related configuration types
+//! Provides the [`JwtSource`] type and related configuration types
 //! for automatic JWT bundle watching and caching, plus on-demand JWT SVID fetching.
 //!
 //! Available with the `jwt-source` feature.

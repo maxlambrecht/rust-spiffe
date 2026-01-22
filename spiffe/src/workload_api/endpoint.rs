@@ -3,8 +3,7 @@
 //! SPIFFE Workload API clients discover the endpoint via the
 //! `SPIFFE_ENDPOINT_SOCKET` environment variable.
 //!
-//! This module wires that environment variable to the shared
-//! [`Endpoint`] parser.
+//! Wires that environment variable to the shared [`Endpoint`] parser.
 
 use crate::transport::Endpoint;
 use crate::workload_api::error::WorkloadApiError;

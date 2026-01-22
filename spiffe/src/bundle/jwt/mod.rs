@@ -59,7 +59,7 @@ impl JwtAuthority {
     }
 }
 
-/// This type contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
+/// Contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
 ///
 /// JWT bundles are used to verify the signatures of [`JwtSvid`] tokens.
 /// Obtain bundles from the [Workload API](crate::WorkloadApiClient).
@@ -69,7 +69,7 @@ pub struct JwtBundle {
     jwt_authorities: HashMap<String, Arc<JwtAuthority>>,
 }
 
-/// This type contains a set of [`JwtBundle`], keyed by [`TrustDomain`].
+/// Contains a set of [`JwtBundle`], keyed by [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundleSet {
     bundles: BTreeMap<TrustDomain, Arc<JwtBundle>>,

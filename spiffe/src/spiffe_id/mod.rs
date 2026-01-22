@@ -27,7 +27,7 @@ const MAX_SPIFFE_ID_URI_LENGTH: usize = 2048;
 
 /// A validated [SPIFFE ID].
 ///
-/// This type guarantees that the contained trust domain and path conform to
+/// Guarantees that the contained trust domain and path conform to
 /// the SPIFFE ID specification:
 /// <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#2-spiffe-identity>.
 ///
@@ -57,7 +57,7 @@ pub struct TrustDomain {
     name: String,
 }
 
-/// An error that can arise parsing a SPIFFE ID.
+/// Errors that can arise parsing a SPIFFE ID.
 #[derive(Debug, Error, PartialEq, Clone)]
 #[non_exhaustive]
 pub enum SpiffeIdError {
@@ -477,7 +477,7 @@ fn validate_segment(seg: impl AsRef<str>) -> Result<(), SpiffeIdError> {
 /// - only allowed ASCII chars in segments
 ///
 /// Note: Total SPIFFE ID URI length (including spiffe:// prefix and trust domain)
-/// is enforced in `SpiffeId::new`, not here. This function only validates path format.
+/// is enforced in `SpiffeId::new`, not here. Only validates path format.
 fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     if path.is_empty() {
         return Err(SpiffeIdError::Empty);

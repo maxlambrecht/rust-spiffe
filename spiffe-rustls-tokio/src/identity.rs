@@ -70,7 +70,7 @@ pub(crate) fn extract_peer_identity_from_client(
 
 /// Extracts the SPIFFE ID from peer certificates.
 ///
-/// This function extracts the SPIFFE ID from the leaf (first) certificate in the
+/// Extracts the SPIFFE ID from the leaf (first) certificate in the
 /// peer's certificate chain. The certificates are obtained from a verified rustls
 /// connection after a successful TLS handshake.
 ///
