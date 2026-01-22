@@ -10,7 +10,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 
-A collection of Rust crates for SPIFFE identity, Workload API clients, SPIRE-specific APIs, and TLS integration.
+A collection of crates for SPIFFE workload identity, Workload API clients, SPIRE-specific APIs, and TLS integration.
 
 ---
 
@@ -100,31 +100,6 @@ Most users will interact with one or more of the following:
 - **SPIRE gRPC APIs** → `spire-api`
 - **mTLS with SPIFFE over rustls** → `spiffe-rustls`
 - **Tokio async TLS with SPIFFE** → `spiffe-rustls-tokio`
-
----
-
-## Engineering Practices
-
-The project follows established Rust ecosystem practices:
-
-- **Safety**: No `unsafe` code — enforced via `#![deny(unsafe_code)]`
-- **Standards alignment**: APIs follow SPIFFE specifications closely
-- **Dependency management**: Explicit feature gates; no default features
-- **Testing**: Unit and integration test coverage, including CI runs against SPIRE
-- **Documentation**: Public API documentation with examples on [docs.rs](https://docs.rs)
-- **CI**: Automated testing across feature combinations and MSRV
-- **Error handling**: Explicit, strongly typed errors using `thiserror`
-- **Observability**: Optional integration with `log` and `tracing`
-- **MSRV policy**: Currently Rust 1.85+
-
-These crates can be composed explicitly rather than hiding behavior behind large abstractions.
-
----
-
-## Getting Started
-
-Each crate is independently versioned and documented. Refer to the corresponding crate README for
-installation instructions, examples, and API documentation.
 
 ---
 

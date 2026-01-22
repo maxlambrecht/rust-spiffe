@@ -1,62 +1,12 @@
 //! Workload API client for fetching SPIFFE X.509 and JWT material.
 //!
 //! `WorkloadApiClient` provides one-shot RPCs (fetch SVIDs/bundles) and streaming RPCs for
-//! receiving updates as material rotates.
+//! receiving updates as material rotates. Higher-level types like [`crate::X509Source`] handle
+//! reconnection and provide an always-up-to-date view of the X.509 context.
 //!
-//! Higher-level types like [`crate::X509Source`] handle reconnection
-//! and provide an always-up-to-date view of the X.509 context.
-//!
-//! ## Multiple SVIDs and hints
-//!
-//! A single workload may be issued **multiple SVIDs** by the SPIFFE Workload API.
-//! When this happens, the agent may attach an optional **hint** to each SVID to help
-//! distinguish identities (for example `"internal"` vs `"external"`).
-//!
+//! A single workload may be issued **multiple SVIDs** by the SPIFFE Workload API. When this
+//! happens, the agent may attach an optional **hint** to each SVID to help distinguish identities.
 //! Hints are **not part of the cryptographic material** and have no security meaning.
-//! They are exposed as metadata on [`X509Svid`] and [`JwtSvid`] for selection logic only.
-//!
-//! If multiple identities are expected, use APIs that return **all SVIDs**, or select
-//! explicitly by hint. For long-running workloads, [`X509Source`] with a custom
-//! [`SvidPicker`] provides automatic selection.
-//!
-//! # Examples
-//!
-//! ## X.509
-//!
-//! ```no_run
-//! # #[cfg(feature = "workload-api")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::WorkloadApiClient;
-//! use tokio_stream::StreamExt;
-//!
-//! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
-//!
-//! let x509_svid = client.fetch_x509_svid().await?;
-//! let x509_ctx = client.fetch_x509_context().await?;
-//!
-//! let mut updates = client.stream_x509_contexts().await?;
-//! while let Some(update) = updates.next().await {
-//!     let _ctx = update?;
-//! }
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! ## JWT (requires `jwt` feature)
-//!
-//! ```no_run
-//! # #[cfg(all(feature = "workload-api", feature = "jwt"))]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::WorkloadApiClient;
-//!
-//! let client = WorkloadApiClient::connect_to("unix:/tmp/spire-agent/public/api.sock").await?;
-//!
-//! let jwt = client.fetch_jwt_token(["service1"], None).await?;
-//! let jwt_svid = client.fetch_jwt_svid(["service1"], None).await?;
-//!
-//! # Ok(())
-//! # }
-//! ```
 
 #[cfg(feature = "x509")]
 mod x509;

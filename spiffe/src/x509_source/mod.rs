@@ -14,22 +14,8 @@
 //! Use [`X509Source::updated`] to subscribe to change notifications, and [`X509Source::shutdown`]
 //! to stop background tasks.
 //!
-//! ## Usage
-//!
-//! Primary types are re-exported at the crate root:
-//!
-//! ```no_run
-//! # #[cfg(feature = "x509-source")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::X509Source;
-//!
-//! let source = X509Source::new().await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! For advanced configuration types (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`),
-//! import from this module: `spiffe::x509_source::*`.
+//! Primary types are re-exported at the crate root. For advanced configuration types
+//! (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`), import from this module.
 //!
 //! # Example
 //!

@@ -14,10 +14,6 @@
 //! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs, trust bundles, and
 //! related metadata, using strongly typed APIs aligned with the SPIFFE specifications.
 //!
-//! ## Safety
-//!
-//! This crate contains **zero unsafe code** (`#![deny(unsafe_code)]`).
-//!
 //! ## Quick Start
 //!
 //! For X.509-based workloads, use [`X509Source`] (requires the `x509-source` feature):
@@ -109,8 +105,6 @@
 //! **Notes:**
 //!
 //! - The `x509` feature gates heavy X.509 parsing dependencies.
-//! - `x509-source` provides automatic caching and rotation handling for X.509 workloads.
-//! - `jwt-source` provides automatic bundle caching and on-demand SVID fetching for JWT workloads.
 //! - For direct Workload API usage, use `workload-api-x509` or `workload-api-jwt` when you only need one,
 //!   and `workload-api` (or `workload-api-full`) when you need both.
 //!
@@ -120,48 +114,12 @@
 //! # #[cfg(feature = "x509-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! use spiffe::{TrustDomain, X509Source};
+//! use spiffe::bundle::BundleSource;
 //!
-//! // Connect to the Workload API using SPIFFE_ENDPOINT_SOCKET.
 //! let source = X509Source::new().await?;
-//!
-//! // Snapshot of current X.509 materials (SVIDs + bundles).
-//! let context = source.x509_context()?;
-//!
-//! // Access the default SVID.
-//! let svid = context.default_svid().ok_or("missing svid")?;
-//!
-//! // Inspect the certificate chain and private key.
-//! let _cert_chain = svid.cert_chain();
-//! let _private_key = svid.private_key();
-//!
-//! // Access trust bundles by trust domain.
+//! let _svid = source.svid()?;
 //! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let _bundle = context
-//!     .bundle_set()
-//!     .get(&trust_domain)
-//!     .ok_or("missing bundle")?;
-//!
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! For advanced X.509 source configuration, see the [`x509_source`] module.
-//!
-//! ## JWT
-//!
-//! ```no_run
-//! # #[cfg(feature = "jwt-source")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
-//!
-//! let source = JwtSource::new().await?;
-//!
-//! // Fetch JWT SVID for specific audiences
-//! let jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
-//!
-//! // Access JWT bundle for a trust domain
-//! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let bundle = source
+//! let _bundle = source
 //!     .bundle_for_trust_domain(&trust_domain)?
 //!     .ok_or("missing bundle")?;
 //!
@@ -169,26 +127,24 @@
 //! # }
 //! ```
 //!
-//! For advanced JWT source configuration, see the [`jwt_source`] module.
-//!
-//! ## Direct Workload API access (JWT)
-//!
-//! For direct access without caching, use [`WorkloadApiClient`]:
+//! For JWT-based workloads, use [`JwtSource`] (requires the `jwt-source` feature):
 //!
 //! ```no_run
-//! # #[cfg(all(feature = "workload-api", feature = "jwt"))]
+//! # #[cfg(feature = "jwt-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::WorkloadApiClient;
+//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
 //!
-//! let client = WorkloadApiClient::connect_env().await?;
-//!
-//! let audiences = &["service-a"];
-//! let jwt_svid = client.fetch_jwt_svid(audiences, None).await?;
-//!
-//! let _claims = jwt_svid.claims();
+//! let source = JwtSource::new().await?;
+//! let _jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//! let trust_domain = TrustDomain::try_from("example.org")?;
+//! let _bundle = source
+//!     .bundle_for_trust_domain(&trust_domain)?
+//!     .ok_or("missing bundle")?;
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! For advanced configuration, see the [`x509_source`] and [`jwt_source`] modules.
 
 pub mod bundle;
 #[cfg(feature = "x509")]

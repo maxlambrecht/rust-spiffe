@@ -13,14 +13,6 @@ TLS configuration remains in `spiffe-rustls`.
 
 ---
 
-## Features
-
-- **Runtime-agnostic core**: `spiffe-rustls` remains runtime-agnostic
-- **Tokio integration**: Native async accept/connect operations
-- **Peer identity extraction**: Automatically extract SPIFFE IDs from peer certificates
-
----
-
 ## Installation
 
 Add `spiffe-rustls-tokio` to your `Cargo.toml`:
@@ -115,19 +107,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ---
 
-## ALPN for gRPC
-
-When using this crate with gRPC, you'll want to configure ALPN protocols. The `spiffe-rustls` builders support this:
-
-```rust
-use spiffe_rustls::mtls_server;
-
-let server_config = mtls_server(source)
-    .authorize(authorizer::any())
-    .with_alpn_protocols([b"h2"])  // HTTP/2 required for gRPC
-    .build()?;
-```
-
 ## Examples
 
 The crate includes complete working examples that demonstrate real mTLS connections using SPIRE.
@@ -171,28 +150,16 @@ The server listens on `127.0.0.1:8443` by default. Both examples demonstrate:
 
 ## Peer Identity Extraction
 
-After a successful TLS handshake, the peer's SPIFFE ID is automatically extracted from their certificate's URI SAN. The `PeerIdentity` struct contains:
+After a successful TLS handshake, the peer's SPIFFE ID is extracted from their certificate's URI SAN.
 
-- `spiffe_id: Option<SpiffeId>` - The extracted SPIFFE ID, if present
+According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID. When using `spiffe-rustls` verifiers correctly, this is enforced during the TLS handshake.
 
-### SPIFFE X.509-SVID Expectations
+**API behavior:**
+- **Exactly one SPIFFE ID**: Extracted and stored in `PeerIdentity::spiffe_id`
+- **Missing/multiple SPIFFE IDs or no peer certificates**: `spiffe_id` is `None` (no error; `accept()`/`connect()` succeed)
+- **Certificate parse failure**: Returns `Error::CertParse` (`accept()`/`connect()` fail)
 
-According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID in the URI SAN, and peers are expected to present certificates when mTLS is required. When using `spiffe-rustls` verifiers correctly, these requirements are enforced during the TLS handshake, and cases where `spiffe_id` is `None` should normally be unreachable.
-
-### Observed API Behavior
-
-This crate performs post-handshake identity extraction from connections that have already passed TLS verification. The behavior is:
-
-- **Exactly one SPIFFE ID**: Extracted and stored in `spiffe_id`
-- **Missing SPIFFE ID**: `spiffe_id` is set to `None` (no error; `accept()`/`connect()` succeed)
-  - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-- **Multiple SPIFFE IDs**: `spiffe_id` is set to `None` (no error; `accept()`/`connect()` succeed)
-  - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-- **No peer certificates**: `spiffe_id` is set to `None` (no error; `accept()`/`connect()` succeed)
-  - **SPIFFE perspective**: Invalid for mTLS; unexpected in SPIFFE-compliant configurations
-- **Certificate parse failure**: `accept()`/`connect()` return `Error::CertParse` and the connection is closed
-
-**Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that the peer is not presenting a valid SPIFFE X.509-SVID.
+A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations and may indicate misconfiguration or a non-SPIFFE peer.
 
 ## License
 

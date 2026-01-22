@@ -20,51 +20,9 @@
 //! via SPIFFE IDs**, while delegating all cryptography and TLS mechanics to
 //! `rustls`.
 //!
-//! ## Federation
-//!
-//! When SPIFFE federation is configured, the Workload API delivers trust bundles
-//! for multiple trust domains. `spiffe-rustls` automatically handles this:
-//!
-//! * The verifier extracts the peer's SPIFFE ID from their certificate
-//! * It derives the trust domain from that SPIFFE ID
-//! * It selects the correct root certificate bundle from the bundle set
-//! * Certificate verification proceeds using the selected bundle
-//!
-//! **No federation-specific configuration is required.** Federation works
-//! automatically whenever the Workload API provides bundles for multiple trust
-//! domains. You can optionally restrict which trust domains are trusted using
-//! [`TrustDomainPolicy`], but this is purely a defense-in-depth mechanism.
-//! Policy variants (`AnyInBundleSet`, `AllowList`, `LocalOnly`) are re-exported
-//! at the crate root.
-//!
-//! ## Security Model
-//!
-//! The crate follows a strict security model to ensure cryptographic verification
-//! is never bypassed:
-//!
-//! 1. **SPIFFE ID extraction (pre-verification)**: The peer's SPIFFE ID is extracted
-//!    from the certificate's URI SAN **before** cryptographic verification. This is
-//!    safe because it is **only used to select the trust domain's root certificate bundle**.
-//!    The extracted SPIFFE ID has no security impact at this stage.
-//!
-//! 2. **Cryptographic verification**: Certificate verification (signature validation,
-//!    chain validation, expiration checks) is performed by `rustls`/`webpki` using the
-//!    selected root certificate bundle. This is the authoritative security boundary.
-//!
-//! 3. **Authorization (post-verification)**: Authorization based on SPIFFE ID is applied
-//!    **only after** cryptographic verification succeeds. If authorization fails, the
-//!    handshake is rejected.
-//!
-//! **Failure modes**: If the trust domain's bundle is absent from the bundle set, or if
-//! the trust domain is rejected by policy, certificate verification fails and the handshake
-//! is rejected. This ensures that only cryptographically verified peers from allowed trust
-//! domains can establish connections.
-//!
-//! ## Authorization
-//!
-//! Authorization is performed **after** cryptographic verification succeeds. The
-//! crate provides a strongly-typed [`authorizer::Authorizer`] trait for implementing
-//! authorization policies.
+//! When SPIFFE federation is configured, the crate automatically selects the correct
+//! trust domain bundle based on the peer's SPIFFE ID. Authorization is applied **after**
+//! cryptographic verification succeeds.
 //!
 //! ## Feature flags
 //!
@@ -107,9 +65,7 @@ pub use spiffe::{SpiffeId, TrustDomain};
 
 /// Constructor for the mTLS client builder.
 ///
-/// Creates a client builder with default settings:
-/// - Authorization: accepts any SPIFFE ID (authentication only)
-/// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
+/// Creates a client builder with default settings (accepts any SPIFFE ID, uses all bundles from the Workload API).
 ///
 /// # Examples
 ///
@@ -119,22 +75,10 @@ pub use spiffe::{SpiffeId, TrustDomain};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// // Pass string literals directly
-/// let client_config = mtls_client(source.clone())
+/// let client_config = mtls_client(source)
 ///     .authorize(authorizer::exact([
 ///         "spiffe://example.org/myservice",
-///         "spiffe://example.org/myservice2",
 ///     ])?)
-///     .build()?;
-///
-/// // Using a closure
-/// let client_config = mtls_client(source.clone())
-///     .authorize(|id: &spiffe::SpiffeId| id.path().starts_with("/api/"))
-///     .build()?;
-///
-/// // Using the Any authorizer (default)
-/// let client_config = mtls_client(source)
-///     .authorize(authorizer::any())
 ///     .build()?;
 /// # Ok(())
 /// # }
@@ -145,9 +89,7 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
 
 /// Constructor for the mTLS server builder.
 ///
-/// Creates a server builder with default settings:
-/// - Authorization: accepts any SPIFFE ID (authentication only)
-/// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
+/// Creates a server builder with default settings (accepts any SPIFFE ID, uses all bundles from the Workload API).
 ///
 /// # Examples
 ///
@@ -157,21 +99,8 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// // Pass string literals directly
-/// let server_config = mtls_server(source.clone())
-///     .authorize(authorizer::trust_domains([
-///         "example.org",
-///     ])?)
-///     .build()?;
-///
-/// // Using a closure
-/// let server_config = mtls_server(source.clone())
-///     .authorize(|id: &spiffe::SpiffeId| id.path().starts_with("/api/"))
-///     .build()?;
-///
-/// // Using the Any authorizer (default)
 /// let server_config = mtls_server(source)
-///     .authorize(authorizer::any())
+///     .authorize(authorizer::trust_domains(["example.org"])?)
 ///     .build()?;
 /// # Ok(())
 /// # }
