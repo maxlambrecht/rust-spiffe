@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/spiffe-rustls"
 readme = "README.md"
-description = "SPIFFE-based mTLS integration for rustls"
+description = "SPIFFE-based mutual TLS integration for rustls"
 categories = ["authentication", "network-programming"]
 keywords = ["spiffe", "spire", "rustls", "mtls", "tls"]
 

@@ -5,15 +5,11 @@
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
-`spiffe-rustls` integrates [`rustls`](https://crates.io/crates/rustls) with SPIFFE/SPIRE using the
-[`spiffe`](https://crates.io/crates/spiffe) crate’s `X509Source` (SPIFFE Workload API).
+SPIFFE-based mutual TLS integration for rustls.
 
-It provides builders for `rustls::ClientConfig` and `rustls::ServerConfig` backed by a **live**
-`X509Source`. When the SPIRE agent rotates X.509 SVIDs or trust bundles, **new TLS handshakes
-automatically use the updated material**, without restarting the application.
-
-The crate focuses on **TLS-level authentication and authorization via SPIFFE IDs**, while
-delegating all cryptography and TLS mechanics to `rustls`.
+Builds `rustls::ClientConfig` and `rustls::ServerConfig` from [`spiffe`](https://crates.io/crates/spiffe)'s
+`X509Source`. Handles certificate rotation, trust domain selection, and TLS-level peer authorization
+based on SPIFFE IDs. All cryptography and TLS protocol handling are intentionally delegated to `rustls`.
 
 ---
 

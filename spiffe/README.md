@@ -5,18 +5,12 @@
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
-A Rust library for interacting with the **SPIFFE Workload API**.
+Core SPIFFE identity types and Workload API sources.
 
-This crate provides idiomatic, standards-compliant access to SPIFFE identities and trust material, including:
-
-* X.509 SVIDs and trust bundles
-* JWT SVIDs and JWT bundles
-* Streaming updates (watch semantics)
-* Strongly typed SPIFFE primitives aligned with the SPIFFE specifications
-
-For an introduction to SPIFFE, see [https://spiffe.io](https://spiffe.io).
-For the protocol definition, see the
-[SPIFFE Workload API specification](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
+This crate provides SPIFFE identity primitives (`SpiffeId`, `TrustDomain`) and clients for the
+SPIFFE Workload API (`X509Source`, `JwtSource`, `WorkloadApiClient`). It handles X.509 and JWT
+SVIDs, trust bundles, and streaming updates. 
+All cryptography and TLS integration are intentionally delegated to other crates.
 
 ---
 

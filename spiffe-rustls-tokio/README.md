@@ -5,9 +5,11 @@
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
 
-Tokio-native accept/connect helpers for [`spiffe-rustls`](https://crates.io/crates/spiffe-rustls) configs.
+Tokio-native async accept/connect helpers for [`spiffe-rustls`](https://crates.io/crates/spiffe-rustls) configs.
 
-This crate provides a small adapter layer that makes it easy to use SPIFFE mTLS with Tokio + rustls and to extract peer identity from TLS connections.
+Integrates `tokio-rustls` with automatic peer SPIFFE ID extraction. Provides `TlsAcceptor` and `TlsConnector`
+that return `(TlsStream, PeerIdentity)` after successful handshakes. Runtime-agnostic TLS configuration
+remains in `spiffe-rustls`.
 
 ---
 

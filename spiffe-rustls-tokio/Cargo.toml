@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/spiffe-rustls-tokio"
 readme = "README.md"
-description = "Tokio-native accept/connect helpers for spiffe-rustls"
+description = "Tokio-native async accept/connect helpers for spiffe-rustls"
 categories = ["authentication", "network-programming"]
-keywords = ["spiffe", "spire", "rustls", "tls", "tokio"]
+keywords = ["spiffe", "spire", "rustls", "tokio", "mtls"]
 
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
