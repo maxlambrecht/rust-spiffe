@@ -8,9 +8,9 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/spiffe"
 readme = "README.md"
-description = "SPIFFE identity types and sources for Rust"
+description = "Core SPIFFE identity types and Workload API sources"
 categories = ["authentication", "network-programming"]
-keywords = ["spiffe", "identity", "authentication", "x509", "jwt"]
+keywords = ["spiffe", "spire", "identity", "x509", "jwt"]
 
 [package.metadata.docs.rs]
 no-default-features = true
