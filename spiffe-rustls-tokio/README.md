@@ -1,14 +1,62 @@
 # spiffe-rustls-tokio
 
-Tokio-native accept/connect helpers for [`spiffe-rustls`] configs.
+[![Crates.io](https://img.shields.io/crates/v/spiffe-rustls-tokio.svg)](https://crates.io/crates/spiffe-rustls-tokio)
+[![Docs.rs](https://docs.rs/spiffe-rustls-tokio/badge.svg)](https://docs.rs/spiffe-rustls-tokio/)
+[![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
+[![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
+
+Tokio-native accept/connect helpers for [`spiffe-rustls`](https://crates.io/crates/spiffe-rustls) configs.
 
 This crate provides a small adapter layer that makes it easy to use SPIFFE mTLS with Tokio + rustls and to extract peer identity from TLS connections.
+
+---
 
 ## Features
 
 - **Runtime-agnostic core**: `spiffe-rustls` remains runtime-agnostic
 - **Tokio integration**: Native async accept/connect operations
 - **Peer identity extraction**: Automatically extract SPIFFE IDs from peer certificates
+
+---
+
+## Installation
+
+Add `spiffe-rustls-tokio` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+spiffe-rustls-tokio = "0.1"
+spiffe-rustls = "0.4"
+spiffe = { version = "0.11", features = ["x509-source"] }
+```
+
+---
+
+## Quick Start
+
+### 1. Create a `spiffe-rustls` configuration
+
+```rust
+use spiffe::X509Source;
+use spiffe_rustls::{authorizer, mtls_client};
+
+let source = X509Source::new().await?;
+let client_config = mtls_client(source)
+    .authorize(authorizer::any())
+    .build()?;
+```
+
+### 2. Use `TlsConnector` or `TlsAcceptor`
+
+```rust
+use spiffe_rustls_tokio::TlsConnector;
+use std::sync::Arc;
+
+let connector = TlsConnector::new(Arc::new(client_config));
+// ... use connector.connect() or connector.connect_addr()
+```
+
+---
 
 ## Example: Using `connect_addr` Convenience Method
 
@@ -44,6 +92,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
+
+## API Overview
+
+### Main Types
+
+- **`TlsAcceptor`** — Server-side TLS acceptor that extracts peer SPIFFE identity
+- **`TlsConnector`** — Client-side TLS connector that extracts peer SPIFFE identity
+- **`PeerIdentity`** — Contains the extracted SPIFFE ID from the peer certificate
+- **`Error`** — Error type for TLS and identity extraction failures
+
+### Key Methods
+
+- **`TlsAcceptor::accept()`** — Accepts a TLS connection and returns `(TlsStream, PeerIdentity)`
+- **`TlsConnector::connect()`** — Establishes a TLS connection and returns `(TlsStream, PeerIdentity)`
+- **`TlsConnector::connect_addr()`** — Convenience method that combines TCP connection and TLS handshake
+- **`PeerIdentity::spiffe_id()`** — Returns the peer's SPIFFE ID, if present
+
+---
 
 ## ALPN for gRPC
 
