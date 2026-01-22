@@ -28,10 +28,10 @@ const MAX_CERT_CHAIN_LENGTH: usize = 16;
 ///
 /// # Security
 ///
-/// This function enforces a maximum chain length to prevent `DoS` attacks through
+/// Enforces a maximum chain length to prevent `DoS` attacks through
 /// excessive memory allocation. See [`MAX_CERT_CHAIN_LENGTH`] for details.
 ///
-/// **Note**: This function is intended for parsing certificate chains (e.g., X.509-SVID chains).
+/// **Note**: Intended for parsing certificate chains (e.g., X.509-SVID chains).
 /// For parsing X.509 bundles, use [`to_certificate_vec_unbounded`] instead, as bundles
 /// may legitimately contain many certificates.
 pub(crate) fn to_certificate_vec(
@@ -72,11 +72,11 @@ pub(crate) fn to_certificate_vec(
 /// Takes a concatenated list of DER-encoded certificates and parses it
 /// into a `Vec<Certificate>` without enforcing a maximum length limit.
 ///
-/// This function is intended for parsing X.509 bundles, which may legitimately
+/// Intended for parsing X.509 bundles, which may legitimately
 /// contain many trust anchors. For certificate chains (e.g., X.509-SVID
 /// chains), use [`to_certificate_vec`] instead, which enforces a length limit.
 ///
-/// **Note**: This function is intentionally unbounded. Callers must enforce
+/// **Note**: Intentionally unbounded. Callers must enforce
 /// input limits (e.g., via resource limits or size checks) if needed to prevent
 /// resource exhaustion from adversarial inputs.
 pub(crate) fn to_certificate_vec_unbounded(

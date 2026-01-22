@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::sync::Arc;
 
-/// This type contains a collection of trusted X.509 authorities for a [`TrustDomain`].
+/// Contains a collection of trusted X.509 authorities for a [`TrustDomain`].
 ///
 /// X.509 bundles are used to verify the signatures of [`X509Svid`] certificates.
 /// Obtain bundles from the [Workload API](crate::WorkloadApiClient) or [`X509Source`].
@@ -19,7 +19,7 @@ pub struct X509Bundle {
     x509_authorities: Vec<Certificate>,
 }
 
-/// This type contains a set of [`X509Bundle`], keyed by [`TrustDomain`].
+/// Contains a set of [`X509Bundle`], keyed by [`TrustDomain`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509BundleSet {
     bundles: BTreeMap<TrustDomain, Arc<X509Bundle>>,

@@ -1,6 +1,6 @@
 //! gRPC channel connector for SPIFFE endpoints.
 //!
-//! This module builds a `tonic::transport::Channel` from a parsed [`Endpoint`].
+//! Builds a `tonic::transport::Channel` from a parsed [`Endpoint`].
 //!
 //! Supported transports:
 //! - `unix:///path` or `unix:/path` (Unix domain sockets; Unix platforms only)

@@ -10,7 +10,7 @@ use tokio_rustls::TlsAcceptor as TokioTlsAcceptor;
 
 /// A TLS acceptor that extracts peer SPIFFE identity from accepted connections.
 ///
-/// This is a wrapper around [`tokio_rustls::TlsAcceptor`] that automatically extracts
+/// Wrapper around [`tokio_rustls::TlsAcceptor`] that automatically extracts
 /// the peer's SPIFFE ID from their certificate after a successful TLS handshake.
 ///
 /// # Example

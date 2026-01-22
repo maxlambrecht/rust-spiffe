@@ -11,12 +11,12 @@
 //! `spiffe-rustls` integrates [`rustls`] with SPIFFE/SPIRE using a live
 //! [`spiffe::X509Source`] (SPIFFE Workload API).
 //!
-//! It provides builders for [`rustls::ClientConfig`] and
-//! [`rustls::ServerConfig`] that are backed by an `X509Source`. When the SPIRE
+//! Provides builders for [`rustls::ClientConfig`] and
+//! [`rustls::ServerConfig`] backed by an `X509Source`. When the SPIRE
 //! agent rotates X.509 SVIDs or trust bundles, **new TLS handshakes automatically
 //! use the updated material**, without restarting the application.
 //!
-//! The crate focuses on TLS authentication and **connection-level authorization
+//! Focuses on TLS authentication and **connection-level authorization
 //! via SPIFFE IDs**, while delegating all cryptography and TLS mechanics to
 //! `rustls`.
 //!

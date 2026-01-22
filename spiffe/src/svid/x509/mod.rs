@@ -10,7 +10,7 @@ use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing
 use std::convert::TryFrom;
 use std::sync::Arc;
 
-/// This type represents a SPIFFE X.509-SVID.
+/// Represents a SPIFFE X.509-SVID.
 ///
 /// Contains a [`SpiffeId`], a certificate chain as DER-encoded X.509 certificates,
 /// and a private key as DER-encoded PKCS#8.
@@ -25,7 +25,7 @@ pub struct X509Svid {
     hint: Option<Arc<str>>,
 }
 
-/// An error that may arise trying to parse a [`X509Svid`] from a `DER` encoded
+/// Errors that may arise parsing a [`X509Svid`] from a DER-encoded
 /// chain of certificates and private key.
 #[derive(Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
