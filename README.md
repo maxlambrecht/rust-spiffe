@@ -1,4 +1,4 @@
-# SPIFFE Crates
+# SPIFFE Libraries
 
 [![CI](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci-main.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
