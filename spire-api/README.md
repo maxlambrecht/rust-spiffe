@@ -116,12 +116,6 @@ For background and protocol-level details, see the
 
 ---
 
-## Documentation
-
-Full API documentation is available on [docs.rs](https://docs.rs/spire-api).
-
----
-
 ## License
 
 Licensed under the Apache License, Version 2.0.

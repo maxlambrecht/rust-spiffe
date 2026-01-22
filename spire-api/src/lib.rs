@@ -11,13 +11,9 @@
 //! This crate provides wrappers around SPIRE's gRPC APIs (generated from protobuf)
 //! with strongly-typed request helpers.
 //!
-//! ## Endpoints and transport
-//!
-//! SPIRE exposes multiple gRPC APIs (e.g. the Agent API) over a local endpoint. In most
-//! deployments this is a Unix domain socket.
-//!
-//! The high-level clients in this crate typically accept a pre-built `tonic::transport::Channel`.
-//! This keeps transport configuration explicit and composable (timeouts, TLS, interceptors, etc).
+//! SPIRE exposes multiple gRPC APIs over a local endpoint (typically a Unix domain socket).
+//! The high-level clients in this crate accept a pre-built `tonic::transport::Channel` for
+//! explicit transport configuration (timeouts, TLS, interceptors, etc).
 //!
 //! ## Quick start
 //!

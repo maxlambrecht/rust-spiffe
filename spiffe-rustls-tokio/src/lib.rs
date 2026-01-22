@@ -14,57 +14,24 @@
 //! `TlsConnector` that return `(TlsStream, PeerIdentity)` after successful handshakes. Runtime-agnostic
 //! TLS configuration remains in `spiffe-rustls`.
 //!
-//! ## Features
+//! ## Example
 //!
-//! - **Tokio integration**: Async accept/connect operations
-//! - **Peer identity extraction**: Automatically extract SPIFFE IDs from peer certificates
+//! ```no_run
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! use spiffe::X509Source;
+//! use spiffe_rustls::{authorizer, mtls_client};
+//! use spiffe_rustls_tokio::TlsConnector;
+//! use std::sync::Arc;
 //!
-//! ## Examples
+//! let source = X509Source::new().await?;
+//! let client_config = mtls_client(source)
+//!     .authorize(authorizer::any())
+//!     .build()?;
 //!
-//! Complete working examples are available in the `examples/` directory:
-//!
-//! - `mtls_tcp_server` - Server that accepts mTLS connections and extracts peer SPIFFE IDs
-//! - `mtls_tcp_client` - Client that connects to the server and extracts peer SPIFFE IDs
-//!
-//! Run them with:
-//!
-//! ```bash
-//! cargo run --package spiffe-rustls-tokio --example mtls_tcp_server
-//! cargo run --package spiffe-rustls-tokio --example mtls_tcp_client
+//! let connector = TlsConnector::new(Arc::new(client_config));
+//! # Ok(())
+//! # }
 //! ```
-//!
-//! See the [README](https://github.com/maxlambrecht/rust-spiffe/blob/main/spiffe-rustls-tokio/README.md)
-//! for detailed usage instructions.
-//!
-//! ## Peer Identity Extraction Semantics
-//!
-//! After a successful TLS handshake, the peer's SPIFFE ID is automatically extracted
-//! from their certificate's URI SAN.
-//!
-//! ### SPIFFE X.509-SVID Expectations
-//!
-//! According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-//! in the URI SAN, and peers are expected to present certificates when mTLS is required.
-//! When using `spiffe-rustls` verifiers correctly, these requirements are enforced during
-//! the TLS handshake, and the cases below should normally be unreachable.
-//!
-//! ### Observed API Behavior
-//!
-//! This crate performs post-handshake identity extraction from connections that have already passed TLS verification.
-//! The API behavior is:
-//!
-//! - **Exactly one SPIFFE ID**: Extracted and stored in `PeerIdentity::spiffe_id`
-//! - **Missing SPIFFE ID**: `PeerIdentity::spiffe_id` is `None` (`accept()`/`connect()` succeed)
-//!   - **SPIFFE perspective**: Invalid X.509-SVID; indicative of misconfiguration or non-SPIFFE peer
-//! - **Multiple SPIFFE IDs**: `PeerIdentity::spiffe_id` is `None` (`accept()`/`connect()` succeed)
-//!   - **SPIFFE perspective**: Invalid X.509-SVID; indicative of misconfiguration or non-SPIFFE peer
-//! - **No peer certificates**: `PeerIdentity::spiffe_id` is `None` (`accept()`/`connect()` succeed)
-//!   - **SPIFFE perspective**: Invalid for mTLS; indicative of misconfiguration or non-SPIFFE peer
-//! - **Certificate parse failure**: Returns `Error::CertParse` (`accept()`/`connect()` fail)
-//!
-//! **Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations
-//! and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that
-//! the peer is not presenting a valid SPIFFE X.509-SVID.
 
 mod acceptor;
 mod connector;

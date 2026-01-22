@@ -559,41 +559,6 @@ available upstream.
 If you require a clean audit, avoid enabling offline JWT verification unless needed, or temporarily ignore
 the advisory until upstream releases a fix.
 
----
-
-## Quick Reference
-
-### Common Operations
-
-| Task                    | Code                                                     |
-|-------------------------|----------------------------------------------------------|
-| Create X.509 source     | `X509Source::new().await?`                               |
-| Create JWT source       | `JwtSource::new().await?`                                |
-| Get current SVID        | `source.svid()?`                                         |
-| Get JWT SVID            | `source.get_jwt_svid(&["aud"]).await?`                   |
-| Get bundle              | `source.bundle_for_trust_domain(&td)?.ok_or("missing")?` |
-| Fetch JWT SVID (direct) | `client.fetch_jwt_svid(&["aud"], None).await?`           |
-| Parse SPIFFE ID         | `SpiffeId::new("spiffe://td/path")?`                     |
-| Check health            | `source.is_healthy()`                                    |
-| Watch for updates       | `source.updated()`                                       |
-
-### Error Handling
-
-| Error Type                        | When It Occurs            |
-|-----------------------------------|---------------------------|
-| `X509SourceError::NoSuitableSvid` | Picker rejects all SVIDs  |
-| `X509SourceError::Closed`         | Source was shut down      |
-| `WorkloadApiError::EmptyResponse` | No data from Workload API |
-| `SpiffeIdError::WrongScheme`      | Invalid SPIFFE ID format  |
-
----
-
-## Documentation
-
-Full API documentation and additional examples are available on
-[docs.rs](https://docs.rs/spiffe).
-
-
 ## License
 
 Licensed under the Apache License, Version 2.0.

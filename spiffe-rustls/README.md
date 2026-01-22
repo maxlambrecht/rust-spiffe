@@ -11,12 +11,6 @@ Builds `rustls::ClientConfig` and `rustls::ServerConfig` from [`spiffe`](https:/
 Handles certificate rotation, trust domain selection, and TLS-level peer authorization based on SPIFFE IDs.
 All cryptography and TLS protocol handling are delegated to `rustls`.
 
-## Key Features
-
-- **Federation support** — Supports multiple trust domains when SPIFFE federation is configured
-- **TLS-level peer authorization** — Strongly-typed `Authorizer` for authorizing peers based on SPIFFE IDs
-- **Automatic rotation** — New handshakes use updated material when SPIRE rotates SVIDs or bundles
-
 ---
 
 ## Quick Start
@@ -198,38 +192,6 @@ let server_cfg = mtls_server(source)
 
 ---
 
-## API Overview
-
-### Builders
-
-* `ClientConfigBuilder`
-* `ServerConfigBuilder`
-
-Each builder:
-
-* retains an internal `Arc<X509Source>`
-* always uses the **latest SVIDs and trust bundles**
-* applies authorization **after** cryptographic verification
-
----
-
-### Authorization helpers
-
-* `authorizer::any()`
-* `authorizer::exact()`
-* `authorizer::trust_domains()`
-* closures implementing `Fn(&SpiffeId) -> bool`
-
----
-
-### Trust Domain Policy
-
-* `TrustDomainPolicy::AnyInBundleSet` *(default)*
-* `TrustDomainPolicy::AllowList`
-* `TrustDomainPolicy::LocalOnly`
-
----
-
 ### Advanced Configuration
 
 #### ALPN (Application-Layer Protocol Negotiation)
@@ -391,31 +353,11 @@ Performance characteristics:
 - **Cached verifier reuse** — Verifiers are cached per trust domain and bundle generation,
   avoiding repeated construction under concurrent handshakes.
 
-### Integration with Async Runtimes
-
-The crate integrates with:
-- [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio) for Tokio-native accept/connect helpers with automatic peer identity extraction
-- `tokio-rustls` for async TLS
-- `tonic-rustls` for gRPC
-- Any `rustls`-based TLS stack
-
-See [examples](#examples) for integration patterns.
-
 ---
 
 ## Architecture
 
-`spiffe-rustls` acts as a bridge between:
-
-1. **`spiffe::X509Source`** — Provides live SVIDs and trust bundles
-2. **`rustls`** — Handles all TLS cryptography and protocol
-3. **Your application** — Receives verified, authorized connections
-
-The integration is **non-invasive**:
-- No modifications to `rustls` internals
-- Standard `rustls::ClientConfig` and `rustls::ServerConfig` types
-- Works with any `rustls`-compatible library
-
+`spiffe-rustls` builds `rustls::ClientConfig` and `rustls::ServerConfig` from `spiffe::X509Source`.
 Authorization is applied **after** TLS verification succeeds, ensuring cryptographic security before policy checks.
 
 ---

@@ -14,22 +14,8 @@
 //! Use [`JwtSource::updated`] to subscribe to bundle change notifications, and [`JwtSource::shutdown`]
 //! to stop background tasks.
 //!
-//! ## Usage
-//!
-//! Primary types are re-exported at the crate root:
-//!
-//! ```no_run
-//! # #[cfg(feature = "jwt-source")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::JwtSource;
-//!
-//! let source = JwtSource::new().await?;
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! For advanced configuration types (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`),
-//! import from this module: `spiffe::jwt_source::*`.
+//! Primary types are re-exported at the crate root. For advanced configuration types
+//! (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`), import from this module.
 //!
 //! # Example
 //!
