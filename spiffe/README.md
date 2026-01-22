@@ -9,8 +9,7 @@ Core SPIFFE identity types and Workload API sources.
 
 This crate provides SPIFFE identity primitives (`SpiffeId`, `TrustDomain`) and clients for the
 SPIFFE Workload API (`X509Source`, `JwtSource`, `WorkloadApiClient`). It handles X.509 and JWT
-SVIDs, trust bundles, and streaming updates. 
-All cryptography and TLS integration are intentionally delegated to other crates.
+SVIDs, trust bundles, and streaming updates. All cryptography and TLS integration are intentionally delegated to other crates.
 
 ---
 
@@ -115,7 +114,7 @@ let bundle = source
     .ok_or("missing bundle")?;
 ```
 
-For most X.509-based workloads, **`X509Source` is the preferred API**.
+For most X.509-based workloads, `X509Source` provides a higher-level API.
 
 ---
 
@@ -146,7 +145,7 @@ let bundle = source
     .ok_or("missing bundle")?;
 ```
 
-For most JWT-based workloads, **`JwtSource` is the preferred API**.
+For most JWT-based workloads, `JwtSource` provides a higher-level API.
 
 ---
 
@@ -501,10 +500,10 @@ alternative SVID/bundle representations while reusing the transport layer.
 
 ## Performance
 
-The crate is designed for low-latency, high-throughput workloads:
+Performance characteristics:
 
 - **Zero-copy parsing** where possible (X.509 DER, JWT parsing)
-- **Efficient caching** in `X509Source` and `JwtSource` (atomic updates, no locks on read path)
+- **Atomic updates** in `X509Source` and `JwtSource` (no locks on read path)
 - **Streaming APIs** for real-time updates without polling
 - **Minimal allocations** in hot paths
 
@@ -594,13 +593,6 @@ the advisory until upstream releases a fix.
 Full API documentation and additional examples are available on
 [docs.rs](https://docs.rs/spiffe).
 
----
-
-## Changelog
-
-See [CHANGELOG.md](../CHANGELOG.md) for version history and migration guides.
-
----
 
 ## License
 

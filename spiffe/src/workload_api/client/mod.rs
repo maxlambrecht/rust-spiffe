@@ -3,7 +3,7 @@
 //! `WorkloadApiClient` provides one-shot RPCs (fetch SVIDs/bundles) and streaming RPCs for
 //! receiving updates as material rotates.
 //!
-//! Most users should prefer higher-level types like [`crate::X509Source`], which handle reconnection
+//! Higher-level types like [`crate::X509Source`] handle reconnection
 //! and provide an always-up-to-date view of the X.509 context.
 //!
 //! ## Multiple SVIDs and hints
@@ -15,9 +15,9 @@
 //! Hints are **not part of the cryptographic material** and have no security meaning.
 //! They are exposed as metadata on [`X509Svid`] and [`JwtSvid`] for selection logic only.
 //!
-//! If multiple identities are expected, prefer APIs that return **all SVIDs**, or select
-//! explicitly by hint. For long-running workloads, use [`X509Source`] with a custom
-//! [`SvidPicker`].
+//! If multiple identities are expected, use APIs that return **all SVIDs**, or select
+//! explicitly by hint. For long-running workloads, [`X509Source`] with a custom
+//! [`SvidPicker`] provides automatic selection.
 //!
 //! # Examples
 //!
@@ -136,7 +136,7 @@ impl WorkloadApiClient {
     /// configuration, load balancing, or connection pooling). The provided channel must be
     /// configured to connect to the actual SPIFFE endpoint.
     ///
-    /// For normal usage, prefer [`WorkloadApiClient::connect`] or [`WorkloadApiClient::connect_env`].
+    /// For normal usage, use [`WorkloadApiClient::connect`] or [`WorkloadApiClient::connect_env`].
     ///
     /// # Example (TCP endpoint)
     ///

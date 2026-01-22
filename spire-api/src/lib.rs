@@ -8,7 +8,7 @@
 
 //! Rust client bindings for SPIRE gRPC APIs.
 //!
-//! This crate provides ergonomic wrappers around SPIRE's gRPC APIs (generated from protobuf)
+//! This crate provides wrappers around SPIRE's gRPC APIs (generated from protobuf)
 //! with strongly-typed request helpers.
 //!
 //! ## Endpoints and transport
@@ -89,7 +89,7 @@ pub mod agent;
 /// Selector types used by SPIRE APIs.
 pub mod selectors;
 
-/// Common re-exports for convenience.
+/// Common re-exports.
 pub mod prelude {
     /// Common imports for SPIRE client usage.
     pub use crate::agent::delegated_identity::{

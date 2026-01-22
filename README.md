@@ -1,4 +1,4 @@
-# Rust SPIFFE Libraries
+# Rust SPIFFE Crates
 
 [![CI](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci-main.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
@@ -10,14 +10,13 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
 
-A collection of Rust libraries for working with **SPIFFE** and **SPIRE**, covering identity
-representation, SPIRE-specific APIs, and TLS/mTLS integration.
+A collection of Rust crates for SPIFFE identity, Workload API clients, SPIRE-specific APIs, and TLS integration.
 
 ---
 
 ## Project Scope and Goals
 
-These crates aim to provide **standards-compliant, well-engineered building blocks** for integrating
+These crates provide standards-compliant building blocks for integrating
 SPIFFE and SPIRE into Rust applications.
 
 The project focuses on:
@@ -32,23 +31,14 @@ should evaluate suitability based on their own requirements and threat models.
 
 ---
 
-## Why Use These Crates?
+## Available Crates
 
-These crates emphasize **sound engineering practices** and **security-conscious design**:
-
-- ✅ **Zero unsafe code** — enforced via `#![deny(unsafe_code)]`
-- ✅ **Comprehensive testing** — unit and integration tests, including CI runs against SPIRE deployments
-- ✅ **Feature-gated dependencies** — no default features; enable only what you need
-- ✅ **Standards aligned** — follows the SPIFFE specifications
-- ✅ **Maintained** — regular updates with a documented MSRV policy (Rust 1.85+)
-
----
-
-## Crates
+These crates can be used independently or layered together, depending on the level of
+abstraction required.
 
 ### [`spiffe`](./spiffe)
 
-Standards-aligned SPIFFE primitives and a client for the **SPIFFE Workload API**.
+Standards-aligned SPIFFE identity primitives and clients for the **SPIFFE Workload API**.
 
 **Use this crate if you need:**
 
@@ -82,7 +72,7 @@ Integration between SPIFFE identities and [`rustls`](https://crates.io/crates/ru
 
 - Mutual TLS (mTLS) using SPIFFE identities
 - Automatic handling of SVID and trust bundle rotation
-- Connection-level authorization based on SPIFFE IDs
+- TLS-level peer authorization based on SPIFFE IDs
 
 See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration and examples.
 
@@ -90,19 +80,21 @@ See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration and 
 
 ### [`spiffe-rustls-tokio`](./spiffe-rustls-tokio)
 
-Tokio-native accept/connect helpers for `spiffe-rustls` configurations.
+Tokio-native async accept/connect helpers for `spiffe-rustls` configurations.
 
 **Use this crate if you need:**
 
 - Async TLS connections with Tokio
 - Automatic peer SPIFFE ID extraction from TLS connections
-- Convenient `TlsAcceptor` and `TlsConnector` APIs
+- `TlsAcceptor` and `TlsConnector` APIs
 
 See the [spiffe-rustls-tokio README](./spiffe-rustls-tokio/README.md) for usage and examples.
 
 ---
 
 ## Choosing a Crate
+
+Most users will interact with one or more of the following:
 
 - **SPIFFE identities or Workload API access** → `spiffe`
 - **SPIRE gRPC APIs** → `spire-api`
@@ -115,12 +107,17 @@ See the [spiffe-rustls-tokio README](./spiffe-rustls-tokio/README.md) for usage 
 
 The project follows established Rust ecosystem practices:
 
-- **Safety**: No `unsafe` code
-- **Testing**: Unit and integration test coverage
+- **Safety**: No `unsafe` code — enforced via `#![deny(unsafe_code)]`
+- **Standards alignment**: APIs follow SPIFFE specifications closely
+- **Dependency management**: Explicit feature gates; no default features
+- **Testing**: Unit and integration test coverage, including CI runs against SPIRE
 - **Documentation**: Public API documentation with examples on [docs.rs](https://docs.rs)
 - **CI**: Automated testing across feature combinations and MSRV
 - **Error handling**: Explicit, strongly typed errors using `thiserror`
 - **Observability**: Optional integration with `log` and `tracing`
+- **MSRV policy**: Currently Rust 1.85+
+
+These crates can be composed explicitly rather than hiding behavior behind large abstractions.
 
 ---
 

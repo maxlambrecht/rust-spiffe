@@ -112,7 +112,7 @@ impl ClientConfigBuilder {
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let source = spiffe::X509Source::new().await?;
     ///
-    /// // Using a convenience constructor - pass string literals directly
+    /// // Pass string literals directly
     /// let config = mtls_client(source.clone())
     ///     .authorize(authorizer::exact([
     ///         "spiffe://example.org/service",

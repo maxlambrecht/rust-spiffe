@@ -113,7 +113,7 @@ impl TlsConnector {
 
     /// Establishes a TCP connection and then performs a TLS handshake.
     ///
-    /// This is a convenience method that combines `TcpStream::connect` with `connect`.
+    /// Combines `TcpStream::connect` with `connect`.
     ///
     /// # Arguments
     ///

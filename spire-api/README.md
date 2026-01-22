@@ -21,7 +21,7 @@ Currently supported APIs include:
   Allows authorized workloads to obtain X.509 and JWT SVIDs (and bundles) on behalf of other workloads
   that cannot be directly attested by the SPIRE agent.
 
-This is particularly useful in advanced or constrained environments where direct workload
+This is intended for advanced or constrained environments where direct workload
 attestation is not feasible.
 
 ---
@@ -37,7 +37,7 @@ spire-api = "0.5"
 
 ---
 
-## Quick start
+## Quick Start
 
 The Delegated Identity API uses the **SPIRE Agent admin socket** (not the Workload API socket).
 Set the `SPIRE_ADMIN_ENDPOINT_SOCKET` environment variable to the admin socket path:

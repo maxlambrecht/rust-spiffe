@@ -10,7 +10,7 @@
 
 //! Rust client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 //!
-//! This crate provides idiomatic, standards-compliant access to SPIFFE identities and trust material.
+//! This crate provides standards-compliant access to SPIFFE identities and trust material.
 //! It allows workloads to fetch and watch SPIFFE-issued X.509 and JWT SVIDs, trust bundles, and
 //! related metadata, using strongly typed APIs aligned with the SPIFFE specifications.
 //!
@@ -103,18 +103,18 @@
 //! | Feature | Description |
 //! |---------|-------------|
 //! | `workload-api-core` | Workload API infrastructure only (transport/proto/client plumbing; no X.509/JWT parsing/types) |
-//! | `x509-source` | High-level X.509 watcher/caching built on the Workload API (recommended for most X.509 workloads) |
-//! | `jwt-source` | High-level JWT watcher/caching built on the Workload API (recommended for most JWT workloads) |
+//! | `x509-source` | High-level X.509 watcher/caching built on the Workload API |
+//! | `jwt-source` | High-level JWT watcher/caching built on the Workload API |
 //!
 //! **Notes:**
 //!
 //! - The `x509` feature gates heavy X.509 parsing dependencies.
-//! - For most X.509 workloads, prefer `x509-source`, which provides automatic caching and rotation handling.
-//! - For most JWT workloads, prefer `jwt-source`, which provides automatic bundle caching and on-demand SVID fetching.
-//! - For direct Workload API usage, prefer `workload-api-x509` or `workload-api-jwt` when you only need one,
+//! - `x509-source` provides automatic caching and rotation handling for X.509 workloads.
+//! - `jwt-source` provides automatic bundle caching and on-demand SVID fetching for JWT workloads.
+//! - For direct Workload API usage, use `workload-api-x509` or `workload-api-jwt` when you only need one,
 //!   and `workload-api` (or `workload-api-full`) when you need both.
 //!
-//! ## X.509 (recommended)
+//! ## X.509
 //!
 //! ```no_run
 //! # #[cfg(feature = "x509-source")]
@@ -147,7 +147,7 @@
 //!
 //! For advanced X.509 source configuration, see the [`x509_source`] module.
 //!
-//! ## JWT (recommended)
+//! ## JWT
 //!
 //! ```no_run
 //! # #[cfg(feature = "jwt-source")]
@@ -262,7 +262,7 @@ pub use crate::workload_api::{WorkloadApiClient, WorkloadApiError};
 // X.509 Source
 //
 // High-level watcher/caching abstraction. Available with `x509-source` feature.
-// Primary types are re-exported at the crate root for ergonomics.
+// Primary types are re-exported at the crate root.
 // For advanced configuration types, see the [`x509_source`] module.
 #[cfg(feature = "x509-source")]
 pub use crate::x509_source::{
@@ -273,7 +273,7 @@ pub use crate::x509_source::{
 // JWT Source
 //
 // High-level watcher/caching abstraction for JWT bundles. Available with `jwt-source` feature.
-// Primary types are re-exported at the crate root for ergonomics.
+// Primary types are re-exported at the crate root.
 // For advanced configuration types, see the [`jwt_source`] module.
 #[cfg(feature = "jwt-source")]
 pub use crate::jwt_source::{
@@ -282,7 +282,7 @@ pub use crate::jwt_source::{
     JwtSourceError,
     JwtSourceUpdates,
     // Configuration types: both generic and JWT-specific aliases are available.
-    // Prefer the aliased names (`JwtReconnectConfig`, `JwtResourceLimits`) when
+    // Use the aliased names (`JwtReconnectConfig`, `JwtResourceLimits`) when
     // both X.509 and JWT sources are enabled to avoid ambiguity.
     ReconnectConfig,
     ReconnectConfig as JwtReconnectConfig,

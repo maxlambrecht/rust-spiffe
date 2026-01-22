@@ -35,7 +35,7 @@
 //! domains. You can optionally restrict which trust domains are trusted using
 //! [`TrustDomainPolicy`], but this is purely a defense-in-depth mechanism.
 //! Policy variants (`AnyInBundleSet`, `AllowList`, `LocalOnly`) are re-exported
-//! at the crate root for convenience.
+//! at the crate root.
 //!
 //! ## Security Model
 //!
@@ -105,9 +105,9 @@ pub use policy::TrustDomainPolicy::{AllowList, AnyInBundleSet, LocalOnly};
 pub use server::ServerConfigBuilder;
 pub use spiffe::{SpiffeId, TrustDomain};
 
-/// Convenience constructor for the mTLS client builder.
+/// Constructor for the mTLS client builder.
 ///
-/// This creates a client builder with default settings:
+/// Creates a client builder with default settings:
 /// - Authorization: accepts any SPIFFE ID (authentication only)
 /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
 ///
@@ -119,7 +119,7 @@ pub use spiffe::{SpiffeId, TrustDomain};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// // Using a convenience constructor - pass string literals directly
+/// // Pass string literals directly
 /// let client_config = mtls_client(source.clone())
 ///     .authorize(authorizer::exact([
 ///         "spiffe://example.org/myservice",
@@ -143,9 +143,9 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
     ClientConfigBuilder::new(source)
 }
 
-/// Convenience constructor for the mTLS server builder.
+/// Constructor for the mTLS server builder.
 ///
-/// This creates a server builder with default settings:
+/// Creates a server builder with default settings:
 /// - Authorization: accepts any SPIFFE ID (authentication only)
 /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
 ///
@@ -157,7 +157,7 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// // Using a convenience constructor - pass string literals directly
+/// // Pass string literals directly
 /// let server_config = mtls_server(source.clone())
 ///     .authorize(authorizer::trust_domains([
 ///         "example.org",
