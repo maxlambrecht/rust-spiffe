@@ -1,11 +1,7 @@
 //! SPIFFE endpoint parsing and validation.
 //!
-//! This module defines a SPIFFE-specific endpoint abstraction used by
-//! SPIFFE-related APIs such as:
-//! - SPIFFE Workload API
-//! - SPIRE Agent Admin API
-//!
-//! It is **not** a general-purpose networking endpoint.
+//! Defines a SPIFFE-specific endpoint abstraction used by SPIFFE-related APIs
+//! (SPIFFE Workload API, SPIRE Agent Admin API). Not a general-purpose networking endpoint.
 
 use std::net::IpAddr;
 use std::path::PathBuf;

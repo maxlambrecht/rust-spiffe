@@ -1,6 +1,6 @@
 //! JWT SVID types.
 //!
-//! This module supports two common flows:
+//! Supports two common flows:
 //! 1) **Workload API (trusted)**: tokens are fetched from the SPIRE agent (already validated by the agent).
 //!    Use [`JwtSvid::from_workload_api_token`] to parse and inspect the token.
 //! 2) **Offline verification**: verify a token using JWT authorities from bundles.
@@ -29,8 +29,7 @@ use jsonwebtoken::{DecodingKey, Validation};
 
 /// Algorithms supported for JWT-SVIDs according to the SPIFFE JWT-SVID profile.
 ///
-/// This enum represents the subset of JWT signature algorithms that are
-/// compliant with the SPIFFE JWT-SVID specification.
+/// Represents the subset of JWT signature algorithms compliant with the SPIFFE JWT-SVID specification.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum JwtAlg {
     /// RSASSA-PKCS1-v1_5 using SHA-256
@@ -82,7 +81,7 @@ impl JwtAlg {
     }
 }
 
-/// This type represents a SPIFFE JWT-SVID.
+/// Represents a SPIFFE JWT-SVID.
 ///
 /// The serialized token is zeroized on drop.
 ///
@@ -117,8 +116,8 @@ struct Header {
     alg: String,
 }
 
-/// An error that can arise trying to parse a [`JwtSvid`] from a JWT token. It also represents
-/// errors that can happen validating the token signature or the token audience.
+/// Errors that can arise parsing a [`JwtSvid`] from a JWT token or validating
+/// the token signature or audience.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum JwtSvidError {

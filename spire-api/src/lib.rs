@@ -6,13 +6,13 @@
 #![allow(clippy::module_name_repetitions)]
 #![allow(clippy::must_use_candidate)]
 
-//! Rust client bindings for SPIRE gRPC APIs.
+//! Client bindings for SPIRE gRPC APIs.
 //!
-//! This crate provides wrappers around SPIRE's gRPC APIs (generated from protobuf)
+//! Provides wrappers around SPIRE's gRPC APIs (generated from protobuf)
 //! with strongly-typed request helpers.
 //!
 //! SPIRE exposes multiple gRPC APIs over a local endpoint (typically a Unix domain socket).
-//! The high-level clients in this crate accept a pre-built `tonic::transport::Channel` for
+//! High-level clients accept a pre-built `tonic::transport::Channel` for
 //! explicit transport configuration (timeouts, TLS, interceptors, etc).
 //!
 //! ## Quick start

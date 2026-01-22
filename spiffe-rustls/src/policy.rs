@@ -1,6 +1,6 @@
 //! Trust domain policy for federation control.
 //!
-//! This module provides [`TrustDomainPolicy`], which allows you to restrict which
+//! Provides [`TrustDomainPolicy`], which allows you to restrict which
 //! trust domains from the bundle set are actually used during certificate verification.
 //!
 //! # Examples
