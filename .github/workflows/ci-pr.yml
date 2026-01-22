@@ -92,7 +92,7 @@ jobs:
           cache-on-failure: true
 
       - name: Run PR test suite
-        run: make ci-pr-unit
+        run: make ci-pr
 
       - name: Build examples
         run: make examples
