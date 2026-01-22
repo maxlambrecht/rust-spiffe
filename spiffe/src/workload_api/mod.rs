@@ -1,7 +1,7 @@
 //! A client to interact with the SPIFFE Workload API to fetch X.509 and JWT materials.
 //!
-//! Most users should prefer higher-level types like [`crate::X509Source`] for X.509 workloads
-//! or [`crate::JwtSource`] for JWT workloads, but [`crate::WorkloadApiClient`] provides direct
+//! Higher-level types like [`crate::X509Source`] for X.509 workloads or [`crate::JwtSource`] for JWT workloads
+//! provide automatic caching and reconnection. [`crate::WorkloadApiClient`] provides direct
 //! access to one-shot RPCs and streaming updates.
 //!
 //! # Examples

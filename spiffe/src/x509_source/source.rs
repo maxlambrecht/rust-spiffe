@@ -335,7 +335,7 @@ impl X509Source {
 
     /// Returns the current SVID, or `None` if unavailable.
     ///
-    /// This is a convenience method that returns `None` instead of an error
+    /// Returns `None` instead of an error
     /// when the SVID cannot be retrieved. Use this when `None` is an acceptable
     /// value for your use case.
     ///
@@ -373,7 +373,7 @@ impl X509Source {
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
     ///
-    /// This is a convenience method that returns `None` instead of an error
+    /// Returns `None` instead of an error
     /// when the bundle cannot be retrieved. Use this when `None` is an acceptable
     /// value for your use case.
     ///
@@ -409,7 +409,7 @@ impl X509Source {
     /// and awaited before returning.
     ///
     /// **Note:** This method may wait indefinitely if background tasks don't respond.
-    /// For production use, prefer [`X509Source::shutdown_with_timeout`] or
+    /// For production use, use [`X509Source::shutdown_with_timeout`] or
     /// [`X509Source::shutdown_configured`].
     pub async fn shutdown(&self) {
         if self.inner.closed.swap(true, Ordering::AcqRel) {
@@ -482,7 +482,7 @@ impl X509Source {
 
     /// Cancels background tasks and waits for termination using the configured timeout.
     ///
-    /// This is a convenience method that uses the timeout configured in the builder.
+    /// Uses the timeout configured in the builder.
     /// If no timeout was configured, this method will wait indefinitely (same as `shutdown()`).
     ///
     /// # Errors

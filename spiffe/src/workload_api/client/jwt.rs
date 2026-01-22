@@ -101,7 +101,7 @@ impl WorkloadApiClient {
 
     /// Fetches the JWT-SVID whose Workload API hint matches `hint`.
     ///
-    /// This is a convenience wrapper around [`WorkloadApiClient::fetch_all_jwt_svids`] that selects
+    /// Wrapper around [`WorkloadApiClient::fetch_all_jwt_svids`] that selects
     /// a single [`JwtSvid`] by its hint.
     ///
     /// The hint is **not** part of the JWT token; it is transport metadata provided by the SPIFFE

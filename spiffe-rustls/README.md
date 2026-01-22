@@ -7,18 +7,15 @@
 
 SPIFFE-based mutual TLS integration for rustls.
 
-Builds `rustls::ClientConfig` and `rustls::ServerConfig` from [`spiffe`](https://crates.io/crates/spiffe)'s
-`X509Source`. Handles certificate rotation, trust domain selection, and TLS-level peer authorization
-based on SPIFFE IDs. All cryptography and TLS protocol handling are intentionally delegated to `rustls`.
-
----
+Builds `rustls::ClientConfig` and `rustls::ServerConfig` from [`spiffe`](https://crates.io/crates/spiffe)'s `X509Source`.
+Handles certificate rotation, trust domain selection, and TLS-level peer authorization based on SPIFFE IDs.
+All cryptography and TLS protocol handling are delegated to `rustls`.
 
 ## Key Features
 
-- **Federation support** — Automatically handles multiple trust domains when SPIFFE federation is configured
-- **Typed authorization** — Strongly-typed `Authorizer` trait for SPIFFE ID–based access control
-- **Live updates** — Material rotates automatically when SPIRE updates SVIDs or bundles
-- **Security-conscious design** — Zero unsafe code, conservative parsing, graceful degradation
+- **Federation support** — Supports multiple trust domains when SPIFFE federation is configured
+- **TLS-level peer authorization** — Strongly-typed `Authorizer` for authorizing peers based on SPIFFE IDs
+- **Automatic rotation** — New handshakes use updated material when SPIRE rotates SVIDs or bundles
 
 ---
 
@@ -104,7 +101,7 @@ let policy = TrustDomainPolicy::LocalOnly("example.org".try_into()?);
 
 Authorization is applied **after** cryptographic verification succeeds.
 
-The crate provides a strongly-typed `Authorizer` trait and ergonomic constructors for
+The crate provides a strongly-typed `Authorizer` trait and constructors for
 common authorization strategies.
 
 ### Common authorization patterns
@@ -359,7 +356,7 @@ cargo run --example mtls_tcp_client
 
 ### Tokio Integration (`spiffe-rustls-tokio`)
 
-For a more ergonomic Tokio API with automatic peer identity extraction, use the
+For Tokio integration with automatic peer identity extraction, use the
 [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio) crate:
 
 ```bash
@@ -385,18 +382,18 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 
 ## Performance
 
-`spiffe-rustls` is designed for production workloads:
+Performance characteristics:
 
 - **Zero-copy certificate access** — SVIDs and bundles accessed via `Arc` references
 - **Atomic updates** — New handshakes automatically use rotated material without locks
-- **Efficient authorization** — `Authorizer` trait allows zero-allocation checks
+- **Zero-allocation authorization** — `Authorizer` trait allows zero-allocation checks
 - **Minimal overhead** — Authorization runs after TLS verification (no impact on handshake)
-- **Efficient verifier reuse** — Verifiers are cached per trust domain and bundle generation,
+- **Cached verifier reuse** — Verifiers are cached per trust domain and bundle generation,
   avoiding repeated construction under concurrent handshakes.
 
 ### Integration with Async Runtimes
 
-The crate works seamlessly with:
+The crate integrates with:
 - [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio) for Tokio-native accept/connect helpers with automatic peer identity extraction
 - `tokio-rustls` for async TLS
 - `tonic-rustls` for gRPC
@@ -430,14 +427,6 @@ Authorization is applied **after** TLS verification succeeds, ensuring cryptogra
 * Trust domain selection is automatic and deterministic
 * Authorization runs **after** cryptographic verification
 * Material updates are atomic; new handshakes use fresh material
-
----
-
-## Changelog
-
-See [CHANGELOG.md](../CHANGELOG.md) for version history and migration guides.
-
----
 
 ## License
 

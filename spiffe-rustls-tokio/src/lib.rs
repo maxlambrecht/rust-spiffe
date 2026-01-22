@@ -10,12 +10,13 @@
 //!
 //! Tokio-native accept/connect helpers for [spiffe-rustls](https://docs.rs/spiffe-rustls) configs.
 //!
-//! This crate provides a small adapter layer that makes it easy to use SPIFFE mTLS
-//! with Tokio + rustls and to extract peer identity from TLS connections.
+//! Integrates `tokio-rustls` with automatic peer SPIFFE ID extraction. Provides `TlsAcceptor` and
+//! `TlsConnector` that return `(TlsStream, PeerIdentity)` after successful handshakes. Runtime-agnostic
+//! TLS configuration remains in `spiffe-rustls`.
 //!
 //! ## Features
 //!
-//! - **Tokio integration**: Native async accept/connect operations
+//! - **Tokio integration**: Async accept/connect operations
 //! - **Peer identity extraction**: Automatically extract SPIFFE IDs from peer certificates
 //!
 //! ## Examples

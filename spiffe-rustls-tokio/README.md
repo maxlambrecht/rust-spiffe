@@ -7,9 +7,9 @@
 
 Tokio-native async accept/connect helpers for [`spiffe-rustls`](https://crates.io/crates/spiffe-rustls) configs.
 
-Integrates `tokio-rustls` with automatic peer SPIFFE ID extraction. Provides `TlsAcceptor` and `TlsConnector`
-that return `(TlsStream, PeerIdentity)` after successful handshakes. Runtime-agnostic TLS configuration
-remains in `spiffe-rustls`.
+Integrates `tokio-rustls` with automatic peer SPIFFE ID extraction. Provides `TlsAcceptor` and
+`TlsConnector` that return `(TlsStream, PeerIdentity)` after successful handshakes. Runtime-agnostic
+TLS configuration remains in `spiffe-rustls`.
 
 ---
 

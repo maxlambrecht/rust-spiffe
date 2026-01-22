@@ -16,7 +16,7 @@
 //!
 //! ## Usage
 //!
-//! Primary types are re-exported at the crate root for convenience:
+//! Primary types are re-exported at the crate root:
 //!
 //! ```no_run
 //! # #[cfg(feature = "jwt-source")]

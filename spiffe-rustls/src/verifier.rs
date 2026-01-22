@@ -158,8 +158,7 @@ impl CertParseCache {
 
 /// Extract the SPIFFE ID from the leaf certificate.
 ///
-/// This is a convenience function that does not use caching. For better performance
-/// in high-throughput scenarios, use the verifier's internal caching mechanism.
+/// Does not use caching. For high-throughput scenarios, use the verifier's internal caching mechanism.
 ///
 /// # Errors
 ///
