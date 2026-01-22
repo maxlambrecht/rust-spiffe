@@ -1,9 +1,10 @@
 # Rust SPIFFE Libraries
 
-[![Build](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci-main.yml/badge.svg?branch=main)](https://github.com/maxlambrecht/rust-spiffe/actions/workflows/ci.yml?query=branch%3Amain)
 [![Coverage](https://coveralls.io/repos/github/maxlambrecht/rust-spiffe/badge.svg?branch=main)](https://coveralls.io/github/maxlambrecht/rust-spiffe?branch=main)
 [![Crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
 [![Crates.io](https://img.shields.io/crates/v/spiffe-rustls.svg)](https://crates.io/crates/spiffe-rustls)
+[![Crates.io](https://img.shields.io/crates/v/spiffe-rustls-tokio.svg)](https://crates.io/crates/spiffe-rustls-tokio)
 [![Crates.io](https://img.shields.io/crates/v/spire-api.svg)](https://crates.io/crates/spire-api)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11801/badge)](https://www.bestpractices.dev/projects/11801)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
@@ -87,11 +88,26 @@ See the [spiffe-rustls README](./spiffe-rustls/README.md) for configuration and 
 
 ---
 
+### [`spiffe-rustls-tokio`](./spiffe-rustls-tokio)
+
+Tokio-native accept/connect helpers for `spiffe-rustls` configurations.
+
+**Use this crate if you need:**
+
+- Async TLS connections with Tokio
+- Automatic peer SPIFFE ID extraction from TLS connections
+- Convenient `TlsAcceptor` and `TlsConnector` APIs
+
+See the [spiffe-rustls-tokio README](./spiffe-rustls-tokio/README.md) for usage and examples.
+
+---
+
 ## Choosing a Crate
 
 - **SPIFFE identities or Workload API access** → `spiffe`
 - **SPIRE gRPC APIs** → `spire-api`
 - **mTLS with SPIFFE over rustls** → `spiffe-rustls`
+- **Tokio async TLS with SPIFFE** → `spiffe-rustls-tokio`
 
 ---
 

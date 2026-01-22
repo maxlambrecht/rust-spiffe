@@ -55,7 +55,7 @@ let client_cfg = mtls_client(source)
 ```
 
 The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
-`tokio-rustls`, `tonic-rustls`, or similar libraries.
+[`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio), `tokio-rustls`, `tonic-rustls`, or similar libraries.
 
 ---
 
@@ -361,6 +361,20 @@ cargo run --example mtls_tcp_client
 
 ---
 
+### Tokio Integration (`spiffe-rustls-tokio`)
+
+For a more ergonomic Tokio API with automatic peer identity extraction, use the
+[`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio) crate:
+
+```bash
+cargo run -p spiffe-rustls-tokio --example mtls_tcp_server
+cargo run -p spiffe-rustls-tokio --example mtls_tcp_client
+```
+
+See the [`spiffe-rustls-tokio` README](../spiffe-rustls-tokio/README.md) for details.
+
+---
+
 ### gRPC (`tonic-rustls`)
 
 gRPC examples live in a **separate crate** (`spiffe-rustls-grpc-examples`) to avoid pulling
@@ -387,6 +401,7 @@ cargo run -p spiffe-rustls-grpc-examples --bin grpc_client_mtls
 ### Integration with Async Runtimes
 
 The crate works seamlessly with:
+- [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio) for Tokio-native accept/connect helpers with automatic peer identity extraction
 - `tokio-rustls` for async TLS
 - `tonic-rustls` for gRPC
 - Any `rustls`-based TLS stack
