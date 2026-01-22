@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.3] – 2026-01-22
+
+### Changed
+- Tightened README and crate-level documentation for clarity and consistency; no functional changes.
+
+
 ## [0.11.2] – 2026-01-21
 
 ### Fixed
