@@ -172,7 +172,9 @@ impl CertParseCache {
 /// Note: Overly long URI entries (exceeding 2048 bytes) are skipped during parsing
 /// and will not cause an error, but may result in `Error::MissingSpiffeId` if no valid
 /// SPIFFE ID is found.
-#[allow(dead_code)] // Used in tests
+///
+/// This is a convenience wrapper around `extract_spiffe_id_with_cache` for use in tests.
+#[cfg(test)]
 pub(crate) fn extract_spiffe_id(leaf: &CertificateDer<'_>) -> Result<SpiffeId> {
     extract_spiffe_id_with_cache(leaf, None)
 }

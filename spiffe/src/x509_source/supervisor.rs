@@ -227,6 +227,8 @@ pub(super) async fn initial_sync_with_retry(
     }
 }
 
+// This function coordinates multiple concerns (client creation, picking, validation, metrics).
+// Splitting it would require passing context through multiple functions, reducing clarity.
 #[allow(clippy::too_many_arguments)]
 async fn try_sync_once(
     make_client: &ClientFactory,

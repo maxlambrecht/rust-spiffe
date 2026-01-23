@@ -3,7 +3,10 @@
 //! This module contains reusable components for managing Workload API connections,
 //! error tracking, and backoff policies.
 
-#![allow(dead_code)] // Items are used by x509_source and jwt_source supervisor modules
+#![allow(dead_code)]
+// This module defines shared helpers used by both the x509_source and jwt_source
+// supervisors. Some items are only referenced from feature-gated code paths,
+// so they may appear unused depending on the enabled feature set.
 
 use std::time::Duration;
 use tokio::time::sleep;

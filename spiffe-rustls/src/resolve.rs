@@ -237,20 +237,6 @@ mod tests {
                 bundle_set: Mutex::new(bundle_set),
             }
         }
-
-        #[allow(dead_code)]
-        fn set_svid(&self, svid: Option<spiffe::X509Svid>) {
-            *self.svid.lock().unwrap() = svid.map(Arc::new);
-        }
-
-        #[allow(dead_code)]
-        fn set_bundle(&self, bundle: Option<spiffe::X509Bundle>) {
-            let mut set = self.bundle_set.lock().unwrap();
-            *set = X509BundleSet::new();
-            if let Some(b) = bundle {
-                set.add_bundle(b);
-            }
-        }
     }
 
     impl X509MaterialSource for FakeSource {
