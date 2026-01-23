@@ -120,7 +120,7 @@ impl ResourceLimits {
     /// assert_eq!(unlimited.max_bundles, None);
     /// assert_eq!(unlimited.max_bundle_jwks_bytes, None);
     /// ```
-    pub fn unlimited() -> Self {
+    pub const fn unlimited() -> Self {
         Self {
             max_bundles: None,
             max_bundle_jwks_bytes: None,
@@ -242,7 +242,7 @@ impl JwtSourceBuilder {
         let endpoint: Arc<str> = Arc::from(endpoint.as_ref());
 
         let factory: ClientFactory = Arc::new(move || {
-            let endpoint = endpoint.clone();
+            let endpoint = Arc::clone(&endpoint);
             Box::pin(async move { WorkloadApiClient::connect_to(&endpoint).await })
         });
 
@@ -273,7 +273,7 @@ impl JwtSourceBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn reconnect_backoff(mut self, min_backoff: Duration, max_backoff: Duration) -> Self {
+    pub const fn reconnect_backoff(mut self, min_backoff: Duration, max_backoff: Duration) -> Self {
         // Normalization happens at the authoritative boundary in JwtSource::build_with().
         // This setter stores the raw values; normalization ensures min <= max.
         self.reconnect = ReconnectConfig {
@@ -304,7 +304,7 @@ impl JwtSourceBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn resource_limits(mut self, limits: ResourceLimits) -> Self {
+    pub const fn resource_limits(mut self, limits: ResourceLimits) -> Self {
         self.limits = limits;
         self
     }
@@ -356,7 +356,7 @@ impl JwtSourceBuilder {
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     #[must_use]
-    pub fn shutdown_timeout(mut self, timeout: Option<Duration>) -> Self {
+    pub const fn shutdown_timeout(mut self, timeout: Option<Duration>) -> Self {
         self.shutdown_timeout = timeout;
         self
     }

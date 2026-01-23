@@ -75,7 +75,7 @@ impl X509SourceUpdates {
         self.rx
             .changed()
             .await
-            .map_err(|_| X509SourceError::Closed)?;
+            .map_err(|watch::error::RecvError { .. }| X509SourceError::Closed)?;
         Ok(*self.rx.borrow())
     }
 
@@ -160,7 +160,7 @@ pub(super) struct Inner {
 }
 
 impl Inner {
-    pub(super) fn reconnect(&self) -> ReconnectConfig {
+    pub(super) const fn reconnect(&self) -> ReconnectConfig {
         self.reconnect
     }
     pub(super) fn metrics(&self) -> Option<&dyn MetricsRecorder> {
@@ -368,7 +368,7 @@ impl X509Source {
     /// Returns [`X509SourceError`] if the source is closed.
     pub fn bundle_set(&self) -> Result<Arc<X509BundleSet>, X509SourceError> {
         self.assert_open()?;
-        Ok(self.inner.x509_context.load().bundle_set().clone())
+        Ok(Arc::clone(self.inner.x509_context.load().bundle_set()))
     }
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
@@ -474,7 +474,7 @@ impl X509Source {
                 warn!("Shutdown timeout exceeded; aborting supervisor task");
                 handle.abort();
                 // Wait for the abort to take effect
-                let _ = handle.await;
+                let _unused: Result<_, _> = handle.await;
                 Err(X509SourceError::ShutdownTimeout)
             }
         }
@@ -506,7 +506,7 @@ impl X509Source {
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
         shutdown_timeout: Option<Duration>,
-    ) -> Result<X509Source, X509SourceError> {
+    ) -> Result<Self, X509SourceError> {
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
         let (update_tx, update_rx) = watch::channel(0u64);
@@ -560,7 +560,7 @@ impl X509Source {
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
         svid_picker: Option<Box<dyn SvidPicker>>,
-    ) -> X509Source {
+    ) -> Self {
         // Normalize reconnect config at the boundary (same as new_with)
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
@@ -633,7 +633,7 @@ impl Inner {
 
     pub(super) fn notify_update(&self) {
         let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.update_tx.send(next);
+        let _unused: Result<_, _> = self.update_tx.send(next);
     }
 
     pub(super) fn validate_and_select(&self, ctx: &X509Context) -> Result<(), X509SourceError> {
@@ -658,7 +658,7 @@ impl SvidSource for X509Source {
     type Error = X509SourceError;
 
     fn svid(&self) -> Result<Arc<Self::Item>, Self::Error> {
-        X509Source::svid(self)
+        Self::svid(self)
     }
 }
 
@@ -677,15 +677,10 @@ impl BundleSource for X509Source {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use super::super::errors::MetricsErrorKind;
-    use super::super::metrics::MetricsRecorder;
     use super::*;
     use std::collections::HashMap;
-    use std::sync::{Arc, Mutex};
-    use std::time::Duration;
-    use tokio::sync::watch;
+    use std::sync::Mutex;
 
     #[tokio::test]
     async fn test_wait_for_immediate_satisfaction() {
@@ -698,7 +693,7 @@ mod tests {
         assert_eq!(result.unwrap(), 5);
 
         // Update the value
-        let _ = tx.send(10);
+        let _unused: Result<_, _> = tx.send(10);
 
         // Wait for predicate to be satisfied again (should return immediately with new value)
         let result = updates.wait_for(|&seq| seq > 8).await;
@@ -715,7 +710,7 @@ mod tests {
         let tx_clone = tx.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
-            let _ = tx_clone.send(5);
+            let _unused: Result<_, _> = tx_clone.send(5);
         });
 
         // Predicate is not satisfied initially (1 is not > 3)
@@ -739,7 +734,7 @@ mod tests {
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_millis(50)).await;
             // Simulate first rotation after initial sync
-            let _ = tx_clone.send(1);
+            let _unused: Result<_, _> = tx_clone.send(1);
         });
 
         // Should wait and then return when value becomes 1 (first rotation)
@@ -807,20 +802,23 @@ mod tests {
 
         // Create a context with 1 bundle (exceeds max_bundles=0)
         let trust_domain = TrustDomain::new("example.org").unwrap();
-        let bundle = X509Bundle::new(trust_domain.clone());
+        let bundle = X509Bundle::new(trust_domain);
         let mut bundle_set = X509BundleSet::new();
         bundle_set.add_bundle(bundle);
 
         let ctx = X509Context::new([svid], Arc::new(bundle_set));
 
         // Create source using test seam
-        let source = X509Source::new_for_test(
-            Arc::new(X509Context::new([], Arc::new(X509BundleSet::new()))),
-            ReconnectConfig::default(),
-            limits,
-            Some(metrics.clone()),
-            None,
-        );
+        let source = {
+            let metrics = Arc::clone(&metrics);
+            X509Source::new_for_test(
+                Arc::new(X509Context::new([], Arc::new(X509BundleSet::new()))),
+                ReconnectConfig::default(),
+                limits,
+                Some(metrics),
+                None,
+            )
+        };
 
         // Apply update that should be rejected due to max_bundles limit
         let result = source.inner.apply_update(Arc::new(ctx));
@@ -903,7 +901,7 @@ mod tests {
 
         // Create a context with 1 bundle (exceeds max_bundles=0)
         let trust_domain = TrustDomain::new("example.org").unwrap();
-        let bundle = X509Bundle::new(trust_domain.clone());
+        let bundle = X509Bundle::new(trust_domain);
         let mut bundle_set = X509BundleSet::new();
         bundle_set.add_bundle(bundle);
 
@@ -914,7 +912,7 @@ mod tests {
             &ctx,
             None, // No picker
             limits,
-            Some(metrics.as_ref() as &dyn MetricsRecorder),
+            Some(metrics.as_ref()),
         );
 
         // Should fail with ResourceLimitExceeded

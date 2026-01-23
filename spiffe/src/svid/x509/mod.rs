@@ -7,7 +7,7 @@ use crate::cert::parsing::to_certificate_vec;
 use crate::cert::{Certificate, PrivateKey};
 use crate::spiffe_id::SpiffeId;
 use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing_certificates};
-use std::convert::TryFrom;
+use std::convert::TryFrom as _;
 use std::sync::Arc;
 
 /// Represents a SPIFFE X.509-SVID.
@@ -108,15 +108,15 @@ impl X509Svid {
     ) -> Result<Self, X509SvidError> {
         let cert_chain = to_certificate_vec(cert_chain_der)?;
 
-        let Some(leaf) = cert_chain.first() else {
+        let Some((leaf, rest)) = cert_chain.split_first() else {
             return Err(X509SvidError::EmptyChain);
         };
 
         let spiffe_id = validate_leaf_certificate(leaf)?;
-        validate_signing_certificates(&cert_chain[1..])?;
+        validate_signing_certificates(rest)?;
         let private_key = PrivateKey::try_from(private_key_der)?;
 
-        Ok(X509Svid {
+        Ok(Self {
             spiffe_id,
             cert_chain,
             private_key,
@@ -125,7 +125,7 @@ impl X509Svid {
     }
 
     /// Returns the [`SpiffeId`] of the `X509Svid`.
-    pub fn spiffe_id(&self) -> &SpiffeId {
+    pub const fn spiffe_id(&self) -> &SpiffeId {
         &self.spiffe_id
     }
 
@@ -142,11 +142,14 @@ impl X509Svid {
     /// happen with properly constructed `X509Svid` instances, as the constructor
     /// validates that the chain is non-empty.
     pub fn leaf(&self) -> &Certificate {
-        &self.cert_chain[0]
+        #[expect(clippy::panic, reason = "documented behavior")]
+        self.cert_chain
+            .first()
+            .unwrap_or_else(|| panic!("certificate chain is empty"))
     }
 
     /// Returns the private key.
-    pub fn private_key(&self) -> &PrivateKey {
+    pub const fn private_key(&self) -> &PrivateKey {
         &self.private_key
     }
 

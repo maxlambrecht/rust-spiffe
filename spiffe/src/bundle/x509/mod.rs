@@ -48,7 +48,7 @@ impl X509Bundle {
     /// assert!(bundle.authorities().is_empty());
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new(trust_domain: TrustDomain) -> Self {
+    pub const fn new(trust_domain: TrustDomain) -> Self {
         Self {
             trust_domain,
             x509_authorities: Vec::new(),
@@ -138,7 +138,7 @@ impl X509Bundle {
     /// assert_eq!(bundle.trust_domain(), &trust_domain);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn trust_domain(&self) -> &TrustDomain {
+    pub const fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
@@ -177,7 +177,7 @@ impl X509BundleSet {
     /// set.add_bundle(bundle);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             bundles: BTreeMap::new(),
         }
@@ -289,7 +289,6 @@ impl FromIterator<X509Bundle> for X509BundleSet {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -314,8 +313,8 @@ mod tests {
         let td1 = TrustDomain::new("example.org").unwrap();
         let td2 = TrustDomain::new("example2.org").unwrap();
 
-        let b1 = X509Bundle::new(td1.clone());
-        let b2 = X509Bundle::new(td2.clone());
+        let b1 = X509Bundle::new(td1);
+        let b2 = X509Bundle::new(td2);
 
         let mut set = X509BundleSet::new();
         set.extend([b1.clone(), b2.clone()]);

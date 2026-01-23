@@ -1,13 +1,3 @@
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
-#![warn(missing_debug_implementations)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-#![warn(clippy::unwrap_used)]
-#![warn(clippy::expect_used)]
-
 //! Client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
 //!
 //! Provides standards-compliant access to SPIFFE identities and trust material.
@@ -145,6 +135,17 @@
 //! ```
 //!
 //! For advanced configuration, see the [`x509_source`] and [`jwt_source`] modules.
+
+// "logging" and "tracing" can both be enabled, causing logging to be unused.
+//
+// "workload-api" can be enabled without "x509-source" or "jwt-source", causing
+// arc-swap, fastrand, and tokio-util to be unused.
+//
+// There are probably others.
+#![allow(
+    unused_crate_dependencies,
+    reason = "optional dependencies and features are not well factored"
+)]
 
 pub mod bundle;
 #[cfg(feature = "x509")]

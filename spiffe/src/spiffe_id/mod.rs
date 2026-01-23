@@ -1,6 +1,5 @@
 //! SPIFFE-ID and `TrustDomain` types compliant with the SPIFFE standard.
 
-use std::convert::TryFrom;
 use std::fmt;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -143,25 +142,24 @@ impl SpiffeId {
             .strip_prefix(SPIFFE_SCHEME_PREFIX)
             .ok_or(SpiffeIdError::WrongScheme)?;
 
-        let slash_pos = rest.find('/').unwrap_or(rest.len());
+        let (td, path) = match rest.find('/') {
+            Some(idx) => rest.split_at(idx),
+            None => (rest, ""),
+        };
 
-        if slash_pos == 0 {
+        if td.is_empty() {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
-
-        let td = &rest[..slash_pos];
 
         if !td.as_bytes().iter().all(|&b| is_valid_trust_domain_byte(b)) {
             return Err(SpiffeIdError::BadTrustDomainChar);
         }
 
-        let path = &rest[slash_pos..];
-
         if !path.is_empty() {
             validate_path(path)?;
         }
 
-        Ok(SpiffeId {
+        Ok(Self {
             trust_domain: TrustDomain {
                 name: td.to_string(),
             },
@@ -200,7 +198,7 @@ impl SpiffeId {
         segments: &[&str],
     ) -> Result<Self, SpiffeIdError> {
         if segments.is_empty() {
-            return Ok(SpiffeId {
+            return Ok(Self {
                 trust_domain,
                 path: String::new(),
             });
@@ -214,7 +212,7 @@ impl SpiffeId {
             path.push('/');
             path.push_str(seg);
         }
-        Ok(SpiffeId { trust_domain, path })
+        Ok(Self { trust_domain, path })
     }
 
     /// Returns the trust domain of the SPIFFE ID.
@@ -229,7 +227,7 @@ impl SpiffeId {
     /// assert_eq!(trust_domain.to_string(), "example.org");
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn trust_domain(&self) -> &TrustDomain {
+    pub const fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
@@ -296,14 +294,14 @@ impl FromStr for SpiffeId {
 
 impl TryFrom<String> for SpiffeId {
     type Error = SpiffeIdError;
-    fn try_from(s: String) -> Result<SpiffeId, Self::Error> {
+    fn try_from(s: String) -> Result<Self, Self::Error> {
         Self::new(&s)
     }
 }
 
 impl TryFrom<&str> for SpiffeId {
     type Error = SpiffeIdError;
-    fn try_from(s: &str) -> Result<SpiffeId, Self::Error> {
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
         Self::new(s)
     }
 }
@@ -348,19 +346,17 @@ impl TrustDomain {
                 });
             }
 
-            let slash_pos = rest.find('/').unwrap_or(rest.len());
+            let td = rest.split_once('/').map_or(rest, |(td, _path)| td);
 
-            if slash_pos == 0 {
+            if td.is_empty() {
                 return Err(SpiffeIdError::MissingTrustDomain);
             }
-
-            let td = &rest[..slash_pos];
 
             if !td.as_bytes().iter().all(|&b| is_valid_trust_domain_byte(b)) {
                 return Err(SpiffeIdError::BadTrustDomainChar);
             }
 
-            return Ok(TrustDomain {
+            return Ok(Self {
                 name: td.to_string(),
             });
         }
@@ -370,7 +366,7 @@ impl TrustDomain {
         }
 
         validate_trust_domain_name(id_or_name)?;
-        Ok(TrustDomain {
+        Ok(Self {
             name: id_or_name.to_string(),
         })
     }
@@ -410,7 +406,7 @@ impl FromStr for TrustDomain {
     type Err = SpiffeIdError;
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        TrustDomain::new(name)
+        Self::new(name)
     }
 }
 
@@ -431,12 +427,12 @@ impl TryFrom<String> for TrustDomain {
 }
 
 #[inline]
-fn is_valid_trust_domain_byte(b: u8) -> bool {
+const fn is_valid_trust_domain_byte(b: u8) -> bool {
     matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_')
 }
 
 #[inline]
-fn is_valid_path_segment_byte(b: u8) -> bool {
+const fn is_valid_path_segment_byte(b: u8) -> bool {
     matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'-' | b'.' | b'_')
 }
 
@@ -483,42 +479,34 @@ fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
         return Err(SpiffeIdError::Empty);
     }
 
-    let bytes = path.as_bytes();
+    let mut segments = path.split('/');
 
-    if bytes[0] != b'/' {
+    if !segments.next().is_some_and(str::is_empty) {
         return Err(SpiffeIdError::BadPathSegmentChar);
     }
 
-    let mut seg_start = 1;
+    let mut segments = segments.peekable();
 
-    for i in 1..bytes.len() {
-        if bytes[i] == b'/' {
-            if seg_start == i {
-                return Err(SpiffeIdError::EmptySegment);
-            }
-
-            let seg = &bytes[seg_start..i];
-            if seg == b"." || seg == b".." {
-                return Err(SpiffeIdError::DotSegment);
-            }
-            if !seg.iter().all(|&x| is_valid_path_segment_byte(x)) {
-                return Err(SpiffeIdError::BadPathSegmentChar);
-            }
-
-            seg_start = i + 1;
+    while let Some(segment) = segments.next() {
+        if segment.is_empty() {
+            return Err(if segments.peek().is_some() {
+                SpiffeIdError::EmptySegment
+            } else {
+                SpiffeIdError::TrailingSlash
+            });
         }
-    }
 
-    if seg_start == bytes.len() {
-        return Err(SpiffeIdError::TrailingSlash);
-    }
+        if segment == "." || segment == ".." {
+            return Err(SpiffeIdError::DotSegment);
+        }
 
-    let last = &bytes[seg_start..];
-    if last == b"." || last == b".." {
-        return Err(SpiffeIdError::DotSegment);
-    }
-    if !last.iter().all(|&x| is_valid_path_segment_byte(x)) {
-        return Err(SpiffeIdError::BadPathSegmentChar);
+        if !segment
+            .as_bytes()
+            .iter()
+            .all(|&b| is_valid_path_segment_byte(b))
+        {
+            return Err(SpiffeIdError::BadPathSegmentChar);
+        }
     }
 
     Ok(())
@@ -537,10 +525,7 @@ fn validate_trust_domain_name(name: &str) -> Result<(), SpiffeIdError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod spiffe_id_tests {
-    use std::str::FromStr;
-
     use super::*;
 
     macro_rules! spiffe_id_success_tests {
@@ -796,10 +781,8 @@ mod spiffe_id_tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod trust_domain_tests {
     use super::*;
-    use std::str::FromStr;
 
     macro_rules! trust_domain_success_tests {
         ($($name:ident: $value:expr_2021,)*) => {
@@ -928,7 +911,10 @@ mod trust_domain_tests {
 
         // Test with SPIFFE ID at maximum allowed length (2048 bytes total)
         let max_path_len = MAX_SPIFFE_ID_URI_LENGTH - prefix_len - td_len;
-        let max_path = "/".to_string() + &"a".repeat(max_path_len - 1);
+        let max_path: String = std::iter::once('/')
+            .chain(std::iter::repeat('a'))
+            .take(max_path_len)
+            .collect();
         let id = format!("spiffe://{trust_domain}{max_path}");
         assert_eq!(id.len(), MAX_SPIFFE_ID_URI_LENGTH);
         assert!(
@@ -937,7 +923,10 @@ mod trust_domain_tests {
         );
 
         // Test with SPIFFE ID exceeding maximum length (2049 bytes)
-        let oversized_path = "/".to_string() + &"a".repeat(max_path_len);
+        let oversized_path: String = std::iter::once('/')
+            .chain(std::iter::repeat('a'))
+            .take(max_path_len + 1)
+            .collect();
         let id = format!("spiffe://{trust_domain}{oversized_path}");
         assert_eq!(id.len(), MAX_SPIFFE_ID_URI_LENGTH + 1);
         let result = SpiffeId::new(&id);

@@ -19,7 +19,11 @@ pub const WORKLOAD_API_ENDPOINT_ENV: &str = "SPIFFE_ENDPOINT_SOCKET";
 /// - the `SPIFFE_ENDPOINT_SOCKET` environment variable is not set, or
 /// - the value of `SPIFFE_ENDPOINT_SOCKET` is not a valid SPIFFE endpoint URI.
 pub fn from_env() -> Result<Endpoint, WorkloadApiError> {
-    let raw = std::env::var(WORKLOAD_API_ENDPOINT_ENV)
-        .map_err(|_| WorkloadApiError::MissingEndpointSocket)?;
-    Ok(Endpoint::parse(&raw)?)
+    let raw = std::env::var_os(WORKLOAD_API_ENDPOINT_ENV)
+        .ok_or(WorkloadApiError::MissingEndpointSocket)?;
+    if let Some(raw) = raw.to_str() {
+        Ok(Endpoint::parse(raw)?)
+    } else {
+        Err(WorkloadApiError::NotUnicodeEndpointSocket(raw))
+    }
 }

@@ -95,7 +95,7 @@ impl X509Context {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn svids(&self) -> &[Arc<X509Svid>] {
+    pub const fn svids(&self) -> &[Arc<X509Svid>] {
         self.svids.as_slice()
     }
 
@@ -120,7 +120,7 @@ impl X509Context {
     /// # Ok(())
     /// # }
     /// ```
-    pub fn bundle_set(&self) -> &Arc<X509BundleSet> {
+    pub const fn bundle_set(&self) -> &Arc<X509BundleSet> {
         &self.bundle_set
     }
 }

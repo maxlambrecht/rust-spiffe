@@ -8,7 +8,7 @@ use crate::cert::parsing::{
 };
 use crate::SpiffeId;
 use pkcs8::PrivateKeyInfo;
-use std::convert::TryFrom;
+use x509_parser::certificate::X509Certificate;
 use zeroize::Zeroize;
 
 pub mod error;
@@ -45,6 +45,12 @@ impl Certificate {
 impl AsRef<[u8]> for Certificate {
     fn as_ref(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl From<X509Certificate<'_>> for Certificate {
+    fn from(cert: X509Certificate<'_>) -> Self {
+        Self(cert.as_raw().to_vec())
     }
 }
 
@@ -132,7 +138,7 @@ pub fn spiffe_id_from_der(der: &[u8]) -> Result<SpiffeId, CertificateError> {
 }
 
 pub(crate) fn extract_single_spiffe_id_from_uri_san(
-    cert: &x509_parser::certificate::X509Certificate<'_>,
+    cert: &X509Certificate<'_>,
 ) -> Result<SpiffeId, CertificateError> {
     let mut ids = extract_spiffe_ids_from_uri_san(cert)?.into_iter();
 

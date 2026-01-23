@@ -6,11 +6,7 @@ const SPIFFE_HEADER_VALUE: &str = "true";
 // This is a fixed ASCII string literal, so `from_bytes()` should always succeed.
 // If this constant is changed to non-ASCII, initialization will panic early at runtime.
 static PARSED_HEADER_KEY: std::sync::LazyLock<MetadataKey<Ascii>> =
-    std::sync::LazyLock::new(|| {
-        #[allow(clippy::expect_used)]
-        MetadataKey::from_bytes(SPIFFE_HEADER_KEY.as_bytes())
-            .expect("SPIFFE_HEADER_KEY must be valid ASCII")
-    });
+    std::sync::LazyLock::new(|| MetadataKey::from_static(SPIFFE_HEADER_KEY));
 
 static PARSED_HEADER_VALUE: std::sync::LazyLock<MetadataValue<Ascii>> =
     std::sync::LazyLock::new(|| MetadataValue::from_static(SPIFFE_HEADER_VALUE));

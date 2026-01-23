@@ -1,4 +1,11 @@
+#![expect(missing_docs, reason = "integration test")]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 #[cfg(feature = "x509")]
+#[expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
 mod x509_bundle_tests {
     use spiffe::cert::error::CertificateError;
     use spiffe::{TrustDomain, X509Bundle, X509BundleError};
@@ -8,8 +15,7 @@ mod x509_bundle_tests {
         let bundle_bytes = include_bytes!("testdata/bundle/x509/bundle.der");
 
         let trust_domain = TrustDomain::new("domain.test").unwrap();
-        let x509_bundle =
-            X509Bundle::parse_from_der(trust_domain.to_owned(), bundle_bytes).unwrap();
+        let x509_bundle = X509Bundle::parse_from_der(trust_domain.clone(), bundle_bytes).unwrap();
 
         assert_eq!(x509_bundle.trust_domain(), &trust_domain);
         assert_eq!(x509_bundle.authorities().len(), 2);
@@ -24,7 +30,7 @@ mod x509_bundle_tests {
 
         let trust_domain = TrustDomain::new("domain.test").unwrap();
         let x509_bundle =
-            X509Bundle::from_x509_authorities(trust_domain.to_owned(), x509_authorities).unwrap();
+            X509Bundle::from_x509_authorities(trust_domain.clone(), x509_authorities).unwrap();
 
         assert_eq!(x509_bundle.trust_domain(), &trust_domain);
         assert_eq!(x509_bundle.authorities().len(), 2);
@@ -84,7 +90,7 @@ mod x509_bundle_tests {
     /// Test that X.509 bundles can contain many trust anchors without triggering chain length limits.
     ///
     /// Bundles are collections of trust anchors and may legitimately contain many certificates.
-    /// Unlike certificate chains, bundles are not subject to the MAX_CERT_CHAIN_LENGTH limit.
+    /// Unlike certificate chains, bundles are not subject to the `MAX_CERT_CHAIN_LENGTH` limit.
     #[test]
     fn test_x509_bundle_can_contain_many_certificates() {
         let cert1: &[u8] = include_bytes!("testdata/bundle/x509/cert1.der");

@@ -48,20 +48,15 @@ pub(crate) fn to_certificate_vec(
             });
         }
 
-        let (new_rest, _cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
+        let (new_rest, cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
             Err::Incomplete(_) => {
                 CertificateError::ParseX509Certificate(X509Error::InvalidCertificate)
             }
             Err::Error(err) | Err::Failure(err) => CertificateError::ParseX509Certificate(err),
         })?;
 
-        // Extract the certificate bytes from the original input by calculating
-        // the length of the certificate that was just parsed.
-        let cert_len = rest.len() - new_rest.len();
-        let cert_bytes = &rest[..cert_len];
-
         // Validate and store the original DER bytes
-        certs.push(Certificate::try_from(cert_bytes)?);
+        certs.push(cert.into());
 
         rest = new_rest;
     }
@@ -86,20 +81,15 @@ pub(crate) fn to_certificate_vec_unbounded(
     let mut certs = Vec::new();
 
     while !rest.is_empty() {
-        let (new_rest, _cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
+        let (new_rest, cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
             Err::Incomplete(_) => {
                 CertificateError::ParseX509Certificate(X509Error::InvalidCertificate)
             }
             Err::Error(err) | Err::Failure(err) => CertificateError::ParseX509Certificate(err),
         })?;
 
-        // Extract the certificate bytes from the original input by calculating
-        // the length of the certificate that was just parsed.
-        let cert_len = rest.len() - new_rest.len();
-        let cert_bytes = &rest[..cert_len];
-
         // Validate and store the original DER bytes
-        certs.push(Certificate::try_from(cert_bytes)?);
+        certs.push(cert.into());
 
         rest = new_rest;
     }

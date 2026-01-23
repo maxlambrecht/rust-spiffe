@@ -1,6 +1,13 @@
+#![expect(missing_docs, reason = "integration test")]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 #[cfg(feature = "x509")]
+#[expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
 mod x509_svid_tests {
-    use std::str::FromStr;
+    use std::str::FromStr as _;
 
     use spiffe::{SpiffeId, X509Svid, X509SvidError};
 
@@ -168,7 +175,7 @@ mod x509_svid_tests {
         openssl::pkey::PKey::private_key_from_der(x509_svid.private_key().as_ref()).unwrap();
     }
 
-    /// Regression test for issue #147: X.509-SVID with an empty Subject Name (0-element RDNSequence).
+    /// Regression test for issue #147: X.509-SVID with an empty Subject Name (0-element `RDNSequence`).
     ///
     /// Historically, certificates whose Subject is present but empty triggered ASN.1 decoding
     /// failures in some parsing paths, resulting in errors such as:
@@ -210,7 +217,7 @@ mod x509_svid_tests {
         openssl::pkey::PKey::private_key_from_der(x509_svid.private_key().as_ref())
             .expect("OpenSSL should parse private key DER");
     }
-    /// Security test: Certificate chain length must be bounded to prevent DoS attacks.
+    /// Security test: Certificate chain length must be bounded to prevent `DoS` attacks.
     ///
     /// This test verifies that `X509Svid::parse_from_der` rejects certificate chains
     /// exceeding `MAX_CERT_CHAIN_LENGTH` (16 certificates), preventing resource exhaustion.

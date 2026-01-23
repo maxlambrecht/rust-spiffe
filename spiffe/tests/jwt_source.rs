@@ -12,15 +12,27 @@
 //! - Health checks
 //! - Shutdown behavior
 //! - Convenience methods
+
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 #[cfg(feature = "jwt-source")]
+#[expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
+#[expect(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
+)]
 mod integration_tests_jwt_source {
-    use spiffe::bundle::BundleSource;
+    use spiffe::bundle::BundleSource as _;
     use spiffe::jwt_source::JwtSourceBuilder;
     use spiffe::jwt_source::{JwtSource, MetricsErrorKind, MetricsRecorder, ResourceLimits};
     use spiffe::workload_api::error::WorkloadApiError;
     use spiffe::{JwtBundle, SpiffeId, TrustDomain, WorkloadApiClient};
     use std::collections::HashMap;
-    use std::error::Error;
+
     use std::future::Future;
     use std::pin::Pin;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -226,7 +238,7 @@ mod integration_tests_jwt_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_jwt_source_with_custom_client() -> Result<(), Box<dyn Error>> {
+    async fn test_jwt_source_with_custom_client() {
         type ClientFactory = Arc<
             dyn Fn() -> Pin<
                     Box<dyn Future<Output = Result<WorkloadApiClient, WorkloadApiError>> + Send>,
@@ -240,19 +252,19 @@ mod integration_tests_jwt_source {
         let source = JwtSourceBuilder::new()
             .client_factory(factory)
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         let bundle = source
-            .bundle_for_trust_domain(&trust_domain())?
+            .bundle_for_trust_domain(&trust_domain())
+            .unwrap()
             .expect("No JwtBundle found");
         assert_eq!(bundle.trust_domain().as_ref(), trust_domain().as_ref());
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_resource_limits() -> Result<(), Box<dyn Error>> {
+    async fn test_resource_limits() {
         // Test with very restrictive limits (should still work if actual values are below limits)
         let limits = ResourceLimits {
             max_bundles: Some(10),
@@ -262,21 +274,20 @@ mod integration_tests_jwt_source {
         let source = JwtSourceBuilder::new()
             .resource_limits(limits)
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         // Should work if limits are not exceeded
-        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
         assert!(
             bundle.is_some(),
             "Should get bundle when limits are not exceeded"
         );
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_unlimited_resource_limits() -> Result<(), Box<dyn Error>> {
+    async fn test_unlimited_resource_limits() {
         // Test with unlimited limits
         let limits = ResourceLimits {
             max_bundles: None,
@@ -286,28 +297,31 @@ mod integration_tests_jwt_source {
         let source = JwtSourceBuilder::new()
             .resource_limits(limits)
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         // Should work with unlimited limits
-        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
         assert!(bundle.is_some(), "Should get bundle with unlimited limits");
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_metrics_recorder() -> Result<(), Box<dyn Error>> {
+    async fn test_metrics_recorder() {
         let metrics = Arc::new(TestMetricsRecorder::new());
         let update_notify = metrics.update_notify();
 
-        let source = JwtSourceBuilder::new()
-            .metrics(metrics.clone())
-            .build()
-            .await?;
+        let source = {
+            let metrics = Arc::clone(&metrics);
+            JwtSourceBuilder::new()
+                .metrics(metrics)
+                .build()
+                .await
+                .unwrap()
+        };
 
         // Verify the source is working
-        let _bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let _bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
 
         // Wait for an actual bundle rotation (updates are only recorded on rotations, not initial sync)
         let mut updates = source.updated();
@@ -318,7 +332,7 @@ mod integration_tests_jwt_source {
         let update_result = tokio::time::timeout(Duration::from_secs(30), async {
             tokio::select! {
                 seq_result = updates.wait_for(|&seq| seq > initial_seq) => seq_result,
-                _ = update_notify.notified() => {
+                () = update_notify.notified() => {
                     // If we got notified of an update, check the sequence
                     if updates.last() > initial_seq {
                         Ok(updates.last())
@@ -342,17 +356,16 @@ mod integration_tests_jwt_source {
                 "Should have recorded at least one update after bundle rotation"
             );
         }
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_shutdown_with_timeout() -> Result<(), Box<dyn Error>> {
+    async fn test_shutdown_with_timeout() {
         let source = JwtSourceBuilder::new()
             .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         // Shutdown should complete within timeout
         let result =
@@ -366,60 +379,55 @@ mod integration_tests_jwt_source {
             source.bundle_for_trust_domain(&trust_domain()).is_err(),
             "bundle_for_trust_domain() should fail after shutdown"
         );
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_shutdown_idempotent() -> Result<(), Box<dyn Error>> {
+    async fn test_shutdown_idempotent() {
         let source = JwtSourceBuilder::new()
             .shutdown_timeout(Some(Duration::from_secs(5)))
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         // First shutdown
-        source.shutdown_configured().await?;
+        source.shutdown_configured().await.unwrap();
 
         // Second shutdown should also succeed (idempotent)
         let result = source.shutdown_configured().await;
         assert!(result.is_ok(), "Shutdown should be idempotent");
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_reconnect_backoff_config() -> Result<(), Box<dyn Error>> {
+    async fn test_reconnect_backoff_config() {
         let source = JwtSourceBuilder::new()
             .reconnect_backoff(Duration::from_millis(100), Duration::from_secs(5))
             .build()
-            .await?;
+            .await
+            .unwrap();
 
         // Should work with custom backoff
-        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
         assert!(
             bundle.is_some(),
             "Should get bundle with custom backoff config"
         );
-
-        Ok(())
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_custom_endpoint() -> Result<(), Box<dyn Error>> {
+    async fn test_custom_endpoint() {
         // Test that custom endpoint configuration works
         // This will use the default endpoint from environment if custom endpoint fails
         let source = JwtSourceBuilder::new()
             .endpoint("unix:/tmp/spire-agent/public/api.sock")
             .build()
-            .await?;
+            .await
+            .unwrap();
 
-        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
         assert!(bundle.is_some(), "Should get bundle with custom endpoint");
-
-        Ok(())
     }
 
     #[tokio::test]
@@ -511,17 +519,15 @@ mod integration_tests_jwt_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_builder_defaults() -> Result<(), Box<dyn Error>> {
+    async fn test_builder_defaults() {
         // Test that builder with defaults works
-        let source = JwtSourceBuilder::new().build().await?;
+        let source = JwtSourceBuilder::new().build().await.unwrap();
 
-        let bundle = source.bundle_for_trust_domain(&trust_domain())?;
+        let bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
         assert!(
             bundle.is_some(),
             "Should work with default builder configuration"
         );
-
-        Ok(())
     }
 
     #[tokio::test]

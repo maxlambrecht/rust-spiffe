@@ -3,11 +3,6 @@
 //! This module contains reusable components for managing Workload API connections,
 //! error tracking, and backoff policies.
 
-#![allow(dead_code)]
-// This module defines shared helpers used by both the x509_source and jwt_source
-// supervisors. Some items are only referenced from feature-gated code paths,
-// so they may appear unused depending on the enabled feature set.
-
 use std::time::Duration;
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
@@ -60,7 +55,7 @@ pub(crate) struct ErrorTracker {
 }
 
 impl ErrorTracker {
-    pub(crate) fn new(max_consecutive: u32) -> Self {
+    pub(crate) const fn new(max_consecutive: u32) -> Self {
         Self {
             last_error_kind: None,
             consecutive_same_error: 0,
@@ -82,16 +77,16 @@ impl ErrorTracker {
         should_warn
     }
 
-    pub(crate) fn reset(&mut self) {
+    pub(crate) const fn reset(&mut self) {
         self.consecutive_same_error = 0;
         self.last_error_kind = None;
     }
 
-    pub(crate) fn consecutive_count(&self) -> u32 {
+    pub(crate) const fn consecutive_count(&self) -> u32 {
         self.consecutive_same_error
     }
 
-    pub(crate) fn last_error_kind(&self) -> Option<ErrorKey> {
+    pub(crate) const fn last_error_kind(&self) -> Option<ErrorKey> {
         self.last_error_kind
     }
 }
@@ -114,10 +109,9 @@ pub(crate) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) ->
 ///
 /// Note: Jitter is calculated in milliseconds, which may result in sub-millisecond
 /// precision loss for very small durations. This is acceptable for backoff purposes.
-#[allow(clippy::cast_possible_truncation)]
 pub(crate) fn next_backoff(current: Duration, max: Duration) -> Duration {
-    let cur = current.as_millis().min(u128::from(u64::MAX)) as u64;
-    let max = max.as_millis().min(u128::from(u64::MAX)) as u64;
+    let cur = u64::try_from(current.as_millis()).unwrap_or(u64::MAX);
+    let max = u64::try_from(max.as_millis()).unwrap_or(u64::MAX);
 
     let base = (cur.saturating_mul(2)).min(max);
     if base == 0 {

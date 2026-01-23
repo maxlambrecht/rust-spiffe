@@ -2,12 +2,12 @@ use crate::constants::DEFAULT_SVID;
 use crate::workload_api::pb::workload::{
     X509BundlesRequest, X509BundlesResponse, X509svidRequest, X509svidResponse,
 };
+use crate::workload_api::x509_context::X509Context;
 use crate::{
-    TrustDomain, WorkloadApiClient, WorkloadApiError, X509Bundle, X509BundleSet, X509Context,
-    X509Svid,
+    TrustDomain, WorkloadApiClient, WorkloadApiError, X509Bundle, X509BundleSet, X509Svid,
 };
 use std::sync::Arc;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt as _};
 
 impl WorkloadApiClient {
     /// Fetches the default X.509 SVID for the calling workload from the SPIFFE Workload API.
@@ -43,7 +43,7 @@ impl WorkloadApiClient {
             client.fetch_x509svid(request).await?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
-        WorkloadApiClient::parse_x509_svids_from_grpc_response(&response)
+        Self::parse_x509_svids_from_grpc_response(&response)
     }
 
     /// Fetches the current X.509 bundle set from the SPIFFE Workload API.
@@ -81,7 +81,7 @@ impl WorkloadApiClient {
             client.fetch_x509svid(request).await?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
-        WorkloadApiClient::parse_x509_context_from_grpc_response(response)
+        Self::parse_x509_context_from_grpc_response(response)
     }
 
     /// Streams X.509 context updates from the Workload API.
@@ -98,7 +98,7 @@ impl WorkloadApiClient {
     pub async fn stream_x509_contexts(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static,
+        impl Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static + use<>,
         WorkloadApiError,
     > {
         let request = X509svidRequest::default();
@@ -127,7 +127,7 @@ impl WorkloadApiClient {
     pub async fn stream_x509_svids(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<X509Svid, WorkloadApiError>> + Send + 'static,
+        impl Stream<Item = Result<X509Svid, WorkloadApiError>> + Send + 'static + use<>,
         WorkloadApiError,
     > {
         let request = X509svidRequest::default();
@@ -136,9 +136,8 @@ impl WorkloadApiClient {
 
         let response = client.fetch_x509svid(request).await?;
         let stream = response.into_inner().map(|message| {
-            message
-                .map_err(WorkloadApiError::from)
-                .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
+            let resp = message.map_err(WorkloadApiError::from)?;
+            Self::parse_x509_svid_from_grpc_response(&resp)
         });
         Ok(Box::pin(stream))
     }
@@ -156,7 +155,7 @@ impl WorkloadApiClient {
     pub async fn stream_x509_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<X509BundleSet, WorkloadApiError>> + Send + 'static,
+        impl Stream<Item = Result<X509BundleSet, WorkloadApiError>> + Send + 'static + use<>,
         WorkloadApiError,
     > {
         let request = X509BundlesRequest::default();

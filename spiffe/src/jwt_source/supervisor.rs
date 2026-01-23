@@ -13,7 +13,7 @@ use crate::workload_api::supervisor_common::{
 use crate::workload_api::WorkloadApiClient;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_stream::StreamExt;
+use tokio_stream::StreamExt as _;
 use tokio_util::sync::CancellationToken;
 
 /// Attempts to create a Workload API client.
@@ -25,7 +25,7 @@ use tokio_util::sync::CancellationToken;
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
     _min_backoff: Duration,
-    backoff: &mut Duration,
+    backoff: Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<WorkloadApiClient, WorkloadApiError> {
@@ -89,7 +89,7 @@ pub(super) async fn try_connect_stream(
     phase: StreamPhase,
     supervisor_id: Option<u64>,
 ) -> Result<
-    impl tokio_stream::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static,
+    impl tokio_stream::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static + use<>,
     WorkloadApiError,
 > {
     match client.stream_jwt_bundles().await {
@@ -218,9 +218,6 @@ pub(super) async fn initial_sync_with_retry(
     }
 }
 
-// This function coordinates multiple concerns (client creation, validation, metrics).
-// Splitting it would require passing context through multiple functions, reducing clarity.
-#[allow(clippy::too_many_arguments)]
 async fn try_sync_once(
     make_client: &ClientFactory,
     limits: ResourceLimits,
@@ -232,7 +229,7 @@ async fn try_sync_once(
     // Use shared client creation logic (records ClientCreation metric on failure).
     // Initial sync does not record reconnect metrics (it's not a reconnect).
     let client =
-        match try_create_client(make_client, min_backoff, backoff, error_tracker, metrics).await {
+        match try_create_client(make_client, min_backoff, *backoff, error_tracker, metrics).await {
             Ok(c) => c,
             Err(e) => {
                 return Err(JwtSourceError::Source(e));
@@ -304,7 +301,7 @@ impl Inner {
             let Ok(client) = try_create_client(
                 self.make_client(),
                 self.reconnect().min_backoff,
-                &mut backoff,
+                backoff,
                 &mut error_tracker,
                 self.metrics(),
             )
@@ -406,7 +403,7 @@ impl Inner {
 
             match item {
                 Some(Ok(bundle_set)) => {
-                    match self.apply_update(std::sync::Arc::new(bundle_set)) {
+                    match self.apply_update(Arc::new(bundle_set)) {
                         Ok(()) => {
                             if update_rejection_tracker.consecutive_count() > 0 {
                                 info!(
