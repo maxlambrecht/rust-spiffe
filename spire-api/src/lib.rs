@@ -1,11 +1,3 @@
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
-#![warn(missing_debug_implementations)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-
 //! Client bindings for SPIRE gRPC APIs.
 //!
 //! Provides wrappers around SPIRE's gRPC APIs (generated from protobuf)
@@ -44,6 +36,11 @@
 //! Protobuf-generated types are available under [`pb`]. Most users should not need to use these
 //! directly, but they are exposed for advanced use-cases.
 
+#![cfg_attr(
+    test,
+    expect(unused_crate_dependencies, reason = "used in the integration tests")
+)]
+
 /// Generated protobuf bindings for SPIRE APIs.
 ///
 /// **This module contains generated code. Do not edit these files manually.**
@@ -60,20 +57,20 @@
 /// - `dead_code`, `unused_imports`, etc.: Generated code may include unused items depending on features
 ///
 /// These suppressions are intentional and scoped to this generated code module only.
+#[expect(
+    clippy::allow_attributes_without_reason,
+    clippy::derive_partial_eq_without_eq,
+    clippy::doc_lazy_continuation,
+    clippy::doc_markdown,
+    clippy::empty_structs_with_brackets,
+    clippy::missing_const_for_fn,
+    clippy::missing_errors_doc,
+    clippy::too_long_first_doc_paragraph,
+    missing_docs,
+    unused_qualifications,
+    unused_results
+)]
 pub mod pb {
-    #[allow(
-        missing_docs,
-        clippy::all,
-        clippy::pedantic,
-        clippy::module_name_repetitions,
-        dead_code,
-        non_camel_case_types,
-        non_snake_case,
-        non_upper_case_globals,
-        unused_imports,
-        unused_qualifications
-    )]
-
     pub mod spire {
         pub mod api {
             pub mod agent {

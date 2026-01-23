@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/spiffe.svg)](https://crates.io/crates/spiffe)
 [![Docs.rs](https://docs.rs/spiffe/badge.svg)](https://docs.rs/spiffe/)
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
-[![Rust 1.85+](https://img.shields.io/badge/rust-1.85+-orange.svg)](https://www.rust-lang.org)
+[![Rust 1.87+](https://img.shields.io/badge/rust-1.87+-orange.svg)](https://www.rust-lang.org)
 
 Core SPIFFE identity types and Workload API sources.
 

@@ -6,17 +6,17 @@ const UNIX_TYPE: &str = "unix";
 
 /// Converts user-defined selectors into SPIFFE selectors.
 impl From<Selector> for SpiffeSelector {
-    fn from(s: Selector) -> SpiffeSelector {
+    fn from(s: Selector) -> Self {
         match s {
-            Selector::K8s(k8s_selector) => SpiffeSelector {
+            Selector::K8s(k8s_selector) => Self {
                 r#type: K8S_TYPE.to_string(),
                 value: k8s_selector.into(),
             },
-            Selector::Unix(unix_selector) => SpiffeSelector {
+            Selector::Unix(unix_selector) => Self {
                 r#type: UNIX_TYPE.to_string(),
                 value: unix_selector.into(),
             },
-            Selector::Generic((k, v)) => SpiffeSelector {
+            Selector::Generic((k, v)) => Self {
                 r#type: k,
                 value: v,
             },
@@ -40,7 +40,7 @@ const K8S_NS_TYPE: &str = "ns";
 
 /// Converts Kubernetes selectors to their string representation.
 impl From<K8s> for String {
-    fn from(k: K8s) -> String {
+    fn from(k: K8s) -> Self {
         match k {
             K8s::ServiceAccount(s) => format!("{K8S_SA_TYPE}:{s}"),
             K8s::Namespace(s) => format!("{K8S_NS_TYPE}:{s}"),
@@ -72,7 +72,7 @@ impl From<Unix> for String {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 /// Represents SPIFFE identity selectors based on Unix process-related attributes.
 pub enum Unix {
     /// Specifies a selector for a Unix process ID (PID).
