@@ -120,7 +120,7 @@ impl Endpoint {
                     return Err(EndpointError::UnixMissingPath);
                 }
 
-                Ok(Endpoint::Unix(PathBuf::from(path)))
+                Ok(Self::Unix(PathBuf::from(path)))
             }
 
             TCP_SCHEME => {
@@ -129,7 +129,9 @@ impl Endpoint {
                     Some(url::Host::Ipv6(ipv6)) => IpAddr::V6(ipv6),
                     Some(url::Host::Domain(domain)) => {
                         // Try parsing as IP address (IPv4 might be parsed as Domain by url crate)
-                        IpAddr::from_str(domain).map_err(|_| EndpointError::TcpHostNotIp)?
+                        IpAddr::from_str(domain).map_err(
+                            |std::net::AddrParseError { .. }| EndpointError::TcpHostNotIp,
+                        )?
                     }
                     None => return Err(EndpointError::TcpHostNotIp),
                 };
@@ -140,7 +142,7 @@ impl Endpoint {
                     return Err(EndpointError::TcpUnexpectedPath);
                 }
 
-                Ok(Endpoint::Tcp { host, port })
+                Ok(Self::Tcp { host, port })
             }
 
             _ => Err(EndpointError::InvalidScheme),
@@ -148,7 +150,7 @@ impl Endpoint {
     }
 }
 
-impl std::str::FromStr for Endpoint {
+impl FromStr for Endpoint {
     type Err = EndpointError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -158,22 +160,23 @@ impl std::str::FromStr for Endpoint {
 
 fn normalize_endpoint_uri(input: &str) -> String {
     // Accept the shorthand `unix:/path` by rewriting it into a valid URL.
-    if input.starts_with("unix:/") && !input.starts_with("unix://") {
-        let path = &input["unix:/".len()..];
-        return format!("unix:///{path}");
+    if let Some(input) = input.strip_prefix("unix:/") {
+        if !input.starts_with('/') {
+            return format!("unix:///{input}");
+        }
     }
 
     // Accept the shorthand `tcp:IP:PORT` by rewriting it into a valid URL.
-    if input.starts_with("tcp:") && !input.starts_with("tcp://") {
-        let rest = &input["tcp:".len()..];
-        return format!("tcp://{rest}");
+    if let Some(input) = input.strip_prefix("tcp:") {
+        if !input.starts_with("//") {
+            return format!("tcp://{input}");
+        }
     }
 
     input.to_owned()
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::{Endpoint, EndpointError};
     use std::net::IpAddr;
@@ -210,7 +213,7 @@ mod tests {
 
     #[test]
     fn from_str_delegates_to_parse() {
-        use std::str::FromStr;
+        use std::str::FromStr as _;
         let ep1 = Endpoint::parse("unix:///tmp/sock").unwrap();
         let ep2 = Endpoint::from_str("unix:///tmp/sock").unwrap();
         assert_eq!(ep1, ep2);
@@ -272,7 +275,7 @@ mod tests {
     }
 
     macro_rules! parse_error_tests {
-        ($($name:ident: $value:expr,)*) => {
+        ($($name:ident: $value:expr_2021,)*) => {
             $(
                 #[test]
                 fn $name() {

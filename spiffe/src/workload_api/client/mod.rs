@@ -36,7 +36,7 @@ pub struct WorkloadApiClient {
 
 impl WorkloadApiClient {
     /// Returns the configured Workload API endpoint.
-    pub fn endpoint(&self) -> &Endpoint {
+    pub const fn endpoint(&self) -> &Endpoint {
         &self.endpoint
     }
 

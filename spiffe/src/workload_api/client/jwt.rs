@@ -6,9 +6,9 @@ use crate::workload_api::pb::workload::{
 use crate::{
     JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, WorkloadApiError,
 };
-use std::str::FromStr;
+use std::str::FromStr as _;
 use std::sync::Arc;
-use tokio_stream::{Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt as _};
 
 impl WorkloadApiClient {
     /// Fetches the current set of JWT bundles from the SPIFFE Workload API.
@@ -29,7 +29,7 @@ impl WorkloadApiClient {
             client.fetch_jwt_bundles(request).await?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
-        WorkloadApiClient::parse_jwt_bundle_set_from_grpc_response(response)
+        Self::parse_jwt_bundle_set_from_grpc_response(response)
     }
 
     /// Fetches a `JwtSvid` for the given audience and optional SPIFFE ID.
@@ -176,7 +176,7 @@ impl WorkloadApiClient {
         I::Item: AsRef<str>,
     {
         // Validate via the SPIRE agent (security property comes from agent validation)
-        let _ = self.validate_jwt(audience, jwt_token).await?;
+        let _unused: ValidateJwtsvidResponse = self.validate_jwt(audience, jwt_token).await?;
         // Parse locally for structured access (safe because agent already validated)
         let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
         Ok(jwt_svid)
@@ -195,7 +195,7 @@ impl WorkloadApiClient {
     pub async fn stream_jwt_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static,
+        impl Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static + use<>,
         WorkloadApiError,
     > {
         let request = JwtBundlesRequest::default();

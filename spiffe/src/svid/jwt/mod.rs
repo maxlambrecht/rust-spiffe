@@ -66,7 +66,7 @@ impl JwtAlg {
     }
 
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
-    fn to_jsonwebtoken(self) -> jsonwebtoken::Algorithm {
+    const fn to_jsonwebtoken(self) -> jsonwebtoken::Algorithm {
         match self {
             Self::RS256 => jsonwebtoken::Algorithm::RS256,
             Self::RS384 => jsonwebtoken::Algorithm::RS384,
@@ -96,7 +96,7 @@ impl JwtAlg {
 ///
 /// - `spiffe_id` and `claims.sub` always represent the same SPIFFE ID
 ///   (the `sub` claim is validated to be a valid `SpiffeId` during parsing)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JwtSvid {
     spiffe_id: SpiffeId,
     hint: Option<Arc<str>>,
@@ -185,8 +185,8 @@ pub enum JwtSvidError {
 }
 
 impl From<std::convert::Infallible> for JwtSvidError {
-    fn from(_never: std::convert::Infallible) -> Self {
-        unreachable!()
+    fn from(never: std::convert::Infallible) -> Self {
+        match never {}
     }
 }
 
@@ -231,7 +231,7 @@ impl Claims {
     }
 
     /// Returns the expiration timestamp (from the `exp` claim).
-    pub fn exp(&self) -> i64 {
+    pub const fn exp(&self) -> i64 {
         self.exp
     }
 }
@@ -270,7 +270,7 @@ impl JwtSvid {
     /// - the `alg` header is not supported,
     /// - the optional `typ` header is present but not `JWT` or `JOSE`.
     pub fn parse_insecure(token: &str) -> Result<Self, JwtSvidError> {
-        JwtSvid::from_str(token)
+        Self::from_str(token)
     }
 
     /// Parses and validates `token` offline:
@@ -321,9 +321,9 @@ impl JwtSvid {
         // Parse untrusted token to extract trust domain, kid, and alg.
         // Note: The `aud` claim size limit is enforced during Claims deserialization,
         // rejecting oversized arrays before signature verification and other expensive processing.
-        let untrusted = JwtSvid::parse_insecure(token)?;
+        let untrusted = Self::parse_insecure(token)?;
 
-        let jwt_authority = JwtSvid::find_jwt_authority(
+        let jwt_authority = Self::find_jwt_authority(
             bundle_source,
             untrusted.spiffe_id.trust_domain(),
             &untrusted.kid,
@@ -360,7 +360,7 @@ impl JwtSvid {
     }
 
     /// Returns the SPIFFE ID (from the `sub` claim).
-    pub fn spiffe_id(&self) -> &SpiffeId {
+    pub const fn spiffe_id(&self) -> &SpiffeId {
         &self.spiffe_id
     }
 
@@ -370,7 +370,7 @@ impl JwtSvid {
     }
 
     /// Returns the token expiration timestamp (from the `exp` claim).
-    pub fn expiry(&self) -> OffsetDateTime {
+    pub const fn expiry(&self) -> OffsetDateTime {
         self.expiry
     }
 
@@ -387,7 +387,7 @@ impl JwtSvid {
     /// **Note:** Claims are only trustworthy if the token was validated using
     /// [`JwtSvid::parse_and_validate`]. Tokens parsed with [`JwtSvid::from_workload_api_token`]
     /// are trusted by construction (fetched from the SPIRE agent).
-    pub fn claims(&self) -> &Claims {
+    pub const fn claims(&self) -> &Claims {
         &self.claims
     }
 
@@ -461,7 +461,7 @@ impl FromStr for JwtSvid {
 
         // Parse exp.
         let expiry = OffsetDateTime::from_unix_timestamp(claims.exp)
-            .map_err(|_| JwtSvidError::InvalidExpiration)?;
+            .map_err(|time::error::ComponentRange { .. }| JwtSvidError::InvalidExpiration)?;
 
         Ok(Self {
             spiffe_id,
@@ -498,20 +498,20 @@ where
             formatter.write_str("string or sequence of strings")
         }
 
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
         where
             E: de::Error,
         {
-            Ok(vec![value.to_owned()])
+            Ok(vec![v.to_owned()])
         }
 
-        fn visit_seq<S>(self, mut visitor: S) -> Result<Self::Value, S::Error>
+        fn visit_seq<S>(self, mut seq: S) -> Result<Self::Value, S::Error>
         where
             S: de::SeqAccess<'de>,
         {
             // Enforce a hard upper bound during deserialization to cap allocations and prevent DoS attacks.
             let mut result = Vec::new();
-            while let Some(elem) = visitor.next_element::<String>()? {
+            while let Some(elem) = seq.next_element::<String>()? {
                 if result.len() >= MAX_JWT_AUDIENCE_COUNT {
                     // Exceeded limit during deserialization - return error to prevent further allocation.
                     // This error will surface as InvalidJson (deserialization errors map to InvalidJson),
@@ -539,7 +539,7 @@ const MAX_JWT_SEGMENT_SIZE: usize = 64 * 1024;
 ///
 /// Applies size limits to prevent excessive memory allocation from malicious input.
 fn decode_b64url_to_vec(input: &str) -> Result<Vec<u8>, JwtSvidError> {
-    use base64ct::{Base64UrlUnpadded, Encoding};
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
 
     // Base64url encoding expands data by ~33%, so the encoded size gives us an upper bound.
     // Reject obviously oversized inputs before attempting to decode.
@@ -550,7 +550,12 @@ fn decode_b64url_to_vec(input: &str) -> Result<Vec<u8>, JwtSvidError> {
     let mut buf = vec![0u8; input.len()];
 
     let len = Base64UrlUnpadded::decode(input, &mut buf)
-        .map_err(|_| JwtSvidError::InvalidBase64)?
+        .map_err(|err| {
+            match err {
+                base64ct::Error::InvalidLength | base64ct::Error::InvalidEncoding => {}
+            }
+            JwtSvidError::InvalidBase64
+        })?
         .len();
 
     // Defensive check: decoded size should not exceed our limit.
@@ -563,12 +568,11 @@ fn decode_b64url_to_vec(input: &str) -> Result<Vec<u8>, JwtSvidError> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
     fn mk_token(header_json: &str, claims_json: &str) -> String {
-        use base64ct::{Base64UrlUnpadded, Encoding};
+        use base64ct::{Base64UrlUnpadded, Encoding as _};
 
         let h = Base64UrlUnpadded::encode_string(header_json.as_bytes());
         let c = Base64UrlUnpadded::encode_string(claims_json.as_bytes());
@@ -681,19 +685,24 @@ mod tests {
     }
 }
 
+#[expect(
+    clippy::expect_used,
+    clippy::tests_outside_test_module,
+    clippy::unwrap_used,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/16476"
+)]
 #[cfg(all(
     test,
     any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs")
 ))]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod test {
     use super::*;
     use crate::bundle::jwt::JwtBundleSet;
 
-    use base64ct::{Base64UrlUnpadded, Encoding};
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use p256::ecdsa::SigningKey;
-    use p256::elliptic_curve::pkcs8::EncodePrivateKey;
+    use p256::elliptic_curve::pkcs8::EncodePrivateKey as _;
     // use rand_core::OsRng;
     use p256::elliptic_curve::rand_core::OsRng;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -757,7 +766,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             Some(test_key_id.to_string()),
-            4_294_967_295,
+            0xFFFF_FFFF,
             Algorithm::ES256,
             &encoding_key,
         );
@@ -791,7 +800,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             Some("some_key_id".to_string()),
-            4_294_967_295,
+            0xFFFF_FFFF,
             Algorithm::HS256,
             &EncodingKey::from_secret("secret".as_ref()),
         );
@@ -812,7 +821,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("JWT".to_string()),
             None, // no kid
-            4_294_967_295,
+            0xFFFF_FFFF,
             Algorithm::ES256,
             &encoding_key,
         );
@@ -832,7 +841,7 @@ mod test {
             "spiffe://example.org/service".to_string(),
             Some("OTHER".to_string()), // invalid typ
             Some("kid".to_string()),
-            4_294_967_295,
+            0xFFFF_FFFF,
             Algorithm::ES256,
             &encoding_key,
         );
@@ -1032,7 +1041,7 @@ mod test {
         // Verify that large expected_audience arrays from caller are still accepted (not rejected due to size)
         // Create a token with an audience that matches one in the large expected_audience list
         let matching_audience = "expected50".to_string();
-        let matching_token_audiences = vec![matching_audience.clone()];
+        let matching_token_audiences = vec![matching_audience];
         let matching_token = generate_token(
             matching_token_audiences,
             "spiffe://example.org/workload".to_string(),

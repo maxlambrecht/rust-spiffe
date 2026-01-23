@@ -10,7 +10,7 @@
 //! such as `workload-api`).
 
 use std::net::IpAddr;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use hyper_util::rt::TokioIo;
 #[cfg(unix)]
@@ -52,7 +52,7 @@ async fn connect_unix(path: &Path) -> Result<Channel, TransportError> {
 
     #[cfg(unix)]
     {
-        let path: PathBuf = path.to_path_buf();
+        let path = path.to_owned();
 
         let channel = TonicEndpoint::try_from(TONIC_DUMMY_URI)?
             .connect_with_connector(service_fn(move |_: Uri| {

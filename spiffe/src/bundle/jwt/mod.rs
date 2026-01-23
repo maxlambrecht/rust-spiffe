@@ -43,7 +43,7 @@ impl JwtAuthority {
     ///
     /// Note: Cryptographic validity of the key material is **not** checked here.
     pub fn from_jwk_json(jwk_json: &[u8]) -> Result<Self, JwtBundleError> {
-        let value: serde_json::Value = serde_json::from_slice(jwk_json)?;
+        let value: Value = serde_json::from_slice(jwk_json)?;
 
         let kid = value
             .get("kid")
@@ -119,7 +119,7 @@ impl JwtBundle {
     /// assert_eq!(bundle.trust_domain(), &trust_domain);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn trust_domain(&self) -> &TrustDomain {
+    pub const fn trust_domain(&self) -> &TrustDomain {
         &self.trust_domain
     }
 
@@ -293,7 +293,7 @@ impl JwtBundleSet {
     /// set.add_bundle(bundle);
     /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             bundles: BTreeMap::new(),
         }
@@ -388,10 +388,8 @@ impl FromIterator<JwtBundle> for JwtBundleSet {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod jwt_bundle_test {
     use super::*;
-    use crate::bundle::BundleSource;
 
     fn td(s: &str) -> TrustDomain {
         TrustDomain::new(s).unwrap()
@@ -565,8 +563,8 @@ mod jwt_bundle_test {
 
         // get_ref returns same bundle Arc contents
         let a1 = set.get(&td1).unwrap();
-        let a2 = set.get_ref(&td1).unwrap().clone();
-        assert_eq!(a1, a2);
+        let a2 = set.get_ref(&td1).unwrap();
+        assert_eq!(a1, *a2);
     }
 
     #[test]
@@ -642,12 +640,14 @@ mod jwt_bundle_test {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_bundle_for() {
         let trust_domain = td("example.org");
         let mut set = JwtBundleSet::new();
         set.add_bundle(JwtBundle::new(trust_domain.clone()));
 
-        assert!(set.bundle_for(&trust_domain).is_some());
+        #[expect(deprecated, reason = "testing deprecated API")]
+        {
+            assert!(set.bundle_for(&trust_domain).is_some());
+        }
     }
 }

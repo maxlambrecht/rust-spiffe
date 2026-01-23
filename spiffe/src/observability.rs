@@ -8,7 +8,8 @@
 //! This ensures that variables passed to logging macros are always consumed,
 //! preventing `unused_variable` warnings when observability features are disabled.
 
-#[allow(unused_macros)]
+#[expect(clippy::allow_attributes, reason = "might be used at any given time")]
+#[allow(unused_macros, reason = "might not be used at any given time")]
 macro_rules! log_debug {
     ($($arg:tt)*) => {
         #[cfg(feature = "tracing")]
@@ -21,12 +22,13 @@ macro_rules! log_debug {
         }
         #[cfg(not(any(feature = "tracing", feature = "logging")))]
         {
-            let _ = format_args!($($arg)*);
+            let _type_check: std::fmt::Arguments<'_> = format_args!($($arg)*);
         }
     };
 }
 
-#[allow(unused_macros)]
+#[expect(clippy::allow_attributes, reason = "might be used at any given time")]
+#[allow(unused_macros, reason = "might not be used at any given time")]
 macro_rules! log_info {
     ($($arg:tt)*) => {
         #[cfg(feature = "tracing")]
@@ -39,12 +41,13 @@ macro_rules! log_info {
         }
         #[cfg(not(any(feature = "tracing", feature = "logging")))]
         {
-            let _ = format_args!($($arg)*);
+            let _type_check: std::fmt::Arguments<'_> = format_args!($($arg)*);
         }
     };
 }
 
-#[allow(unused_macros)]
+#[expect(clippy::allow_attributes, reason = "might be used at any given time")]
+#[allow(unused_macros, reason = "might not be used at any given time")]
 macro_rules! log_warn {
     ($($arg:tt)*) => {
         #[cfg(feature = "tracing")]
@@ -57,12 +60,13 @@ macro_rules! log_warn {
         }
         #[cfg(not(any(feature = "tracing", feature = "logging")))]
         {
-            let _ = format_args!($($arg)*);
+            let _type_check: std::fmt::Arguments<'_> = format_args!($($arg)*);
         }
     };
 }
 
-#[allow(unused_macros)]
+#[expect(clippy::allow_attributes, reason = "might be used at any given time")]
+#[allow(unused_macros, reason = "might not be used at any given time")]
 macro_rules! log_error {
     ($($arg:tt)*) => {
         #[cfg(feature = "tracing")]
@@ -75,7 +79,7 @@ macro_rules! log_error {
         }
         #[cfg(not(any(feature = "tracing", feature = "logging")))]
         {
-            let _ = format_args!($($arg)*);
+            let _type_check: std::fmt::Arguments<'_> = format_args!($($arg)*);
         }
     };
 }

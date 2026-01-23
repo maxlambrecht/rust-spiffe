@@ -25,6 +25,10 @@ pub enum WorkloadApiError {
     #[error("missing SPIFFE endpoint socket path (SPIFFE_ENDPOINT_SOCKET)")]
     MissingEndpointSocket,
 
+    /// `SPIFFE_ENDPOINT_SOCKET` is not a valid UTF-8 string.
+    #[error("SPIFFE endpoint socket path is not a valid UTF-8 string: {}", .0.display())]
+    NotUnicodeEndpointSocket(std::ffi::OsString),
+
     /// The Workload API returned an empty response.
     ///
     /// This error can occur when:

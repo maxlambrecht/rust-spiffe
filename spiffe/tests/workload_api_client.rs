@@ -1,22 +1,25 @@
-// These tests requires a running SPIRE server and agent with workloads registered (see `scripts/run-spire.sh`).
+//! These tests requires a running SPIRE server and agent with workloads registered (see `scripts/run-spire.sh`).
+
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(test)]
 #[cfg(feature = "workload-api-full")]
 mod integration_tests_workload_api_client {
-    use once_cell::sync::Lazy;
-    use spiffe::bundle::BundleSource;
+    use spiffe::bundle::BundleSource as _;
     use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
-    use tokio_stream::StreamExt;
+    use std::sync::LazyLock;
+    use tokio_stream::StreamExt as _;
 
-    static SPIFFE_ID_1: Lazy<SpiffeId> =
-        Lazy::new(|| SpiffeId::new("spiffe://example.org/myservice").unwrap());
+    static SPIFFE_ID_1: LazyLock<SpiffeId> =
+        LazyLock::new(|| SpiffeId::new("spiffe://example.org/myservice").unwrap());
 
-    static SPIFFE_ID_2: Lazy<SpiffeId> =
-        Lazy::new(|| SpiffeId::new("spiffe://example.org/myservice2").unwrap());
+    static SPIFFE_ID_2: LazyLock<SpiffeId> =
+        LazyLock::new(|| SpiffeId::new("spiffe://example.org/myservice2").unwrap());
 
-    static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
-    static FEDERATED_TRUST_DOMAIN: Lazy<TrustDomain> =
-        Lazy::new(|| TrustDomain::new("example-federated.org").unwrap());
+    static TRUST_DOMAIN: LazyLock<TrustDomain> =
+        LazyLock::new(|| TrustDomain::new("example.org").unwrap());
+    static FEDERATED_TRUST_DOMAIN: LazyLock<TrustDomain> =
+        LazyLock::new(|| TrustDomain::new("example-federated.org").unwrap());
 
     async fn get_client() -> WorkloadApiClient {
         WorkloadApiClient::connect_env()
@@ -160,27 +163,30 @@ mod integration_tests_workload_api_client {
 
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
-        // Checking the first SVID
-        let first_svid = &svids[0];
-        assert!(
-            expected_ids.contains(&first_svid.spiffe_id()),
-            "Unexpected SPIFFE ID"
-        );
-        assert_eq!(first_svid.cert_chain().len(), 1);
+        match svids.as_slice() {
+            [first_svid, second_svid] => {
+                // Checking the first SVID
+                assert!(
+                    expected_ids.contains(&first_svid.spiffe_id()),
+                    "Unexpected SPIFFE ID"
+                );
+                assert_eq!(first_svid.cert_chain().len(), 1);
 
-        // Checking the second SVID
-        let second_svid = &svids[1];
-        assert!(
-            expected_ids.contains(&second_svid.spiffe_id()),
-            "Unexpected SPIFFE ID"
-        );
-        assert_eq!(second_svid.cert_chain().len(), 1);
+                // Checking the second SVID
+                assert!(
+                    expected_ids.contains(&second_svid.spiffe_id()),
+                    "Unexpected SPIFFE ID"
+                );
+                assert_eq!(second_svid.cert_chain().len(), 1);
 
-        assert_ne!(
-            first_svid.spiffe_id(),
-            second_svid.spiffe_id(),
-            "Expected different SPIFFE IDs"
-        );
+                assert_ne!(
+                    first_svid.spiffe_id(),
+                    second_svid.spiffe_id(),
+                    "Expected different SPIFFE IDs"
+                );
+            }
+            svids => panic!("Expected exactly two SVIDs, got {svids:?}"),
+        }
     }
 
     #[tokio::test]
@@ -321,7 +327,7 @@ mod integration_tests_workload_api_client {
                             break;
                         }
                     }
-                    Err(e) => eprintln!("Error in stream: {:?}", e),
+                    Err(e) => eprintln!("Error in stream: {e:?}"),
                 }
             }
 
@@ -363,7 +369,7 @@ mod integration_tests_workload_api_client {
                             break;
                         }
                     }
-                    Err(e) => eprintln!("Error in stream: {:?}", e),
+                    Err(e) => eprintln!("Error in stream: {e:?}"),
                 }
             }
 
@@ -399,7 +405,7 @@ mod integration_tests_workload_api_client {
                         assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
                         assert_eq!(bundle.authorities().len(), 1);
                     }
-                    Err(e) => eprintln!("Error in stream: {:?}", e),
+                    Err(e) => eprintln!("Error in stream: {e:?}"),
                 }
             }
         })
@@ -442,7 +448,7 @@ mod integration_tests_workload_api_client {
                             key_id.to_string()
                         );
                     }
-                    Err(e) => eprintln!("Error in stream: {:?}", e),
+                    Err(e) => eprintln!("Error in stream: {e:?}"),
                 }
             }
         })

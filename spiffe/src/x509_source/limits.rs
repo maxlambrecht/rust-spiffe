@@ -89,7 +89,7 @@ pub(super) fn validate_limits_and_record_metric(
 ///
 /// This is the single authoritative mapping used throughout the codebase to ensure
 /// consistent metric recording for limit violations.
-pub(super) fn metric_kind_for_limit(kind: LimitKind) -> MetricsErrorKind {
+pub(super) const fn metric_kind_for_limit(kind: LimitKind) -> MetricsErrorKind {
     match kind {
         LimitKind::MaxSvids => MetricsErrorKind::LimitMaxSvids,
         LimitKind::MaxBundles => MetricsErrorKind::LimitMaxBundles,
