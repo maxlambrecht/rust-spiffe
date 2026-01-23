@@ -685,8 +685,8 @@ mod tests {
     test,
     any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs")
 ))]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod test {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::bundle::jwt::JwtBundleSet;
 

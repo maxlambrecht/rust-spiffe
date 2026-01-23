@@ -160,7 +160,7 @@ jobs:
       - name: Cache project
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
-          workspaces: "spiffe spire-api spiffe-rustls"
+          workspaces: "spiffe spire-api spiffe-rustls spiffe-rustls-tokio"
           shared-key: ${{ runner.os }}-cargo-msrv-${{ env.MSRV }}
           cache-on-failure: true
 

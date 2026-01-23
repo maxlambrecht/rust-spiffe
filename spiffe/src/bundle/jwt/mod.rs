@@ -388,8 +388,8 @@ impl FromIterator<JwtBundle> for JwtBundleSet {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod jwt_bundle_test {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use crate::bundle::BundleSource;
 

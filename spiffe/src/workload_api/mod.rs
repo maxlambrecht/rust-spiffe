@@ -2,9 +2,12 @@
 //!
 //! Higher-level types like [`crate::X509Source`] and [`crate::JwtSource`] provide automatic caching
 //! and reconnection. [`crate::WorkloadApiClient`] provides direct access to one-shot RPCs and streaming updates.
-#![allow(clippy::result_large_err)]
 
+// Error types include protobuf-generated types and transport errors which can be large.
+// Boxing would change the public API, so we allow this lint here.
+#![allow(clippy::result_large_err)]
 pub(crate) mod pb;
+
 pub(crate) mod supervisor_common;
 
 pub mod client;
