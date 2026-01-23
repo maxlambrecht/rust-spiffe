@@ -1,16 +1,28 @@
-// These tests requires a running SPIRE server and agent with workloads registered (see script `scripts/run-spire.sh`).
-// In addition it requires the admin endpoint to be exposed, and the running user to registered
-// as an authorized_delegate.
+//! These tests requires a running SPIRE server and agent with workloads registered (see script `scripts/run-spire.sh`).
+//! In addition it requires the admin endpoint to be exposed, and the running user to registered
+//! as an authorized delegate.
+
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
+#![expect(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
+)]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
 
 mod integration_tests_delegate_identity_api_client {
-    use once_cell::sync::Lazy;
-    use spiffe::bundle::BundleSource;
+    use futures::StreamExt as _;
+    use spiffe::bundle::BundleSource as _;
     use spiffe::{JwtBundleSet, TrustDomain};
     use spire_api::{selectors, DelegateAttestationRequest, DelegatedIdentityClient};
     use std::process::Command;
-    use tokio_stream::StreamExt;
+    use std::sync::LazyLock;
 
-    static TRUST_DOMAIN: Lazy<TrustDomain> = Lazy::new(|| TrustDomain::new("example.org").unwrap());
+    static TRUST_DOMAIN: LazyLock<TrustDomain> =
+        LazyLock::new(|| TrustDomain::new("example.org").unwrap());
 
     fn get_uid() -> u16 {
         let mut uid = String::from_utf8(
@@ -44,8 +56,14 @@ mod integration_tests_delegate_identity_api_client {
             )
             .await
             .expect("Failed to fetch JWT SVID");
-        assert_eq!(svid.len(), 1);
-        assert_eq!(svid[0].audience(), &["my_audience"]);
+        match svid.as_slice() {
+            [svid] => {
+                assert_eq!(svid.audience(), &["my_audience"]);
+            }
+            svid => {
+                panic!("expected 1 SVID, got {svid:?}");
+            }
+        }
     }
 
     #[tokio::test]
@@ -100,7 +118,7 @@ mod integration_tests_delegate_identity_api_client {
             .fetch_x509_bundles()
             .await
             .expect("Failed to fetch trust bundles");
-        response.get(&TRUST_DOMAIN).expect("Failed to get bundle");
+        let _bundle: std::sync::Arc<_> = response.get(&TRUST_DOMAIN).expect("Failed to get bundle");
     }
 
     #[tokio::test]
@@ -117,10 +135,10 @@ mod integration_tests_delegate_identity_api_client {
             .await
             .expect("Test did not complete in the expected duration");
         let response = result.expect("empty result").expect("error in stream");
-        response.get(&TRUST_DOMAIN).expect("Failed to get bundle");
+        let _bundle: std::sync::Arc<_> = response.get(&TRUST_DOMAIN).expect("Failed to get bundle");
     }
 
-    async fn verify_jwt(client: &mut DelegatedIdentityClient, bundles: JwtBundleSet) {
+    async fn verify_jwt(client: &DelegatedIdentityClient, bundles: JwtBundleSet) {
         let svids = client
             .fetch_jwt_svids(
                 &["my_audience"],
@@ -144,19 +162,19 @@ mod integration_tests_delegate_identity_api_client {
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn fetch_delegated_jwt_trust_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let response = client
             .fetch_jwt_bundles()
             .await
             .expect("Failed to fetch trust bundles");
 
-        verify_jwt(&mut client, response).await;
+        verify_jwt(&client, response).await;
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn stream_delegated_jwt_trust_bundles() {
-        let mut client = get_client().await;
+        let client = get_client().await;
         let test_duration = std::time::Duration::from_secs(60);
         let mut stream = client
             .stream_jwt_bundles()
@@ -168,7 +186,7 @@ mod integration_tests_delegate_identity_api_client {
             .expect("Test did not complete in the expected duration");
 
         verify_jwt(
-            &mut client,
+            &client,
             result.expect("empty result").expect("error in stream"),
         )
         .await;

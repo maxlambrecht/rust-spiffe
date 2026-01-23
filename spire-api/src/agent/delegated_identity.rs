@@ -26,9 +26,9 @@ use spiffe::{
     X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
 };
 
-use std::str::FromStr;
+use std::str::FromStr as _;
 
-use tokio_stream::{Stream, StreamExt};
+use futures::{Stream, StreamExt as _};
 
 /// Name of the environment variable that holds the default socket endpoint path.
 pub const ADMIN_SOCKET_ENV: &str = "SPIRE_ADMIN_ENDPOINT_SOCKET";
@@ -40,6 +40,10 @@ pub enum DelegatedIdentityError {
     /// The environment variable for the admin endpoint socket is not set.
     #[error("missing admin endpoint socket path ({ADMIN_SOCKET_ENV})")]
     MissingEndpointSocket,
+
+    /// The environment variable for the admin endpoint socket is not a valid UTF-8 string.
+    #[error("admin endpoint socket path is not a valid UTF-8 string: {}", .0.display())]
+    NotUnicodeEndpointSocket(std::ffi::OsString),
 
     /// Failed to parse the endpoint URI.
     #[error("invalid endpoint: {0}")]
@@ -80,9 +84,13 @@ pub enum DelegatedIdentityError {
 ///
 /// Returns [`DelegatedIdentityError`] if the environment variable is not set or the value is invalid.
 pub fn admin_endpoint_from_env() -> Result<Endpoint, DelegatedIdentityError> {
-    let raw = std::env::var(ADMIN_SOCKET_ENV)
-        .map_err(|_| DelegatedIdentityError::MissingEndpointSocket)?;
-    Ok(Endpoint::parse(&raw)?)
+    let raw =
+        std::env::var_os(ADMIN_SOCKET_ENV).ok_or(DelegatedIdentityError::MissingEndpointSocket)?;
+    if let Some(raw) = raw.to_str() {
+        Ok(Endpoint::parse(raw)?)
+    } else {
+        Err(DelegatedIdentityError::NotUnicodeEndpointSocket(raw))
+    }
 }
 
 /// Impl for `DelegatedIdentity` API
@@ -157,7 +165,7 @@ impl DelegatedIdentityClient {
     /// Returns [`DelegatedIdentityError`] if the client could not be constructed from
     /// the provided channel (for example, due to an invalid configuration).
     pub fn new(conn: tonic::transport::Channel) -> Result<Self, DelegatedIdentityError> {
-        Ok(DelegatedIdentityClient {
+        Ok(Self {
             client: DelegatedIdentityApiClient::new(conn),
         })
     }
@@ -240,9 +248,8 @@ impl DelegatedIdentityClient {
         let response = self.client.clone().subscribe_to_x509svi_ds(request).await?;
 
         let stream = response.into_inner().map(|message| {
-            message
-                .map_err(DelegatedIdentityError::from)
-                .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
+            let resp = message.map_err(DelegatedIdentityError::from)?;
+            Self::parse_x509_svid_from_grpc_response(&resp)
         });
 
         Ok(stream)
@@ -293,7 +300,7 @@ impl DelegatedIdentityClient {
     pub async fn stream_x509_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<X509BundleSet, DelegatedIdentityError>> + Send + 'static,
+        impl Stream<Item = Result<X509BundleSet, DelegatedIdentityError>> + Send + 'static + use<>,
         DelegatedIdentityError,
     > {
         let request = SubscribeToX509BundlesRequest::default();
@@ -321,7 +328,7 @@ impl DelegatedIdentityClient {
     ///
     /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
     /// there is a problem processing the response.
-    pub async fn fetch_jwt_svids<T: AsRef<str> + ToString>(
+    pub async fn fetch_jwt_svids<T: AsRef<str> + Sync + ToString>(
         &self,
         audience: &[T],
         attest_type: DelegateAttestationRequest,
@@ -360,7 +367,7 @@ impl DelegatedIdentityClient {
     pub async fn stream_jwt_bundles(
         &self,
     ) -> Result<
-        impl Stream<Item = Result<JwtBundleSet, DelegatedIdentityError>> + Send + 'static,
+        impl Stream<Item = Result<JwtBundleSet, DelegatedIdentityError>> + Send + 'static + use<>,
         DelegatedIdentityError,
     > {
         let request = SubscribeToJwtBundlesRequest::default();
@@ -499,10 +506,7 @@ fn make_jwtsvid_request<T: AsRef<str> + ToString>(
     audience: &[T],
     attest_type: DelegateAttestationRequest,
 ) -> FetchJwtsviDsRequest {
-    let audience = audience
-        .iter()
-        .map(std::string::ToString::to_string)
-        .collect();
+    let audience = audience.iter().map(ToString::to_string).collect();
 
     match attest_type {
         DelegateAttestationRequest::Selectors(selectors) => FetchJwtsviDsRequest {
