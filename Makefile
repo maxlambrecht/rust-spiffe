@@ -9,8 +9,7 @@
 #
 # Quick map:
 # - Development:   fmt-check | lint | build | test | check | all
-# - PR CI:         ci-pr-unit        (integration runs as a separate job)
-# - Main CI:       spiffe / spiffe-rustls (full lane sweeps), spire-api, msrv
+# - CI:            per-crate full lane sweeps, integration, msrv, audit, deny
 # - SPIRE tests:   integration-tests (ignored tests requiring SPIRE)
 # - Docs:          doc-test          (catch example drift early)
 # - Examples:      examples          (compile example binaries)
@@ -49,7 +48,7 @@ DEFAULT_LANE := @default
   fmt fmt-check \
   lint build test check all \
   doc-test \
-  ci ci-pr \
+  ci \
   integration-tests \
   coverage \
   msrv \
@@ -75,7 +74,6 @@ help:
 	@echo "  make examples       Build examples"
 	@echo ""
 	@echo "CI targets:"
-	@echo "  make ci-pr          PR unit test suite (build + test + doctests)"
 	@echo "  make ci             Full validation suite (all lanes + integration + msrv + audit)"
 	@echo ""
 	@echo "Per-crate (full lane sweeps):"
@@ -117,12 +115,6 @@ SPIRE_API_DEV_FEATURES := \
 
 RUSTLS_TOKIO_DEV_FEATURES := \
   $(DEFAULT_LANE)
-
-# PR lanes (ci-pr-unit): default to the dev lanes.
-SPIFFE_PR_FEATURES := $(SPIFFE_DEV_FEATURES)
-RUSTLS_PR_FEATURES := $(RUSTLS_DEV_FEATURES)
-RUSTLS_TOKIO_PR_FEATURES := $(RUSTLS_TOKIO_DEV_FEATURES)
-SPIRE_API_PR_FEATURES := $(SPIRE_API_DEV_FEATURES)
 
 # Full matrix lanes (main CI + coverage).
 SPIFFE_ALL_FEATURES := \
@@ -229,26 +221,6 @@ doc-test:
 	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests,doc,$(SPIRE_API_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests,doc,$(RUSTLS_DEV_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests,doc,$(RUSTLS_TOKIO_DEV_FEATURES))
-
-# -----------------------------------------------------------------------------
-# CI targets
-# -----------------------------------------------------------------------------
-ci-pr:
-	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: build  (PR lanes),build,$(SPIFFE_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test   (PR lanes),test,$(SPIFFE_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (PR lane),doc,$(SPIFFE_PR_FEATURES))
-
-	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: build  (PR lanes),build,$(SPIRE_API_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test   (PR lanes),test,$(SPIRE_API_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests (PR lanes),doc,$(SPIRE_API_PR_FEATURES))
-
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: build  (PR lanes),build,$(RUSTLS_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test   (PR lanes),test,$(RUSTLS_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (PR lanes),doc,$(RUSTLS_PR_FEATURES))
-
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: build  (PR lanes),build,$(RUSTLS_TOKIO_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test   (PR lanes),test,$(RUSTLS_TOKIO_PR_FEATURES))
-	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests (PR lanes),doc,$(RUSTLS_TOKIO_PR_FEATURES))
 
 # -----------------------------------------------------------------------------
 # Local validation targets
@@ -414,18 +386,12 @@ lanes:
 	@echo "SPIFFE_DEV_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_DEV_FEATURES)
 	@echo ""
-	@echo "SPIFFE_PR_FEATURES:"
-	@printf "  %s\n" $(SPIFFE_PR_FEATURES)
-	@echo ""
 	@echo "SPIFFE_ALL_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_ALL_FEATURES)
 	@echo ""
 
 	@echo "RUSTLS_DEV_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_DEV_FEATURES)
-	@echo ""
-	@echo "RUSTLS_PR_FEATURES:"
-	@printf "  %s\n" $(RUSTLS_PR_FEATURES)
 	@echo ""
 	@echo "RUSTLS_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_ALL_FEATURES)
@@ -434,18 +400,12 @@ lanes:
 	@echo "RUSTLS_TOKIO_DEV_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_TOKIO_DEV_FEATURES)
 	@echo ""
-	@echo "RUSTLS_TOKIO_PR_FEATURES:"
-	@printf "  %s\n" $(RUSTLS_TOKIO_PR_FEATURES)
-	@echo ""
 	@echo "RUSTLS_TOKIO_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_TOKIO_ALL_FEATURES)
 	@echo ""
 
 	@echo "SPIRE_API_DEV_FEATURES:"
 	@printf "  %s\n" $(SPIRE_API_DEV_FEATURES)
-	@echo ""
-	@echo "SPIRE_API_PR_FEATURES:"
-	@printf "  %s\n" $(SPIRE_API_PR_FEATURES)
 	@echo ""
 	@echo "SPIRE_API_ALL_FEATURES:"
 	@printf "  %s\n" $(SPIRE_API_ALL_FEATURES)
