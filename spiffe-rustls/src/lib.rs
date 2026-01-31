@@ -1,11 +1,3 @@
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
-#![warn(missing_debug_implementations)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-
 //! # spiffe-rustls
 //!
 //! `spiffe-rustls` integrates [`rustls`] with SPIFFE/SPIRE using a live
@@ -32,6 +24,9 @@
 //! * `aws-lc-rs`
 //!
 //! Enabling more than one provider results in a compile-time error.
+
+#![expect(unused_crate_dependencies, reason = "used in the examples")]
+#![expect(clippy::multiple_crate_versions, reason = "transitive")]
 
 #[cfg(all(feature = "ring", feature = "aws-lc-rs"))]
 compile_error!("Enable only one crypto provider feature: `ring` or `aws-lc-rs`.");

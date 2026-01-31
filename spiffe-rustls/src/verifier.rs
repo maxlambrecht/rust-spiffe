@@ -14,7 +14,7 @@ use rustls::{DigitallySignedStruct, SignatureScheme};
 use spiffe::SpiffeId;
 use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::{Hash, Hasher};
+use std::hash::{Hash, Hasher as _};
 use std::sync::Arc;
 
 #[cfg(feature = "parking-lot")]
@@ -22,26 +22,31 @@ use parking_lot::{Condvar, Mutex, MutexGuard};
 
 #[cfg(not(feature = "parking-lot"))]
 use std::sync::{Condvar, Mutex, MutexGuard};
-use x509_parser::oid_registry;
 
 // Unify lock() across std/parking_lot.
 // - parking_lot never poisons => always Ok
 // - std::sync::Mutex may poison => map to Err(())
 #[cfg(feature = "parking-lot")]
-#[allow(clippy::unnecessary_wraps)] // keep signature uniform with std (poisoning) implementation
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keep signature uniform with std (poisoning) implementation"
+)]
 fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
     Ok(m.lock())
 }
 
 #[cfg(not(feature = "parking-lot"))]
 fn lock_mutex<T>(m: &Mutex<T>) -> std::result::Result<MutexGuard<'_, T>, ()> {
-    m.lock().map_err(|_| ())
+    m.lock().map_err(|std::sync::PoisonError { .. }| ())
 }
 
 // Unify Condvar::wait() across std/parking_lot.
 // Both consume the guard and return a guard.
 #[cfg(feature = "parking-lot")]
-#[allow(clippy::unnecessary_wraps)] // keep signature uniform with std (poisoning) implementation
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "keep signature uniform with std (poisoning) implementation"
+)]
 fn condvar_wait<'a, T>(
     cv: &Condvar,
     mut guard: MutexGuard<'a, T>,
@@ -55,7 +60,7 @@ fn condvar_wait<'a, T>(
     cv: &Condvar,
     guard: MutexGuard<'a, T>,
 ) -> std::result::Result<MutexGuard<'a, T>, ()> {
-    cv.wait(guard).map_err(|_| ())
+    cv.wait(guard).map_err(|std::sync::PoisonError { .. }| ())
 }
 
 const CERT_PREFIX_LEN: usize = 32;
@@ -78,8 +83,7 @@ fn cert_fingerprint(cert: &CertificateDer<'_>) -> CertFingerprint {
     let hash = hasher.finish();
 
     let mut prefix = [0u8; CERT_PREFIX_LEN];
-    let n = CERT_PREFIX_LEN.min(bytes.len());
-    prefix[..n].copy_from_slice(&bytes[..n]);
+    prefix.iter_mut().zip(bytes).for_each(|(d, &s)| *d = s);
 
     CertFingerprint {
         hash,
@@ -105,13 +109,13 @@ struct CertParseCache {
 }
 
 impl CertParseCache {
-    const CAPACITY: usize = 64;
+    const CAPACITY: u8 = 64;
 
     fn new() -> Self {
         Self {
-            entries: HashMap::with_capacity(Self::CAPACITY),
-            order: VecDeque::with_capacity(Self::CAPACITY),
-            capacity: Self::CAPACITY,
+            entries: HashMap::with_capacity(Self::CAPACITY.into()),
+            order: VecDeque::with_capacity(Self::CAPACITY.into()),
+            capacity: Self::CAPACITY.into(),
         }
     }
 
@@ -188,7 +192,7 @@ fn extract_spiffe_id_with_cache(
     if let Some(cache) = cache {
         if let Ok(mut guard) = lock_mutex(cache) {
             if let Some(cached) = guard.get(key) {
-                return Ok(cached.spiffe_id.clone());
+                return Ok(cached.spiffe_id);
             }
         }
     }
@@ -264,7 +268,7 @@ struct ServerBuildCell {
 }
 
 impl ServerBuildCell {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             state: Mutex::new(ServerBuildState::Empty),
             cv: Condvar::new(),
@@ -296,7 +300,7 @@ struct ClientBuildCell {
 }
 
 impl ClientBuildCell {
-    fn new() -> Self {
+    const fn new() -> Self {
         Self {
             state: Mutex::new(ClientBuildState::Empty),
             cv: Condvar::new(),
@@ -368,7 +372,7 @@ impl SpiffeServerCertVerifier {
         trust_domain: &spiffe::TrustDomain,
     ) -> Result<Arc<dyn rustls::client::danger::ServerCertVerifier>> {
         let snap = self.provider.current_material();
-        let gen = snap.generation;
+        let r#gen = snap.generation;
 
         let td = trust_domain.clone();
 
@@ -376,13 +380,12 @@ impl SpiffeServerCertVerifier {
             return Err(Error::TrustDomainNotAllowed(td));
         }
 
-        let roots = snap
-            .roots_by_td
-            .get(&td)
-            .ok_or_else(|| Error::NoBundle(td.clone()))?
-            .clone();
+        let roots = match snap.roots_by_td.get(&td) {
+            Some(roots) => Arc::clone(roots),
+            None => return Err(Error::NoBundle(td)),
+        };
 
-        let cache_key = (gen, td);
+        let cache_key = (r#gen, td);
 
         // Select (or create) the per-key single-flight cell under the outer cache mutex.
         let cell: Arc<ServerBuildCell> = {
@@ -390,12 +393,12 @@ impl SpiffeServerCertVerifier {
                 .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
 
             match guard.as_ref() {
-                Some(entry) if entry.key == cache_key => entry.cell.clone(),
+                Some(entry) if entry.key == cache_key => Arc::clone(&entry.cell),
                 _ => {
                     let cell = Arc::new(ServerBuildCell::new());
                     *guard = Some(ServerVerifierCache {
                         key: cache_key,
-                        cell: cell.clone(),
+                        cell: Arc::clone(&cell),
                     });
                     cell
                 }
@@ -407,7 +410,7 @@ impl SpiffeServerCertVerifier {
                 .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
 
             match &*guard {
-                ServerBuildState::Ready(v) => return Ok(v.verifier.clone()),
+                ServerBuildState::Ready(v) => return Ok(Arc::clone(&v.verifier)),
 
                 ServerBuildState::Empty => {
                     // Become the single builder (no race window).
@@ -415,7 +418,7 @@ impl SpiffeServerCertVerifier {
                     drop(guard);
 
                     // Build without holding any locks.
-                    let verifier = match build_server_verifier(roots.clone()) {
+                    let verifier = match build_server_verifier(roots) {
                         Ok(v) => v,
                         Err(e) => {
                             // Reset + notify waiters; do not cache failure.
@@ -423,6 +426,7 @@ impl SpiffeServerCertVerifier {
                                 Error::Internal("server verifier cache mutex poisoned".into())
                             })?;
                             *g = ServerBuildState::Empty;
+                            drop(g);
                             cell.cv.notify_all();
                             return Err(e);
                         }
@@ -435,13 +439,11 @@ impl SpiffeServerCertVerifier {
                     let mut g = lock_mutex(&cell.state).map_err(|()| {
                         Error::Internal("server verifier cache mutex poisoned".into())
                     })?;
+                    let verifier = Arc::clone(&value.verifier);
                     *g = ServerBuildState::Ready(value);
+                    drop(g);
                     cell.cv.notify_all();
-
-                    if let ServerBuildState::Ready(v) = &*g {
-                        return Ok(v.verifier.clone());
-                    }
-                    unreachable!("state must be Ready after setting it");
+                    return Ok(verifier);
                 }
 
                 ServerBuildState::Building => {
@@ -460,7 +462,7 @@ impl SpiffeServerCertVerifier {
             Ok(guard) => guard
                 .as_ref()
                 .filter(|e| e.key.1 == *trust_domain)
-                .map(|e| e.cell.clone()),
+                .map(|e| Arc::clone(&e.cell)),
             Err(_e) => {
                 error!("server verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
                 return Vec::new();
@@ -607,7 +609,7 @@ impl SpiffeClientCertVerifier {
         trust_domain: &spiffe::TrustDomain,
     ) -> Result<Arc<dyn rustls::server::danger::ClientCertVerifier>> {
         let snap = self.provider.current_material();
-        let gen = snap.generation;
+        let r#gen = snap.generation;
 
         let td = trust_domain.clone();
 
@@ -615,25 +617,24 @@ impl SpiffeClientCertVerifier {
             return Err(Error::TrustDomainNotAllowed(td));
         }
 
-        let roots = snap
-            .roots_by_td
-            .get(&td)
-            .ok_or_else(|| Error::NoBundle(td.clone()))?
-            .clone();
+        let roots = match snap.roots_by_td.get(&td) {
+            Some(roots) => Arc::clone(roots),
+            None => return Err(Error::NoBundle(td)),
+        };
 
-        let cache_key = (gen, td);
+        let cache_key = (r#gen, td);
 
         let cell: Arc<ClientBuildCell> = {
             let mut guard = lock_mutex(&self.cache)
                 .map_err(|()| Error::Internal("client verifier cache mutex poisoned".into()))?;
 
             match guard.as_ref() {
-                Some(entry) if entry.key == cache_key => entry.cell.clone(),
+                Some(entry) if entry.key == cache_key => Arc::clone(&entry.cell),
                 _ => {
                     let cell = Arc::new(ClientBuildCell::new());
                     *guard = Some(ClientVerifierCache {
                         key: cache_key,
-                        cell: cell.clone(),
+                        cell: Arc::clone(&cell),
                     });
                     cell
                 }
@@ -645,14 +646,14 @@ impl SpiffeClientCertVerifier {
                 .map_err(|()| Error::Internal("client verifier cache mutex poisoned".into()))?;
 
             match &*guard {
-                ClientBuildState::Ready(v) => return Ok(v.verifier.clone()),
+                ClientBuildState::Ready(v) => return Ok(Arc::clone(&v.verifier)),
 
                 ClientBuildState::Empty => {
                     // Become the single builder (no race window).
                     *guard = ClientBuildState::Building;
                     drop(guard);
 
-                    let verifier = match build_client_verifier(roots.clone()) {
+                    let verifier = match build_client_verifier(roots) {
                         Ok(v) => v,
                         Err(e) => {
                             // Reset + notify waiters; do not cache failure.
@@ -660,6 +661,7 @@ impl SpiffeClientCertVerifier {
                                 Error::Internal("client verifier cache mutex poisoned".into())
                             })?;
                             *g = ClientBuildState::Empty;
+                            drop(g);
                             cell.cv.notify_all();
                             return Err(e);
                         }
@@ -671,13 +673,11 @@ impl SpiffeClientCertVerifier {
                     let mut g = lock_mutex(&cell.state).map_err(|()| {
                         Error::Internal("client verifier cache mutex poisoned".into())
                     })?;
+                    let verifier = Arc::clone(&value.verifier);
                     *g = ClientBuildState::Ready(value);
+                    drop(g);
                     cell.cv.notify_all();
-
-                    if let ClientBuildState::Ready(v) = &*g {
-                        return Ok(v.verifier.clone());
-                    }
-                    unreachable!("state must be Ready after setting it");
+                    return Ok(verifier);
                 }
 
                 ClientBuildState::Building => {
@@ -695,7 +695,7 @@ impl SpiffeClientCertVerifier {
             Ok(guard) => guard
                 .as_ref()
                 .filter(|e| e.key.1 == *trust_domain)
-                .map(|e| e.cell.clone()),
+                .map(|e| Arc::clone(&e.cell)),
             Err(_e) => {
                 error!("client verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
                 return Vec::new();
@@ -829,18 +829,18 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 /// `get_or_build_inner`, so this fallback does not weaken security.
 fn advertised_verify_schemes(
     label: &str,
-    gen: u64,
+    r#gen: u64,
     last_logged_gen: &Mutex<Option<u64>>,
     snap: &MaterialSnapshot,
     policy: &TrustDomainPolicy,
-    mut per_td_schemes: impl FnMut(&spiffe::TrustDomain) -> Vec<rustls::SignatureScheme>,
+    mut per_td_schemes: impl FnMut(&spiffe::TrustDomain) -> Vec<SignatureScheme>,
     mut build_union_schemes: impl FnMut(
         &spiffe::TrustDomain,
         Arc<rustls::RootCertStore>,
-    ) -> Result<Vec<rustls::SignatureScheme>>,
-) -> Vec<rustls::SignatureScheme> {
+    ) -> Result<Vec<SignatureScheme>>,
+) -> Vec<SignatureScheme> {
     // Collect schemes for trust domains allowed by policy.
-    let mut scheme_sets: Vec<Vec<rustls::SignatureScheme>> = Vec::new();
+    let mut scheme_sets: Vec<Vec<SignatureScheme>> = Vec::new();
 
     for td in snap.roots_by_td.keys() {
         if !policy.allows(td) {
@@ -854,8 +854,7 @@ fn advertised_verify_schemes(
     }
 
     // Normal case: intersection across allowed trust domains.
-    if !scheme_sets.is_empty() {
-        let first = &scheme_sets[0];
+    if let Some(first) = scheme_sets.first() {
         return first
             .iter()
             .filter(|scheme| scheme_sets.iter().skip(1).all(|set| set.contains(scheme)))
@@ -869,10 +868,10 @@ fn advertised_verify_schemes(
     // during certificate verification.
     let should_log = match lock_mutex(last_logged_gen) {
         Ok(mut guard) => {
-            if guard.as_ref() == Some(&gen) {
+            if guard.as_ref() == Some(&r#gen) {
                 false
             } else {
-                *guard = Some(gen);
+                *guard = Some(r#gen);
                 true
             }
         }
@@ -889,10 +888,10 @@ fn advertised_verify_schemes(
     // Build union of schemes from all trust domains
     // Note: Using Vec with contains() for deduplication since SignatureScheme doesn't implement Hash.
     // The number of schemes is typically small (< 10), so O(n²) is acceptable.
-    let mut union: Vec<rustls::SignatureScheme> = Vec::new();
+    let mut union: Vec<SignatureScheme> = Vec::new();
 
     for (td, roots) in &snap.roots_by_td {
-        let schemes = match build_union_schemes(td, roots.clone()) {
+        let schemes = match build_union_schemes(td, Arc::clone(roots)) {
             Ok(s) => s,
             Err(e) => {
                 debug!(
@@ -917,26 +916,20 @@ fn advertised_verify_schemes(
     union
 }
 
-fn join_trust_domains<'a>(tds: impl Iterator<Item = &'a spiffe::TrustDomain>) -> String {
+fn join_trust_domains<'a, I: Iterator<Item = &'a spiffe::TrustDomain>>(tds: I) -> String {
     tds.map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "parking-lot")]
-    use parking_lot::Mutex;
-    use rustls::client::danger::ServerCertVerifier;
-    use rustls::pki_types::{
-        CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName, UnixTime,
-    };
-    use rustls::server::danger::ClientCertVerifier;
+    use rustls::client::danger::ServerCertVerifier as _;
+    use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
+    use rustls::server::danger::ClientCertVerifier as _;
     use rustls::RootCertStore;
-    use spiffe::{SpiffeId, TrustDomain};
+    use spiffe::TrustDomain;
     use std::collections::{BTreeMap, BTreeSet};
-    #[cfg(not(feature = "parking-lot"))]
-    use std::sync::Mutex;
-    use std::sync::{Arc, OnceLock};
+    use std::sync::OnceLock;
 
     fn ensure_provider() {
         static ONCE: OnceLock<()> = OnceLock::new();
@@ -1012,7 +1005,7 @@ mod tests {
 
     impl MaterialProvider for StaticMaterial {
         fn current_material(&self) -> Arc<MaterialSnapshot> {
-            self.0.clone()
+            Arc::clone(&self.0)
         }
     }
 
@@ -1113,15 +1106,15 @@ mod tests {
             TrustDomainPolicy::AnyInBundleSet,
         );
 
-        let res = verifier.verify_server_cert(
-            &cert_with_spiffe(),
-            &[],
-            &server_name_example_org(),
-            &[],
-            UnixTime::now(),
-        );
-
-        assert!(res.is_ok());
+        let _: rustls::client::danger::ServerCertVerified = verifier
+            .verify_server_cert(
+                &cert_with_spiffe(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap();
     }
 
     #[test]
@@ -1134,8 +1127,9 @@ mod tests {
             TrustDomainPolicy::AnyInBundleSet,
         );
 
-        let res = verifier.verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now());
-        assert!(res.is_ok());
+        let _: rustls::server::danger::ClientCertVerified = verifier
+            .verify_client_cert(&cert_with_spiffe(), &[], UnixTime::now())
+            .unwrap();
     }
 
     #[test]
@@ -1307,21 +1301,21 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::cast_possible_truncation)]
+    // #[expect(clippy::cast_possible_truncation)]
     fn cert_parse_cache_lru_eviction_sanity() {
         // This test exercises CertParseCache deterministically without depending on real cert parsing.
-        fn key(i: u64) -> CertFingerprint {
+        fn key(i: u8) -> CertFingerprint {
             CertFingerprint {
-                hash: i,
-                len: i as usize,
-                prefix: [i as u8; CERT_PREFIX_LEN],
+                hash: i.into(),
+                len: i.into(),
+                prefix: [i; CERT_PREFIX_LEN],
             }
         }
 
         let mut cache = CertParseCache::new();
 
         // Fill to capacity.
-        for i in 0..(CertParseCache::CAPACITY as u64) {
+        for i in 0..CertParseCache::CAPACITY {
             cache.insert(
                 key(i),
                 CachedSpiffeId {
@@ -1336,7 +1330,7 @@ mod tests {
 
         // Insert one more -> evict LRU (which should be key(0), not key(10)).
         cache.insert(
-            key(999),
+            key(u8::MAX),
             CachedSpiffeId {
                 spiffe_id: SpiffeId::new("spiffe://example.org/service").unwrap(),
             },
@@ -1399,11 +1393,14 @@ mod tests {
 
         let provider = Arc::new(MutableMaterial(Arc::new(Mutex::new(snap1))));
 
-        let verifier = SpiffeServerCertVerifier::new(
-            provider.clone(),
-            |_peer: &SpiffeId| true,
-            TrustDomainPolicy::AnyInBundleSet,
-        );
+        let verifier = {
+            let provider = Arc::clone(&provider);
+            SpiffeServerCertVerifier::new(
+                provider,
+                |_peer: &SpiffeId| true,
+                TrustDomainPolicy::AnyInBundleSet,
+            )
+        };
 
         let s1 = verifier.supported_verify_schemes();
         assert!(!s1.is_empty());

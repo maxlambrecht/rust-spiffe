@@ -153,7 +153,7 @@ impl Authorizer for TrustDomainAllowList {
 ///
 /// let auth = authorizer::any();
 /// ```
-pub fn any() -> Any {
+pub const fn any() -> Any {
     Any
 }
 
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_exact_authorizer_rejects_invalid() {
         let result = Exact::new(["invalid-spiffe-id", "also-invalid"]);
-        assert!(result.is_err());
+        result.unwrap_err();
     }
 
     #[test]
@@ -269,7 +269,7 @@ mod tests {
         // Use a string with invalid characters (uppercase and special chars not allowed)
         // TrustDomain::new explicitly validates the format, so this should fail
         let result = TrustDomainAllowList::new(["Invalid@Trust#Domain"]);
-        assert!(result.is_err());
+        result.unwrap_err();
 
         // Verify that valid trust domains are accepted
         let valid = TrustDomainAllowList::new(["example.org", "other.org"]).unwrap();
