@@ -1,3 +1,10 @@
+#![expect(missing_docs, reason = "integration test")]
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 use rustls::pki_types::ServerName;
 use spiffe::{TrustDomain, X509Source};
 use spiffe_rustls::{authorizer, mtls_client, mtls_server};
@@ -6,8 +13,14 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-fn env_var(name: &str) -> Result<String, Box<dyn std::error::Error>> {
-    env::var(name).map_err(|_| format!("missing required env var: {name}").into())
+fn env_var(name: &str) -> Result<String, String> {
+    let s = env::var_os(name).ok_or_else(|| format!("missing required env var: {name}"))?;
+    s.into_string().map_err(|s| {
+        format!(
+            "required env var {name} is not valid UTF-8: {}",
+            s.display()
+        )
+    })
 }
 
 /// Federation cross-trust-domain handshake.
