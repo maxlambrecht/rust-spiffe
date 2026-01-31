@@ -1,11 +1,3 @@
-#![deny(missing_docs)]
-#![deny(unsafe_code)]
-#![warn(missing_debug_implementations)]
-#![warn(clippy::all)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::module_name_repetitions)]
-#![allow(clippy::must_use_candidate)]
-
 //! # spiffe-rustls-tokio
 //!
 //! Tokio-native accept/connect helpers for [spiffe-rustls](https://docs.rs/spiffe-rustls) configs.
@@ -32,6 +24,12 @@
 //! # Ok(())
 //! # }
 //! ```
+
+#![expect(clippy::multiple_crate_versions, reason = "transitive")]
+#![cfg_attr(
+    test,
+    expect(unused_crate_dependencies, reason = "used in the examples")
+)]
 
 mod acceptor;
 mod connector;

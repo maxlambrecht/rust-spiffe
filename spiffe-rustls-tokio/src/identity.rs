@@ -42,12 +42,12 @@ pub struct PeerIdentity {
 
 impl PeerIdentity {
     /// Creates a new `PeerIdentity` with the given SPIFFE ID.
-    pub fn new(spiffe_id: Option<SpiffeId>) -> Self {
+    pub const fn new(spiffe_id: Option<SpiffeId>) -> Self {
         Self { spiffe_id }
     }
 
     /// Returns the peer's SPIFFE ID, if present.
-    pub fn spiffe_id(&self) -> Option<&SpiffeId> {
+    pub const fn spiffe_id(&self) -> Option<&SpiffeId> {
         self.spiffe_id.as_ref()
     }
 }
@@ -99,22 +99,14 @@ pub(crate) fn extract_peer_identity_from_client(
 fn extract_peer_identity_impl(
     peer_certs: Option<&[rustls::pki_types::CertificateDer<'_>]>,
 ) -> Result<PeerIdentity, Error> {
-    // Handle case where no peer certificates are present
-    let peer_certs = match peer_certs {
-        Some(certs) if !certs.is_empty() => certs,
-        _ => {
-            // No peer certificates - return identity with None
-            // This is invalid per SPIFFE X.509-SVID spec for mTLS, but we return None
-            // rather than error to allow graceful handling. In SPIFFE-compliant
-            // configurations using spiffe-rustls verifiers, this case should be
-            // unreachable as verifiers require peer certificates for mTLS.
-            return Ok(PeerIdentity::new(None));
-        }
+    let Some([leaf_cert, ..]) = peer_certs else {
+        // No peer certificates - return identity with None
+        // This is invalid per SPIFFE X.509-SVID spec for mTLS, but we return None
+        // rather than error to allow graceful handling. In SPIFFE-compliant
+        // configurations using spiffe-rustls verifiers, this case should be
+        // unreachable as verifiers require peer certificates for mTLS.
+        return Ok(PeerIdentity::new(None));
     };
-
-    // Extract from the leaf certificate (first in the chain)
-
-    let leaf_cert = &peer_certs[0];
 
     // Extract SPIFFE ID from the leaf certificate
     match spiffe::cert::spiffe_id_from_der(leaf_cert.as_ref()) {
@@ -149,7 +141,7 @@ mod tests {
 
     #[test]
     fn test_peer_identity_none_when_empty_certs() {
-        let empty: &[CertificateDer] = &[];
+        let empty: &[CertificateDer<'_>] = &[];
         let identity = extract_peer_identity_impl(Some(empty)).unwrap();
         assert!(identity.spiffe_id().is_none());
     }
