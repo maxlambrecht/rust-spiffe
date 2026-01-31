@@ -57,7 +57,8 @@ impl MaterialWatcher {
         let cancel = CancellationToken::new();
         let token = cancel.clone();
 
-        let handle = tokio::runtime::Handle::try_current().map_err(|_| Error::NoTokioRuntime)?;
+        let handle = tokio::runtime::Handle::try_current()
+            .map_err(|tokio::runtime::TryCurrentError { .. }| Error::NoTokioRuntime)?;
 
         // Build initial material with generation 1
         let initial = Arc::new(build_material(source.as_ref(), 1)?);
@@ -81,13 +82,17 @@ impl MaterialWatcher {
                             let next_generation = generation + 1;
                             match build_material(source.as_ref(), next_generation) {
                                 Ok(mat) => {
-                                    if let Ok(()) = tx.send(Arc::new(mat)) {
-                                        generation = next_generation;
-                                        debug!("updated rustls material from X509Source rotation (generation={generation})");
-                                    } else {
-                                        // No receivers; stop the background loop
-                                        info!("material watcher has no receivers; stopping");
-                                        break;
+                                    match tx.send(Arc::new(mat)) {
+                                        Ok(()) => {
+                                            generation = next_generation;
+                                            debug!("updated rustls material from X509Source rotation (generation={generation})");
+                                        }
+                                        Err(watch::error::SendError(material)) => {
+                                            let _unused: Arc<MaterialSnapshot> = material;
+                                            // No receivers; stop the background loop
+                                            info!("material watcher has no receivers; stopping");
+                                            break;
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -110,7 +115,7 @@ impl MaterialWatcher {
         })
     }
 
-    pub fn current(&self) -> Arc<MaterialSnapshot> {
+    pub(crate) fn current(&self) -> Arc<MaterialSnapshot> {
         self.rx.borrow().clone()
     }
 }
@@ -239,6 +244,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "https://github.com/rust-lang/rust-clippy/issues/16476"
+    )]
     impl X509MaterialSource for FakeSource {
         fn current_svid(&self) -> Result<Arc<spiffe::X509Svid>> {
             self.svid
@@ -282,7 +291,7 @@ mod tests {
         ensure_provider();
 
         let td = TrustDomain::new("example.org").unwrap();
-        let src = FakeSource::new(None, Some(Arc::new(make_bundle(td.clone()))));
+        let src = FakeSource::new(None, Some(Arc::new(make_bundle(td))));
 
         let err = build_material(&src, 1).unwrap_err();
         assert!(matches!(err, Error::NoSvid));
@@ -302,8 +311,8 @@ mod tests {
 
     #[test]
     fn roots_from_bundle_der_builds_store() {
-        let certs = crate::material::certs_from_der_bytes([fixture_ca_der()]);
-        let store = crate::material::roots_from_certs(&certs).unwrap();
+        let certs = certs_from_der_bytes([fixture_ca_der()]);
+        let store = roots_from_certs(&certs).unwrap();
         assert!(!store.is_empty());
     }
 
@@ -311,10 +320,10 @@ mod tests {
     fn certified_key_from_der_builds_key() {
         ensure_provider();
 
-        let chain = crate::material::cert_chain_from_der_bytes([fixture_spiffe_leaf_der()]);
+        let chain = cert_chain_from_der_bytes([fixture_spiffe_leaf_der()]);
         let key = fixture_leaf_key_pkcs8_der();
 
-        let ck = crate::material::certified_key_from_chain_and_key(chain, key).unwrap();
+        let ck = certified_key_from_chain_and_key(chain, key).unwrap();
         assert!(!ck.cert.is_empty());
     }
 }

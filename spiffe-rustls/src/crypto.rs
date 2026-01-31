@@ -9,7 +9,7 @@ pub(crate) fn ensure_crypto_provider_installed() {
     static INSTALLED: OnceLock<()> = OnceLock::new();
     INSTALLED.get_or_init(|| {
         // Best-effort: ignore error if already installed by the application.
-        let _ = crypto_provider().install_default();
+        let _unused: Result<(), _> = crypto_provider().install_default();
     });
 }
 

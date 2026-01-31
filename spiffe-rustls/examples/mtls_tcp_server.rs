@@ -1,10 +1,14 @@
+#![expect(missing_docs, reason = "example")]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 use spiffe::{TrustDomain, X509Source};
 use spiffe_rustls::{authorizer, mtls_server, LocalOnly};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
+#[expect(clippy::print_stdout, clippy::print_stderr, reason = "example")]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -60,15 +64,19 @@ async fn main() -> anyhow::Result<()> {
 
                             let mut buf = [0u8; 1024];
                             match tls.read(&mut buf).await {
-                                Ok(n) if n > 0 => {
-                                    let msg = String::from_utf8_lossy(&buf[..n]).trim_end().to_string();
-                                    println!("server received: {msg}");
-
-                                    let reply = format!("hello from server (got: {msg})\n");
-                                    let _ = tls.write_all(reply.as_bytes()).await;
-                                    let _ = tls.shutdown().await;
+                                Ok(n) => {
+                                    if n == 0 {
+                                        println!("server: client closed without sending data");
+                                    } else {
+                                        #[expect(clippy::indexing_slicing, reason = "Read contract")]
+                                        let msg = String::from_utf8_lossy(&buf[..n]);
+                                        let msg = msg.trim_end();
+                                        println!("server received: {msg}");
+                                        let reply = format!("hello from server (got: {msg})\n");
+                                        let _unused: std::io::Result<()> = tls.write_all(reply.as_bytes()).await;
+                                        let _unused: std::io::Result<()> = tls.shutdown().await;
+                                    }
                                 }
-                                Ok(_) => println!("server: client closed without sending data"),
                                 Err(e) => eprintln!("server read error: {e}"),
                             }
                         }

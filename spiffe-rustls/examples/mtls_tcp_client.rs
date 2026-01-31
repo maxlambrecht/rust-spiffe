@@ -1,11 +1,15 @@
+#![expect(missing_docs, reason = "example")]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 use spiffe::X509Source;
 use spiffe_rustls::{authorizer, mtls_client, AllowList};
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpStream;
 use tokio_rustls::TlsConnector;
 
+#[expect(clippy::print_stdout, reason = "example")]
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -51,12 +55,12 @@ async fn main() -> anyhow::Result<()> {
 
     let mut buf = [0u8; 1024];
     let n = tls.read(&mut buf).await?;
-    println!(
-        "client received: {}",
-        String::from_utf8_lossy(&buf[..n]).trim_end()
-    );
+    #[expect(clippy::indexing_slicing, reason = "Read contract")]
+    let msg = String::from_utf8_lossy(&buf[..n]);
+    let msg = msg.trim_end();
+    println!("client received: {msg}");
 
-    let _ = tls.shutdown().await;
+    let _unused: std::io::Result<()> = tls.shutdown().await;
 
     source.shutdown().await;
     Ok(())
