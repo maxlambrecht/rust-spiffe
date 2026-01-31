@@ -1,3 +1,5 @@
+#![expect(missing_docs, reason = "example")]
+
 use spiffe::X509Source;
 use spiffe_rustls::{authorizer, mtls_client, AllowList};
 use std::collections::BTreeSet;
@@ -6,6 +8,17 @@ use tonic::Request;
 use tonic_rustls::channel::Channel;
 use tonic_rustls::Endpoint;
 
+#[expect(
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::clone_on_ref_ptr,
+    clippy::default_trait_access,
+    clippy::doc_markdown,
+    clippy::missing_const_for_fn,
+    clippy::missing_errors_doc,
+    missing_docs,
+    unused_qualifications
+)]
 pub mod helloworld {
     tonic::include_proto!("helloworld");
 }
@@ -13,6 +26,7 @@ pub mod helloworld {
 use helloworld::greeter_client::GreeterClient;
 use helloworld::HelloRequest;
 
+#[expect(clippy::print_stdout, reason = "example")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -65,6 +79,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let resp = client.say_hello(req).await?;
     println!("{}", resp.into_inner().message);
 
-    let _ = source.shutdown().await;
+    let () = source.shutdown().await;
     Ok(())
 }

@@ -1,3 +1,5 @@
+#![expect(missing_docs, reason = "build script")]
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=proto/helloworld.proto");
 
