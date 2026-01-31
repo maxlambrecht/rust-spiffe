@@ -11,9 +11,9 @@ use crate::workload_api::supervisor_common::{
     self, ErrorKey, ErrorTracker, StreamPhase, MAX_CONSECUTIVE_SAME_ERROR,
 };
 use crate::workload_api::WorkloadApiClient;
+use futures::StreamExt as _;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_stream::StreamExt as _;
 use tokio_util::sync::CancellationToken;
 
 /// Attempts to create a Workload API client.
@@ -89,7 +89,7 @@ pub(super) async fn try_connect_stream(
     phase: StreamPhase,
     supervisor_id: Option<u64>,
 ) -> Result<
-    impl tokio_stream::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static + use<>,
+    impl futures::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static + use<>,
     WorkloadApiError,
 > {
     match client.stream_jwt_bundles().await {
@@ -383,7 +383,7 @@ impl Inner {
 
     async fn process_stream_updates(
         &self,
-        stream: &mut (impl tokio_stream::Stream<Item = Result<JwtBundleSet, WorkloadApiError>>
+        stream: &mut (impl futures::Stream<Item = Result<JwtBundleSet, WorkloadApiError>>
                   + Unpin
                   + Send
                   + 'static),
