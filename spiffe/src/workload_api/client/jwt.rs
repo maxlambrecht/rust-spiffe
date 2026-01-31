@@ -6,9 +6,9 @@ use crate::workload_api::pb::workload::{
 use crate::{
     JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, WorkloadApiError,
 };
+use futures::{Stream, StreamExt as _};
 use std::str::FromStr as _;
 use std::sync::Arc;
-use tokio_stream::{Stream, StreamExt as _};
 
 impl WorkloadApiClient {
     /// Fetches the current set of JWT bundles from the SPIFFE Workload API.

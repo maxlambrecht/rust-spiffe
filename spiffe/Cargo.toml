@@ -40,8 +40,8 @@ base64ct = { version = "1.8", features = ["alloc"], optional = true }
 jsonwebtoken = { version = "10", optional = true, default-features = false }
 
 # Workload API (async + runtime helpers)
+futures = { version = "0.3", default-features = false, optional = true }
 tokio = { version = "1", default-features = false, features = ["rt", "net", "time", "sync"], optional = true }
-tokio-stream = { version = "0.1", optional = true }
 tokio-util = { version = "0.7", optional = true }
 arc-swap = { version = "1", optional = true }
 fastrand = { version = "2", optional = true }
@@ -88,8 +88,8 @@ x509 = ["dep:x509-parser", "dep:pkcs8", "dep:zeroize"]
 # X.509 or JWT parsing capabilities.
 workload-api-core = [
     "transport-grpc",
+    "dep:futures",
     "dep:tokio",
-    "dep:tokio-stream",
     "dep:tokio-util",
     "dep:arc-swap",
     "dep:fastrand",

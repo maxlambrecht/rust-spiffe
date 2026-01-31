@@ -5,10 +5,10 @@
 #[cfg(test)]
 #[cfg(feature = "workload-api-full")]
 mod integration_tests_workload_api_client {
+    use futures::StreamExt as _;
     use spiffe::bundle::BundleSource as _;
     use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
     use std::sync::LazyLock;
-    use tokio_stream::StreamExt as _;
 
     static SPIFFE_ID_1: LazyLock<SpiffeId> =
         LazyLock::new(|| SpiffeId::new("spiffe://example.org/myservice").unwrap());
