@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors returned by `spiffe-rustls-tokio`.
+#[expect(clippy::error_impl_error, reason = "unfortunate public API")]
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -11,7 +12,7 @@ pub enum Error {
     /// This typically occurs during the TLS handshake, but can also occur
     /// during connection operations.
     #[error("rustls error: {0}")]
-    Rustls(#[from] tokio_rustls::rustls::Error),
+    Rustls(#[from] rustls::Error),
 
     /// Failed to parse a peer certificate.
     ///
