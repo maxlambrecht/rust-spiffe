@@ -6,6 +6,9 @@ rust-version = "1.83"
 license = "Apache-2.0"
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 anyhow = "1"
 protox = "0.9.0"
