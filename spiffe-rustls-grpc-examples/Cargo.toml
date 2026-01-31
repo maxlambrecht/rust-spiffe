@@ -6,6 +6,9 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 spiffe = { version = "0.11", features = ["x509-source"]}
 spiffe-rustls = { path = "../spiffe-rustls", features = ["ring"] }
