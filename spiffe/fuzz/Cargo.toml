@@ -7,6 +7,9 @@ publish = false
 [package.metadata]
 cargo-fuzz = true
 
+[lints]
+workspace = true
+
 [dependencies]
 libfuzzer-sys = "0.4"
 spiffe = { path = "..", features = ["x509", "jwt"] }
@@ -22,5 +25,3 @@ name = "fuzz_trust_domain_parse"
 path = "fuzz_targets/fuzz_trust_domain_parse.rs"
 test = false
 doc = false
-
-[workspace]
