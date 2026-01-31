@@ -6,8 +6,8 @@ use crate::workload_api::x509_context::X509Context;
 use crate::{
     TrustDomain, WorkloadApiClient, WorkloadApiError, X509Bundle, X509BundleSet, X509Svid,
 };
+use futures::{Stream, StreamExt as _};
 use std::sync::Arc;
-use tokio_stream::{Stream, StreamExt as _};
 
 impl WorkloadApiClient {
     /// Fetches the default X.509 SVID for the calling workload from the SPIFFE Workload API.
