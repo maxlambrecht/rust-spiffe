@@ -1,4 +1,5 @@
 #![no_main]
+#![expect(clippy::expect_used, missing_docs, reason = "fuzz target")]
 
 use libfuzzer_sys::fuzz_target;
 use spiffe::{SpiffeId, TrustDomain};

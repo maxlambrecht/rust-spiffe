@@ -1,4 +1,5 @@
 #![no_main]
+#![expect(clippy::expect_used, missing_docs, reason = "fuzz target")]
 
 use libfuzzer_sys::fuzz_target;
 use spiffe::TrustDomain;
@@ -24,8 +25,10 @@ fuzz_target!(|data: &[u8]| {
 
         // id_string must be stable, parseable, and canonical.
         let id_str = td.id_string();
-        assert!(id_str.starts_with("spiffe://"));
-        assert_eq!(&id_str["spiffe://".len()..], td.as_str());
+        assert_eq!(
+            id_str.strip_prefix("spiffe://").expect(&id_str),
+            td.as_str()
+        );
 
         let td3 = TrustDomain::new(&id_str).expect("id_string must be parseable");
         assert_eq!(td, td3);

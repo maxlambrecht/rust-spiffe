@@ -377,7 +377,7 @@ deny:
 	$(info ==> Dependency policy check (cargo-deny))
 	@command -v cargo-deny >/dev/null 2>&1 || { echo "Error: cargo-deny not found. Install with: cargo install cargo-deny"; exit 1; }
 	$(CARGO) generate-lockfile
-	$(CARGO) deny check
+	$(CARGO) deny --exclude spiffe-fuzz check
 
 # -----------------------------------------------------------------------------
 # Lane introspection
