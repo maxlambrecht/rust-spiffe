@@ -91,7 +91,6 @@ jobs:
   test:
     name: Unit Tests
     runs-on: ubuntu-latest
-    needs: [fmt, lint, msrv]
     timeout-minutes: 30
     steps:
       - name: Check out code
@@ -119,7 +118,6 @@ jobs:
   integration:
     name: Integration Tests (SPIRE)
     runs-on: ubuntu-latest
-    needs: [fmt, lint]
     timeout-minutes: 20
     env:
       SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
