@@ -14,18 +14,14 @@ runs:
         version: "25.3"
         repo-token: ${{ inputs.github_token }}
 
-    - name: Setup Rust stable toolchain
-      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
-      with:
-        profile: minimal
-        toolchain: stable
-        default: true
-        components: clippy
-
     - name: Setup Rust nightly toolchain
-      uses: actions-rs/toolchain@4d3830945c2fde0cba21123066096384613b8558  # v1.0.6
+      uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
       with:
-        profile: minimal
         toolchain: nightly
         components: rustfmt
-        override: false
+
+    - name: Setup Rust stable toolchain
+      uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+      with:
+        toolchain: stable
+        components: clippy
