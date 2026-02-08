@@ -1,3 +1,6 @@
+#![expect(missing_docs, reason = "xtask")]
+#![expect(clippy::multiple_crate_versions, reason = "transitive")]
+
 use anyhow::{bail, ensure, Context as _};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -10,7 +13,7 @@ fn main() -> anyhow::Result<()> {
     match (args.next().as_deref(), args.next().as_deref(), args.next()) {
         (Some("gen"), Some("spiffe"), None) => gen_spiffe_protos(),
         (Some("gen"), Some("spire-api"), None) => gen_spire_api_protos(),
-        (Some("-h") | Some("--help") | None, _, _) => {
+        (Some("-h" | "--help") | None, _, _) => {
             print_usage();
             Ok(())
         }
@@ -24,11 +27,12 @@ fn main() -> anyhow::Result<()> {
     }
 }
 
+#[expect(clippy::print_stderr, reason = "sloppy CLI")]
 fn print_usage() {
     eprintln!("{}", usage_text());
 }
 
-fn usage_text() -> &'static str {
+const fn usage_text() -> &'static str {
     "Usage:
   cargo run -p xtask -- gen spiffe
   cargo run -p xtask -- gen spire-api"
@@ -41,6 +45,7 @@ fn repo_root() -> anyhow::Result<PathBuf> {
         .map(Path::to_path_buf)
 }
 
+#[expect(clippy::print_stdout, reason = "sloppy CLI")]
 fn gen_spiffe_protos() -> anyhow::Result<()> {
     let repo_root = repo_root()?;
 
@@ -83,6 +88,7 @@ fn gen_spiffe_protos() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[expect(clippy::print_stdout, reason = "sloppy CLI")]
 fn gen_spire_api_protos() -> anyhow::Result<()> {
     let repo_root = repo_root()?;
 
@@ -151,7 +157,7 @@ fn compile_protos(
     let mut proto_config = prost_build::Config::new();
     proto_config.bytes(["."]);
 
-    let fds = protox::compile(proto_files.iter().map(|p| p.as_path()), [include_dir])
+    let fds = protox::compile(proto_files.iter().map(PathBuf::as_path), [include_dir])
         .with_context(|| err_ctx.to_string())?;
 
     tonic_prost_build::configure()
@@ -215,5 +221,5 @@ fn try_rustfmt(path: &Path, edition: &str, config_path: Option<&Path>) {
         cmd.arg("--config-path").arg(cfg);
     }
 
-    let _ = cmd.arg(path).status();
+    let _unused: std::io::Result<std::process::ExitStatus> = cmd.arg(path).status();
 }

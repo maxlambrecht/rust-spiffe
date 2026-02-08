@@ -242,7 +242,7 @@ impl ClientConfigBuilder {
             });
 
         let verifier = Arc::new(SpiffeServerCertVerifier::new(
-            Arc::new(watcher) as Arc<dyn crate::verifier::MaterialProvider>,
+            Arc::new(watcher),
             self.authorizer,
             self.trust_domain_policy,
         ));
@@ -280,7 +280,7 @@ mod resolve_client {
             _acceptable_issuers: &[&[u8]],
             _sigschemes: &[rustls::SignatureScheme],
         ) -> Option<Arc<CertifiedKey>> {
-            Some(self.watcher.current().certified_key.clone())
+            Some(Arc::clone(&self.watcher.current().certified_key))
         }
 
         fn has_certs(&self) -> bool {

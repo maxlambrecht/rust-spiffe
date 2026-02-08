@@ -1,8 +1,21 @@
+#![expect(missing_docs, reason = "example")]
+
 use spiffe::{TrustDomain, X509Source};
 use spiffe_rustls::{authorizer, mtls_server, LocalOnly};
 use tonic::{Request, Response, Status};
 use tonic_rustls::Server;
 
+#[expect(
+    clippy::allow_attributes,
+    clippy::allow_attributes_without_reason,
+    clippy::clone_on_ref_ptr,
+    clippy::default_trait_access,
+    clippy::doc_markdown,
+    clippy::missing_const_for_fn,
+    clippy::missing_errors_doc,
+    missing_docs,
+    unused_qualifications
+)]
 pub mod helloworld {
     tonic::include_proto!("helloworld");
 }
@@ -15,14 +28,18 @@ struct MyGreeter;
 
 #[tonic::async_trait]
 impl Greeter for MyGreeter {
-    async fn say_hello(&self, req: Request<HelloRequest>) -> Result<Response<HelloReply>, Status> {
-        let name = req.into_inner().name;
+    async fn say_hello(
+        &self,
+        request: Request<HelloRequest>,
+    ) -> Result<Response<HelloReply>, Status> {
+        let name = request.into_inner().name;
         Ok(Response::new(HelloReply {
             message: format!("hello, {name}"),
         }))
     }
 }
 
+#[expect(clippy::print_stderr, reason = "example")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -70,10 +87,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     server
         .add_service(GreeterServer::new(MyGreeter))
         .serve_with_shutdown(addr, async {
-            let _ = tokio::signal::ctrl_c().await;
+            let _unused: std::io::Result<()> = tokio::signal::ctrl_c().await;
         })
         .await?;
 
-    let _ = source.shutdown().await;
+    let () = source.shutdown().await;
     Ok(())
 }

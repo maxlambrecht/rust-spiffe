@@ -1,3 +1,14 @@
+#![expect(missing_docs, reason = "integration test")]
+#![expect(
+    clippy::tests_outside_test_module,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11024"
+)]
+#![expect(
+    clippy::expect_used,
+    reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
+)]
+#![expect(unused_crate_dependencies, reason = "used in the library target")]
+
 use rustls::pki_types::ServerName;
 use spiffe::X509Source;
 use spiffe_rustls::{authorizer, mtls_client, mtls_server, Authorizer};
@@ -75,6 +86,7 @@ async fn integration_mtls_matrix() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[expect(clippy::print_stderr, reason = "TODO: use test_case crate")]
 async fn run_case(
     case: Case,
     allowed_ids: [&'static str; 2],
@@ -100,7 +112,6 @@ async fn run_case(
         let (tcp, _) = listener.accept().await?;
         let res = acceptor.accept(tcp).await;
         res.map(|_| ())
-            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
     });
 
     // Client: connect + TLS connect and capture result.
@@ -112,30 +123,16 @@ async fn run_case(
 
     match case.expected {
         Expected::Success => {
-            if let Err(e) = client_res {
-                panic!(
-                    "case '{}' expected client success, got error: {e:?}",
-                    case.name
-                );
-            }
-            if let Err(e) = server_res {
-                panic!(
-                    "case '{}' expected server success, got error: {e:?}",
-                    case.name
-                );
-            }
+            client_res.expect(case.name);
+            server_res.expect(case.name);
         }
 
         Expected::ClientConnectFails => {
-            if client_res.is_ok() {
-                panic!("case '{}' expected client failure, got success", case.name);
-            }
+            client_res.expect_err(case.name);
         }
 
         Expected::ServerAcceptFails => {
-            if server_res.is_ok() {
-                panic!("case '{}' expected server failure, got success", case.name);
-            }
+            server_res.expect_err(case.name);
         }
     }
 

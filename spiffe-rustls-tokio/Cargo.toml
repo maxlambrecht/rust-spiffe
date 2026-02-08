@@ -15,9 +15,11 @@ keywords = ["spiffe", "spire", "rustls", "tokio", "mtls"]
 [package.metadata.docs.rs]
 rustdoc-args = ["--cfg", "docsrs"]
 
+[lints]
+workspace = true
+
 [dependencies]
 spiffe = { version = "0.11", features = ["x509-source"] }
-spiffe-rustls = { version = "0.4" }
 tokio = { version = "1", default-features = false, features = ["net", "rt"] }
 tokio-rustls = { version = "0.26", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std"] }
@@ -26,6 +28,7 @@ thiserror = "2"
 [dev-dependencies]
 anyhow = "1"
 env_logger = "0.11"
+spiffe-rustls = { version = "0.4" }
 tokio = { version = "1", default-features = false, features = [
     "rt-multi-thread",
     "signal",

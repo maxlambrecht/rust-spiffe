@@ -11,9 +11,9 @@ use crate::workload_api::x509_context::X509Context;
 use crate::workload_api::WorkloadApiClient;
 use crate::x509_source::source::Inner;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
+use futures::StreamExt as _;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio_stream::StreamExt as _;
 use tokio_util::sync::CancellationToken;
 
 /// Attempts to create a Workload API client.
@@ -95,7 +95,7 @@ pub(super) async fn try_connect_stream(
     phase: StreamPhase,
     supervisor_id: Option<u64>,
 ) -> Result<
-    impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static + use<>,
+    impl futures::Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static + use<>,
     WorkloadApiError,
 > {
     match client.stream_x509_contexts().await {
@@ -395,7 +395,7 @@ impl Inner {
 
     async fn process_stream_updates(
         &self,
-        stream: &mut (impl tokio_stream::Stream<Item = Result<X509Context, WorkloadApiError>>
+        stream: &mut (impl futures::Stream<Item = Result<X509Context, WorkloadApiError>>
                   + Unpin
                   + Send
                   + 'static),
