@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.7] – 2026-02-14
+
+### Changed
+- MSRV raised to 1.88 (workspace-wide; required by spiffe 0.11.4).
+- Workspace lints now inherited via `[lints] workspace = true`.
+- Resolved clippy lints across verifier, resolver, and example code.
+- Tightened rustdoc across modules.
+
+### Notes
+- No public API changes.
+
+
 ## [0.4.6] – 2026-01-22
 
 ### Changed
