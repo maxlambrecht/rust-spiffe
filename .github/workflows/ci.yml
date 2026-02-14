@@ -16,7 +16,7 @@ permissions:
 
 env:
   # Minimum Supported Rust Version
-  MSRV: 1.87.0
+  MSRV: 1.88.0
   # Enable backtraces for better error diagnostics
   RUST_BACKTRACE: "1"
 

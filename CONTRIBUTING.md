@@ -10,7 +10,7 @@ This project values clear APIs, disciplined changes, and a low-noise contributio
 
 ### Prerequisites
 
-- Rust 1.85 or later (see `rust-version` in `Cargo.toml`)
+- Rust 1.88 or later (see `rust-version` in `Cargo.toml`)
 - `make` (for running the test suite)
 - SPIRE agent (for integration tests)
 
