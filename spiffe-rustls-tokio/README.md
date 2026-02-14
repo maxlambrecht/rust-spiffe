@@ -3,7 +3,7 @@
 [![Crates.io](https://img.shields.io/crates/v/spiffe-rustls-tokio.svg)](https://crates.io/crates/spiffe-rustls-tokio)
 [![Docs.rs](https://docs.rs/spiffe-rustls-tokio/badge.svg)](https://docs.rs/spiffe-rustls-tokio/)
 [![Safety](https://img.shields.io/badge/unsafe-forbidden-success.svg)](https://github.com/rust-secure-code/safety-dance)
-[![Rust 1.87+](https://img.shields.io/badge/rust-1.87+-orange.svg)](https://www.rust-lang.org)
+[![Rust 1.88+](https://img.shields.io/badge/rust-1.88+-orange.svg)](https://www.rust-lang.org)
 
 Tokio-native async accept/connect helpers for [`spiffe-rustls`](https://crates.io/crates/spiffe-rustls) configs.
 

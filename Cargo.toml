@@ -20,7 +20,7 @@ default-members = [
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.87"
+rust-version = "1.88"
 license = "Apache-2.0"
 repository = "https://github.com/maxlambrecht/rust-spiffe"
 authors = ["Max Lambrecht <maxlambrecht@gmail.com>"]
