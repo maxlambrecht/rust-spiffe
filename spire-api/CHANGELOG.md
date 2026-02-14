@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.3] – 2026-02-14
+
+### Changed
+- MSRV raised to 1.88 (inherited from workspace; required by `spiffe` 0.11.4).
+- Replaced `tokio-stream` with `futures` for stream types.
+- Moved `tokio` from runtime dependency to dev-dependency.
+- Removed `once_cell` in favor of `std` equivalents.
+- Removed dead code and unused protobuf module re-exports.
+- Added `default-features = false` to `prost`, `thiserror`, and `tonic-prost`.
+- Workspace lints now inherited via `[lints] workspace = true`.
+- Tightened rustdoc across modules.
+
+### Notes
+- No public API changes.
+
+
 ## [0.5.2] – 2026-01-21
 
 ### Changed
