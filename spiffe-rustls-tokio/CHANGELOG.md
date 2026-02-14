@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2] – 2026-02-14
+
+### Changed
+- MSRV raised to 1.88 (inherited from workspace; required by `spiffe` 0.11.4).
+- Moved `spiffe-rustls` from runtime dependency to dev-dependency (only used in examples).
+- Workspace lints now inherited via `[lints] workspace = true`.
+- Resolved clippy lints and tightened rustdoc.
+
+### Notes
+- No public API changes.
+
+
 ## [0.1.1] – 2026-01-22
 
 ### Changed
