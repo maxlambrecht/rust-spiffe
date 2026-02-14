@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.4] – 2026-02-14
+
+### Security
+- Bumped `time` dependency to `>=0.3.47` to address RUSTSEC-2026-0009 / CVE-2026-25727.
+
+### Changed
+- MSRV raised from 1.87 to 1.88 (required by `time` 0.3.47+).
+- Replaced `tokio-stream` with `futures` for stream types.
+- Removed `once_cell` in favor of `std` equivalents.
+- Promoted several public accessors and constructors to `const fn`.
+- Workspace lints now inherited via `[lints] workspace = true`.
+- Tightened rustdoc across modules.
+
+
 ## [0.11.3] – 2026-01-22
 
 ### Changed
