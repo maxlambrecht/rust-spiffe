@@ -125,7 +125,11 @@ pub(crate) fn next_backoff(current: Duration, max: Duration) -> Duration {
         0
     };
 
-    Duration::from_millis((base.saturating_add(add)).min(max))
+    // Subtract jitter range from base before adding random jitter, so the
+    // result stays within [base - jitter, base] instead of being clamped to
+    // exactly `max` when base == max.
+    let jitter_base = base.saturating_sub(jitter);
+    Duration::from_millis(jitter_base.saturating_add(add))
 }
 
 /// Slower backoff policy for "no identity issued" condition.
