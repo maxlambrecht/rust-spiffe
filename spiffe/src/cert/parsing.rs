@@ -104,7 +104,14 @@ pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
     der_bytes: &[u8],
 ) -> Result<X509Certificate<'_>, CertificateError> {
     match x509_parser::parse_x509_certificate(der_bytes) {
-        Ok((_, cert)) => Ok(cert),
+        Ok((rest, cert)) => {
+            if !rest.is_empty() {
+                return Err(CertificateError::ParseX509Certificate(
+                    X509Error::InvalidCertificate,
+                ));
+            }
+            Ok(cert)
+        }
         Err(Err::Incomplete(_)) => Err(CertificateError::ParseX509Certificate(
             X509Error::InvalidCertificate,
         )),

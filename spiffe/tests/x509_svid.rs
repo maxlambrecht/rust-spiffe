@@ -60,6 +60,36 @@ mod x509_svid_tests {
         ));
     }
 
+
+    /// Security test: `Certificate::try_from` must reject DER bytes that contain
+    /// trailing garbage after a valid certificate.  Before the fix,
+    /// `parse_der_encoded_bytes_as_x509_certificate` silently discarded the
+    /// remaining bytes, allowing `as_bytes()` to return more data than the
+    /// actual DER certificate.
+    #[test]
+    fn test_certificate_rejects_trailing_bytes() {
+        use spiffe::cert::Certificate;
+
+        // Use a known single-certificate DER file.
+        let valid_cert: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns.der");
+
+        // Sanity: the valid single certificate should be accepted.
+        Certificate::try_from(valid_cert).expect("valid single cert should parse");
+
+        // Append garbage bytes after the valid certificate.
+        let mut with_trailing = valid_cert.to_vec();
+        with_trailing.extend_from_slice(b"\x00\x01\x02\x03");
+
+        let result = Certificate::try_from(with_trailing);
+        assert!(
+            matches!(
+                result,
+                Err(CertificateError::ParseX509Certificate(..))
+            ),
+            "should reject certificate bytes with trailing garbage"
+        );
+    }
+
     #[test]
     fn test_x509_svid_parse_from_der_corrupted_private_key() {
         let certs_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-svid-chain.der");
