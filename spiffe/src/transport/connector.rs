@@ -47,6 +47,14 @@ fn tcp_uri(host: IpAddr, port: u16) -> String {
     }
 }
 
+/// Connects over plaintext HTTP.
+///
+/// # Security
+///
+/// This transport does **not** use TLS. Private key material and JWT tokens
+/// are transmitted in cleartext. Only use TCP transport on trusted networks
+/// (e.g., loopback) or behind an external TLS layer. The SPIFFE specification
+/// recommends Unix domain sockets for local Workload API communication.
 async fn connect_tcp(host: IpAddr, port: u16) -> Result<Channel, TransportError> {
     let uri = tcp_uri(host, port);
     Ok(TonicEndpoint::try_from(uri)?.connect().await?)
