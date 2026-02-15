@@ -212,6 +212,15 @@ impl SpiffeId {
             path.push('/');
             path.push_str(seg);
         }
+
+        // Enforce total SPIFFE ID URI length limit per SPIFFE specification.
+        let uri_len = SPIFFE_SCHEME_PREFIX.len() + trust_domain.as_str().len() + path.len();
+        if uri_len > MAX_SPIFFE_ID_URI_LENGTH {
+            return Err(SpiffeIdError::SpiffeIdTooLong {
+                max: MAX_SPIFFE_ID_URI_LENGTH,
+            });
+        }
+
         Ok(Self { trust_domain, path })
     }
 
@@ -743,6 +752,16 @@ mod spiffe_id_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_from_segments_uri_length_limit() {
+        let td = TrustDomain::new("example.org").unwrap();
+        // "spiffe://example.org" = 20 bytes, each "/a" segment adds 2 bytes
+        // 1015 segments of "a" = 2030 bytes path + 20 = 2050 > 2048
+        let segments: Vec<&str> = vec!["a"; 1015];
+        let result = SpiffeId::from_segments(td, &segments);
+        assert!(matches!(result, Err(SpiffeIdError::SpiffeIdTooLong { .. })));
     }
 
     #[test]
