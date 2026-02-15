@@ -166,15 +166,11 @@ impl WorkloadApiClient {
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if validation fails or the token cannot be parsed.
-    pub async fn validate_jwt_token<I>(
+    pub async fn validate_jwt_token(
         &self,
-        audience: I,
+        audience: &str,
         jwt_token: &str,
-    ) -> Result<JwtSvid, WorkloadApiError>
-    where
-        I: IntoIterator,
-        I::Item: AsRef<str>,
-    {
+    ) -> Result<JwtSvid, WorkloadApiError> {
         // Validate via the SPIRE agent (security property comes from agent validation)
         let _unused: ValidateJwtsvidResponse = self.validate_jwt(audience, jwt_token).await?;
         // Parse locally for structured access (safe because agent already validated)
@@ -235,20 +231,13 @@ impl WorkloadApiClient {
         Ok(client.fetch_jwtsvid(request).await?.into_inner())
     }
 
-    async fn validate_jwt<I>(
+    async fn validate_jwt(
         &self,
-        audience: I,
+        audience: &str,
         jwt_svid: &str,
-    ) -> Result<ValidateJwtsvidResponse, WorkloadApiError>
-    where
-        I: IntoIterator,
-        I::Item: AsRef<str>,
-    {
+    ) -> Result<ValidateJwtsvidResponse, WorkloadApiError> {
         let request = ValidateJwtsvidRequest {
-            audience: audience
-                .into_iter()
-                .map(|a| a.as_ref().to_string())
-                .collect(),
+            audience: audience.to_string(),
             svid: jwt_svid.into(),
         };
         let mut client = self.client.clone();
