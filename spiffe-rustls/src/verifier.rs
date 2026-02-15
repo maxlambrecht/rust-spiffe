@@ -247,6 +247,13 @@ impl MaterialProvider for MaterialWatcher {
 
 // ---- cache helpers ----
 
+/// Maximum number of entries in the verifier cache.
+///
+/// Federated environments typically involve 2-5 trust domains. A capacity of 8
+/// accommodates common deployments while bounding memory usage. When the cache
+/// is full, the oldest entry (FIFO) is evicted.
+const VERIFIER_CACHE_CAPACITY: usize = 8;
+
 /// Cache key for verifiers: (generation, `trust_domain`)
 type VerifierCacheKey = (u64, spiffe::TrustDomain);
 
@@ -345,7 +352,7 @@ pub(crate) struct SpiffeServerCertVerifier {
     provider: Arc<dyn MaterialProvider>,
     authorizer: Arc<dyn Authorizer>,
     policy: TrustDomainPolicy,
-    cache: Arc<Mutex<Option<ServerVerifierCache>>>,
+    cache: Arc<Mutex<Vec<ServerVerifierCache>>>,
     parse_cache: Arc<Mutex<CertParseCache>>,
     last_logged_gen: Arc<Mutex<Option<u64>>>,
 }
@@ -360,7 +367,7 @@ impl SpiffeServerCertVerifier {
             provider,
             authorizer: Arc::new(authorizer),
             policy,
-            cache: Arc::new(Mutex::new(None)),
+            cache: Arc::new(Mutex::new(Vec::with_capacity(VERIFIER_CACHE_CAPACITY))),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
             last_logged_gen: Arc::new(Mutex::new(None)),
         }
@@ -392,16 +399,18 @@ impl SpiffeServerCertVerifier {
             let mut guard = lock_mutex(&self.cache)
                 .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
 
-            match guard.as_ref() {
-                Some(entry) if entry.key == cache_key => Arc::clone(&entry.cell),
-                _ => {
-                    let cell = Arc::new(ServerBuildCell::new());
-                    *guard = Some(ServerVerifierCache {
-                        key: cache_key,
-                        cell: Arc::clone(&cell),
-                    });
-                    cell
+            if let Some(entry) = guard.iter().find(|e| e.key == cache_key) {
+                Arc::clone(&entry.cell)
+            } else {
+                let cell = Arc::new(ServerBuildCell::new());
+                if guard.len() >= VERIFIER_CACHE_CAPACITY {
+                    guard.remove(0); // FIFO eviction of oldest entry
                 }
+                guard.push(ServerVerifierCache {
+                    key: cache_key,
+                    cell: Arc::clone(&cell),
+                });
+                cell
             }
         };
 
@@ -460,8 +469,8 @@ impl SpiffeServerCertVerifier {
     fn supported_schemes_cached(&self, trust_domain: &spiffe::TrustDomain) -> Vec<SignatureScheme> {
         let cell = match lock_mutex(&self.cache) {
             Ok(guard) => guard
-                .as_ref()
-                .filter(|e| e.key.1 == *trust_domain)
+                .iter()
+                .find(|e| e.key.1 == *trust_domain)
                 .map(|e| Arc::clone(&e.cell)),
             Err(_e) => {
                 error!("server verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
@@ -582,7 +591,7 @@ pub(crate) struct SpiffeClientCertVerifier {
     provider: Arc<dyn MaterialProvider>,
     authorizer: Arc<dyn Authorizer>,
     policy: TrustDomainPolicy,
-    cache: Arc<Mutex<Option<ClientVerifierCache>>>,
+    cache: Arc<Mutex<Vec<ClientVerifierCache>>>,
     parse_cache: Arc<Mutex<CertParseCache>>,
     last_logged_gen: Arc<Mutex<Option<u64>>>,
 }
@@ -597,7 +606,7 @@ impl SpiffeClientCertVerifier {
             provider,
             authorizer: Arc::new(authorizer),
             policy,
-            cache: Arc::new(Mutex::new(None)),
+            cache: Arc::new(Mutex::new(Vec::with_capacity(VERIFIER_CACHE_CAPACITY))),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
             last_logged_gen: Arc::new(Mutex::new(None)),
         }
@@ -628,16 +637,18 @@ impl SpiffeClientCertVerifier {
             let mut guard = lock_mutex(&self.cache)
                 .map_err(|()| Error::Internal("client verifier cache mutex poisoned".into()))?;
 
-            match guard.as_ref() {
-                Some(entry) if entry.key == cache_key => Arc::clone(&entry.cell),
-                _ => {
-                    let cell = Arc::new(ClientBuildCell::new());
-                    *guard = Some(ClientVerifierCache {
-                        key: cache_key,
-                        cell: Arc::clone(&cell),
-                    });
-                    cell
+            if let Some(entry) = guard.iter().find(|e| e.key == cache_key) {
+                Arc::clone(&entry.cell)
+            } else {
+                let cell = Arc::new(ClientBuildCell::new());
+                if guard.len() >= VERIFIER_CACHE_CAPACITY {
+                    guard.remove(0); // FIFO eviction of oldest entry
                 }
+                guard.push(ClientVerifierCache {
+                    key: cache_key,
+                    cell: Arc::clone(&cell),
+                });
+                cell
             }
         };
 
@@ -693,8 +704,8 @@ impl SpiffeClientCertVerifier {
     fn supported_schemes_cached(&self, trust_domain: &spiffe::TrustDomain) -> Vec<SignatureScheme> {
         let cell = match lock_mutex(&self.cache) {
             Ok(guard) => guard
-                .as_ref()
-                .filter(|e| e.key.1 == *trust_domain)
+                .iter()
+                .find(|e| e.key.1 == *trust_domain)
                 .map(|e| Arc::clone(&e.cell)),
             Err(_e) => {
                 error!("client verifier cache mutex poisoned; returning empty schemes (handshake will fail)");
@@ -887,7 +898,7 @@ fn advertised_verify_schemes(
 
     // Build union of schemes from all trust domains
     // Note: Using Vec with contains() for deduplication since SignatureScheme doesn't implement Hash.
-    // The number of schemes is typically small (< 10), so O(n²) is acceptable.
+    // The number of schemes is typically small (< 10), so O(n^2) is acceptable.
     let mut union: Vec<SignatureScheme> = Vec::new();
 
     for (td, roots) in &snap.roots_by_td {
