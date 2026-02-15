@@ -135,13 +135,18 @@ pub(crate) fn next_backoff(current: Duration, max: Duration) -> Duration {
 /// Slower backoff policy for "no identity issued" condition.
 ///
 /// This is an expected transient state (workload may not be registered yet),
-/// so we use a gentler backoff: starts at 1s, exponential up to 10s, with jitter.
-pub(crate) fn next_backoff_for_no_identity(current: Duration) -> Duration {
+/// so we use a gentler backoff: starts at 1s, exponential up to the effective
+/// maximum (the lesser of the user-configured `max` and the default 10s cap),
+/// with jitter.
+pub(crate) fn next_backoff_for_no_identity(current: Duration, max: Duration) -> Duration {
     const MIN_BACKOFF_MS: u64 = 1000; // 1 second
-    const MAX_BACKOFF_MS: u64 = 10000; // 10 seconds
+    const DEFAULT_MAX_BACKOFF_MS: u64 = 10000; // 10 seconds
+
+    let max_ms = u64::try_from(max.as_millis()).unwrap_or(u64::MAX);
+    let effective_max = max_ms.min(DEFAULT_MAX_BACKOFF_MS);
 
     let current_with_min = current.max(Duration::from_millis(MIN_BACKOFF_MS));
-    next_backoff(current_with_min, Duration::from_millis(MAX_BACKOFF_MS))
+    next_backoff(current_with_min, Duration::from_millis(effective_max))
 }
 
 #[cfg(test)]
@@ -171,6 +176,56 @@ mod tests {
         assert!(
             results.len() > 1,
             "expected jitter to produce varying results, got {results:?}"
+        );
+    }
+
+    #[test]
+    fn no_identity_backoff_starts_at_minimum_1s() {
+        // Even with a very small current backoff, the minimum is clamped to 1s,
+        // then doubled to 2s by next_backoff. With jitter (0-10%), the result
+        // lands in [1.8s, 2.0s].
+        let result =
+            next_backoff_for_no_identity(Duration::from_millis(100), Duration::from_secs(30));
+        assert!(
+            result >= Duration::from_millis(1800),
+            "expected >= 1800ms (2s - 10% jitter), got {}ms",
+            result.as_millis()
+        );
+    }
+
+    #[test]
+    fn no_identity_backoff_respects_default_10s_cap() {
+        // Even with a high user-configured max, the effective max is 10s.
+        let result = next_backoff_for_no_identity(Duration::from_secs(8), Duration::from_secs(60));
+        assert!(
+            result <= Duration::from_secs(11),
+            "expected <= 11s (10s + jitter), got {}ms",
+            result.as_millis()
+        );
+    }
+
+    #[test]
+    fn no_identity_backoff_respects_user_max_below_default() {
+        // If user-configured max is 3s (below the 10s default), that should be the cap.
+        let result = next_backoff_for_no_identity(Duration::from_secs(2), Duration::from_secs(3));
+        assert!(
+            result <= Duration::from_millis(3300),
+            "expected <= 3.3s (3s + jitter), got {}ms",
+            result.as_millis()
+        );
+    }
+
+    #[test]
+    fn no_identity_backoff_grows_exponentially() {
+        let first = next_backoff_for_no_identity(Duration::from_secs(1), Duration::from_secs(30));
+        let second = next_backoff_for_no_identity(first, Duration::from_secs(30));
+
+        // Second backoff should be larger than first (exponential growth)
+        assert!(
+            second > first,
+            "expected growth: first={}ms, second={}ms",
+            first.as_millis(),
+            second.as_millis()
         );
     }
 }
