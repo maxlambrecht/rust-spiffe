@@ -602,8 +602,17 @@ impl JwtSource {
             initial_sync_with_retry(&make_client, &cancel, reconnect, limits, metrics.as_deref())
                 .await?;
 
-        // Create initial client for on-demand SVID fetching
-        let initial_client = make_client().await.map_err(JwtSourceError::Source)?;
+        // Create initial client for on-demand SVID fetching.
+        // Retry once after a short delay if the first attempt fails, because the
+        // initial sync (which also creates clients internally) already succeeded,
+        // so a failure here is likely transient.
+        let initial_client = match make_client().await {
+            Ok(c) => c,
+            Err(_first_err) => {
+                tokio::time::sleep(reconnect.min_backoff).await;
+                make_client().await.map_err(JwtSourceError::Source)?
+            }
+        };
         let initial_client_arc = Arc::new(initial_client);
 
         let inner = Arc::new(Inner {
