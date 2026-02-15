@@ -93,7 +93,7 @@ impl Endpoint {
         let normalized = normalize_endpoint_uri(input);
         let url = Url::parse(&normalized)?;
 
-        if !url.username().is_empty() {
+        if !url.username().is_empty() || url.password().is_some() {
             return Err(EndpointError::HasUserInfo);
         }
         if url.query().is_some() {
@@ -345,6 +345,11 @@ mod tests {
         ),
         parse_tcp_uri_with_user_info: (
             "tcp://john:doe@1.2.3.4:80",
+            EndpointError::HasUserInfo,
+            "endpoint socket URI must not include user info",
+        ),
+        parse_tcp_uri_with_password_only_user_info: (
+            "tcp://:secret@127.0.0.1:8080",
             EndpointError::HasUserInfo,
             "endpoint socket URI must not include user info",
         ),
