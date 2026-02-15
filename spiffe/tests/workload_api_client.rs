@@ -48,7 +48,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT token");
         let jwt_svid = client
-            .validate_jwt_token(["my_audience"], &token)
+            .validate_jwt_token("my_audience", &token)
             .await
             .expect("Failed to validate JWT token");
         assert_eq!(jwt_svid.audience(), &["my_audience"]);
@@ -59,7 +59,7 @@ mod integration_tests_workload_api_client {
             .await
             .expect("Failed to fetch JWT token");
         let jwt_svid = client
-            .validate_jwt_token(["other_audience"], &token)
+            .validate_jwt_token("other_audience", &token)
             .await
             .expect("Failed to validate JWT token");
         assert_eq!(jwt_svid.audience(), &["other_audience"]);
