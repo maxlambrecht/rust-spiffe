@@ -22,15 +22,8 @@ use tokio_util::sync::CancellationToken;
 ///
 /// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
-/// Attempts to create a Workload API client.
-///
-/// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
-///
-/// On error, records `ClientCreation` metric. The caller should call `record_reconnect`
-/// for steady-state reconnections (not for initial sync).
 pub(super) async fn try_create_client(
     make_client: &ClientFactory,
-    _min_backoff: Duration,
     backoff: Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
@@ -82,14 +75,13 @@ pub(super) async fn try_create_client(
 
 /// Attempts to connect to the X.509 context stream.
 ///
-/// Records metrics and logs errors. Resets backoff to `min_backoff` on success.
+/// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
 ///
 /// On error, records `StreamConnect` metric. The caller should call `record_reconnect`
 /// for steady-state reconnections (not for initial sync).
 pub(super) async fn try_connect_stream(
     client: &WorkloadApiClient,
-    min_backoff: Duration,
-    backoff: &mut Duration,
+    backoff: Duration,
     error_tracker: &mut ErrorTracker,
     metrics: Option<&dyn MetricsRecorder>,
     phase: StreamPhase,
@@ -118,7 +110,6 @@ pub(super) async fn try_connect_stream(
                 "Connected to Workload API X509 context stream (phase={:?}{})",
                 phase, id_suffix
             );
-            *backoff = min_backoff;
             Ok(s)
         }
         Err(e) => {
@@ -187,8 +178,7 @@ pub(super) async fn initial_sync_with_retry(
             picker,
             limits,
             metrics,
-            reconnect.min_backoff,
-            &mut backoff,
+            backoff,
             &mut error_tracker,
         )
         .await
@@ -211,7 +201,7 @@ pub(super) async fn initial_sync_with_retry(
                 match &e {
                     X509SourceError::Source(WorkloadApiError::NoIdentityIssued) => {
                         // Use slower backoff for "no identity issued" (expected transient state)
-                        backoff = next_backoff_for_no_identity(backoff);
+                        backoff = next_backoff_for_no_identity(backoff, reconnect.max_backoff);
                         warn!(
                             "Initial sync: no identity issued, using backoff_ms={}",
                             backoff.as_millis()
@@ -232,25 +222,22 @@ async fn try_sync_once(
     picker: Option<&dyn SvidPicker>,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
-    min_backoff: Duration,
-    backoff: &mut Duration,
+    backoff: Duration,
     error_tracker: &mut ErrorTracker,
 ) -> Result<Arc<X509Context>, X509SourceError> {
     // Use shared client creation logic (records ClientCreation metric on failure).
     // Initial sync does not record reconnect metrics (it's not a reconnect).
-    let client =
-        match try_create_client(make_client, min_backoff, *backoff, error_tracker, metrics).await {
-            Ok(c) => c,
-            Err(e) => {
-                // Error already logged and metric recorded by try_create_client.
-                return Err(X509SourceError::Source(e));
-            }
-        };
+    let client = match try_create_client(make_client, backoff, error_tracker, metrics).await {
+        Ok(c) => c,
+        Err(e) => {
+            // Error already logged and metric recorded by try_create_client.
+            return Err(X509SourceError::Source(e));
+        }
+    };
 
     // Use shared stream connection logic (records StreamConnect metric on failure).
     let mut stream = match try_connect_stream(
         &client,
-        min_backoff,
         backoff,
         error_tracker,
         metrics,
@@ -295,6 +282,14 @@ async fn try_sync_once(
 
 pub(super) use supervisor_common::{next_backoff, next_backoff_for_no_identity, sleep_or_cancel};
 
+/// Result of processing a stream of updates.
+struct StreamResult {
+    /// Whether the cancellation token was triggered.
+    cancelled: bool,
+    /// Whether at least one update was successfully applied.
+    had_successful_update: bool,
+}
+
 impl Inner {
     pub(super) async fn run_update_supervisor(&self, cancellation_token: CancellationToken) {
         let supervisor_id = fastrand::u64(..);
@@ -311,7 +306,6 @@ impl Inner {
 
             let Ok(client) = try_create_client(
                 self.make_client(),
-                self.reconnect().min_backoff,
                 backoff,
                 &mut error_tracker,
                 self.metrics(),
@@ -330,8 +324,7 @@ impl Inner {
 
             match try_connect_stream(
                 &client,
-                self.reconnect().min_backoff,
-                &mut backoff,
+                backoff,
                 &mut error_tracker,
                 self.metrics(),
                 StreamPhase::Supervisor,
@@ -340,12 +333,17 @@ impl Inner {
             .await
             {
                 Ok(mut stream) => {
-                    // Process stream updates. Returns true if cancelled, false if reconnect needed.
-                    let cancelled = self
+                    let result = self
                         .process_stream_updates(&mut stream, &cancellation_token, supervisor_id)
                         .await;
-                    if cancelled {
+                    if result.cancelled {
                         return;
+                    }
+
+                    // Reset backoff only if we successfully processed at least one update,
+                    // meaning the stream actually delivered useful data before failing.
+                    if result.had_successful_update {
+                        backoff = self.reconnect().min_backoff;
                     }
 
                     // Stream ended or errored. Sleep/backoff before retrying.
@@ -355,14 +353,17 @@ impl Inner {
                     {
                         return;
                     }
-                    backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                    if !result.had_successful_update {
+                        backoff = next_backoff(backoff, self.reconnect().max_backoff);
+                    }
                 }
                 Err(stream_err) => {
                     // Choose backoff policy based on error type
                     match stream_err {
                         WorkloadApiError::NoIdentityIssued => {
                             // Use slower backoff for "no identity issued" (expected transient state)
-                            backoff = next_backoff_for_no_identity(backoff);
+                            backoff =
+                                next_backoff_for_no_identity(backoff, self.reconnect().max_backoff);
                             warn!(
                                 "No identity issued: using backoff_ms={}",
                                 backoff.as_millis()
@@ -393,6 +394,7 @@ impl Inner {
         sleep_or_cancel(token, backoff).await
     }
 
+    /// Processes stream updates until the stream ends, errors, or cancellation is requested.
     async fn process_stream_updates(
         &self,
         stream: &mut (impl futures::Stream<Item = Result<X509Context, WorkloadApiError>>
@@ -401,14 +403,15 @@ impl Inner {
                   + 'static),
         cancellation_token: &CancellationToken,
         supervisor_id: u64,
-    ) -> bool {
+    ) -> StreamResult {
         let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
+        let mut had_successful_update = false;
 
         loop {
             let item = tokio::select! {
                 () = cancellation_token.cancelled() => {
                     debug!("Cancellation signal received; stopping update loop");
-                    return true;
+                    return StreamResult { cancelled: true, had_successful_update };
                 }
                 v = stream.next() => v,
             };
@@ -417,6 +420,7 @@ impl Inner {
                 Some(Ok(ctx)) => {
                     match self.apply_update(Arc::new(ctx)) {
                         Ok(()) => {
+                            had_successful_update = true;
                             if update_rejection_tracker.consecutive_count() > 0 {
                                 info!(
                                     "Update validation recovered after {} consecutive failures",
@@ -449,12 +453,18 @@ impl Inner {
                         supervisor_id, e
                     );
                     self.record_error(MetricsErrorKind::StreamError);
-                    return false;
+                    return StreamResult {
+                        cancelled: false,
+                        had_successful_update,
+                    };
                 }
                 None => {
                     warn!("Workload API stream ended; reconnecting: id={supervisor_id}");
                     self.record_error(MetricsErrorKind::StreamEnded);
-                    return false;
+                    return StreamResult {
+                        cancelled: false,
+                        had_successful_update,
+                    };
                 }
             }
         }
