@@ -39,7 +39,10 @@ pub async fn connect(endpoint: &Endpoint) -> Result<Channel, TransportError> {
 }
 
 async fn connect_tcp(host: IpAddr, port: u16) -> Result<Channel, TransportError> {
-    let uri = format!("http://{host}:{port}");
+    let uri = match host {
+        IpAddr::V4(v4) => format!("http://{v4}:{port}"),
+        IpAddr::V6(v6) => format!("http://[{v6}]:{port}"),
+    };
     Ok(TonicEndpoint::try_from(uri)?.connect().await?)
 }
 
