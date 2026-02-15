@@ -131,11 +131,16 @@ pub(crate) fn next_backoff(current: Duration, max: Duration) -> Duration {
 /// Slower backoff policy for "no identity issued" condition.
 ///
 /// This is an expected transient state (workload may not be registered yet),
-/// so we use a gentler backoff: starts at 1s, exponential up to 10s, with jitter.
-pub(crate) fn next_backoff_for_no_identity(current: Duration) -> Duration {
+/// so we use a gentler backoff: starts at 1s, exponential up to the effective
+/// maximum (the lesser of the user-configured `max` and the default 10s cap),
+/// with jitter.
+pub(crate) fn next_backoff_for_no_identity(current: Duration, max: Duration) -> Duration {
     const MIN_BACKOFF_MS: u64 = 1000; // 1 second
-    const MAX_BACKOFF_MS: u64 = 10000; // 10 seconds
+    const DEFAULT_MAX_BACKOFF_MS: u64 = 10000; // 10 seconds
+
+    let max_ms = u64::try_from(max.as_millis()).unwrap_or(u64::MAX);
+    let effective_max = max_ms.min(DEFAULT_MAX_BACKOFF_MS);
 
     let current_with_min = current.max(Duration::from_millis(MIN_BACKOFF_MS));
-    next_backoff(current_with_min, Duration::from_millis(MAX_BACKOFF_MS))
+    next_backoff(current_with_min, Duration::from_millis(effective_max))
 }
