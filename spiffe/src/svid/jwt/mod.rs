@@ -331,6 +331,7 @@ impl JwtSvid {
 
         let mut validation = Validation::new(untrusted.alg.to_jsonwebtoken());
         validation.validate_exp = true;
+        validation.leeway = 0;
 
         let aud: Vec<&str> = expected_audience.iter().map(AsRef::as_ref).collect();
         validation.set_audience(&aud);
