@@ -60,7 +60,6 @@ mod x509_svid_tests {
         ));
     }
 
-
     /// Security test: `Certificate::try_from` must reject DER bytes that contain
     /// trailing garbage after a valid certificate.  Before the fix,
     /// `parse_der_encoded_bytes_as_x509_certificate` silently discarded the
@@ -82,10 +81,7 @@ mod x509_svid_tests {
 
         let result = Certificate::try_from(with_trailing);
         assert!(
-            matches!(
-                result,
-                Err(CertificateError::ParseX509Certificate(..))
-            ),
+            matches!(result, Err(CertificateError::ParseX509Certificate(..))),
             "should reject certificate bytes with trailing garbage"
         );
     }
