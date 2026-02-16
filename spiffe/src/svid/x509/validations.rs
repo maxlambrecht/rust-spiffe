@@ -32,24 +32,48 @@ fn validate_x509_leaf_certificate(cert: &X509Certificate<'_>) -> Result<(), X509
         ParsedExtension::BasicConstraints(b) if b.ca => {
             Err(X509SvidError::LeafCertificateHasCaFlag)
         }
-        _ => Ok(()),
+        ParsedExtension::BasicConstraints(_) => Ok(()),
+        // Extension OID is present but content could not be parsed.
+        // Reject to prevent bypassing validation via malformed extensions.
+        _ => Err(X509SvidError::UnparseableExtension {
+            extension: "BasicConstraints",
+        }),
     }
 }
 
 fn validate_signing_certificate(cert: &X509Certificate<'_>) -> Result<(), X509SvidError> {
     let basic_constraints =
         get_x509_extension(cert, &oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)?;
-    if matches!(basic_constraints, ParsedExtension::BasicConstraints(b) if !b.ca) {
-        return Err(X509SvidError::SigningCertificateMissingCaFlag);
+    match basic_constraints {
+        ParsedExtension::BasicConstraints(b) if b.ca => {}
+        ParsedExtension::BasicConstraints(_) => {
+            return Err(X509SvidError::SigningCertificateMissingCaFlag);
+        }
+        // Extension OID is present but content could not be parsed.
+        // Reject to prevent bypassing validation via malformed extensions.
+        _ => {
+            return Err(X509SvidError::UnparseableExtension {
+                extension: "BasicConstraints",
+            });
+        }
     }
 
     let key_usage = get_x509_extension(cert, &oid_registry::OID_X509_EXT_KEY_USAGE)?;
     match key_usage {
-        ParsedExtension::KeyUsage(k) if !k.key_cert_sign() => {
-            Err(X509SvidError::SigningCertificateMissingKeyCertSign)
+        ParsedExtension::KeyUsage(k) if k.key_cert_sign() => {}
+        ParsedExtension::KeyUsage(_) => {
+            return Err(X509SvidError::SigningCertificateMissingKeyCertSign);
         }
-        _ => Ok(()),
+        // Extension OID is present but content could not be parsed.
+        // Reject to prevent bypassing validation via malformed extensions.
+        _ => {
+            return Err(X509SvidError::UnparseableExtension {
+                extension: "KeyUsage",
+            });
+        }
     }
+
+    Ok(())
 }
 
 fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(), X509SvidError> {
@@ -64,6 +88,11 @@ fn validate_leaf_certificate_key_usage(cert: &X509Certificate<'_>) -> Result<(),
         ParsedExtension::KeyUsage(k) if k.key_cert_sign() => {
             Err(X509SvidError::LeafCertificateHasKeyCertSign)
         }
-        _ => Ok(()),
+        ParsedExtension::KeyUsage(_) => Ok(()),
+        // Extension OID is present but content could not be parsed.
+        // Reject to prevent bypassing validation via malformed extensions.
+        _ => Err(X509SvidError::UnparseableExtension {
+            extension: "KeyUsage",
+        }),
     }
 }
