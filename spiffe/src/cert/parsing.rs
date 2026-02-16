@@ -97,14 +97,25 @@ pub(crate) fn to_certificate_vec_unbounded(
     Ok(certs)
 }
 
-/// Parses the given DER-encoded bytes as an X.509 certificate.
+/// Parses the given DER-encoded bytes as a single X.509 certificate.
 ///
-/// Returns a [`CertificateError`] if the input is not a parseable DER-encoded X.509 certificate.
+/// The input must contain exactly one DER-encoded certificate with no trailing
+/// bytes. Any data after the parsed certificate is rejected as invalid.
+///
+/// Returns a [`CertificateError`] if the input is not a parseable DER-encoded
+/// X.509 certificate or contains trailing bytes.
 pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
     der_bytes: &[u8],
 ) -> Result<X509Certificate<'_>, CertificateError> {
     match x509_parser::parse_x509_certificate(der_bytes) {
-        Ok((_, cert)) => Ok(cert),
+        Ok((rest, cert)) => {
+            if !rest.is_empty() {
+                return Err(CertificateError::ParseX509Certificate(
+                    X509Error::InvalidCertificate,
+                ));
+            }
+            Ok(cert)
+        }
         Err(Err::Incomplete(_)) => Err(CertificateError::ParseX509Certificate(
             X509Error::InvalidCertificate,
         )),
