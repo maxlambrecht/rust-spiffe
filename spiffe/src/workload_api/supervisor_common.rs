@@ -143,3 +143,34 @@ pub(crate) fn next_backoff_for_no_identity(current: Duration) -> Duration {
     let current_with_min = current.max(Duration::from_millis(MIN_BACKOFF_MS));
     next_backoff(current_with_min, Duration::from_millis(MAX_BACKOFF_MS))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn next_backoff_at_max_preserves_jitter() {
+        let max = Duration::from_secs(30);
+        let lo = max.saturating_sub(max / 10);
+
+        // Run multiple times to exercise the random jitter path.
+        for _ in 0..100 {
+            let result = next_backoff(max, max);
+            // Result should be in [max - 10%, max].
+            assert!(
+                result >= lo && result <= max,
+                "expected backoff in [{lo:?}, {max:?}], got {result:?}"
+            );
+        }
+
+        // Verify that not all values are identical (jitter is present).
+        let mut results = std::collections::HashSet::new();
+        for _ in 0..100 {
+            results.insert(next_backoff(max, max).as_millis());
+        }
+        assert!(
+            results.len() > 1,
+            "expected jitter to produce varying results, got {results:?}"
+        );
+    }
+}
