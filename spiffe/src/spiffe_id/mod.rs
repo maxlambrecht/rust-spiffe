@@ -757,11 +757,23 @@ mod spiffe_id_tests {
     #[test]
     fn test_from_segments_uri_length_limit() {
         let td = TrustDomain::new("example.org").unwrap();
-        // "spiffe://example.org" = 20 bytes, each "/a" segment adds 2 bytes
-        // 1015 segments of "a" = 2030 bytes path + 20 = 2050 > 2048
-        let segments: Vec<&str> = vec!["a"; 1015];
-        let result = SpiffeId::from_segments(td, &segments);
-        assert!(matches!(result, Err(SpiffeIdError::SpiffeIdTooLong { .. })));
+        let base_len = SPIFFE_SCHEME_PREFIX.len() + td.as_str().len();
+        let per_seg = 2usize; // "/a"
+
+        // Max number of "/a" segments that still fits.
+        let allowed_seg_count = (MAX_SPIFFE_ID_URI_LENGTH - base_len) / per_seg;
+
+        // One more segment should exceed the limit.
+        let overflow_seg_count = allowed_seg_count + 1;
+
+        let allowed: Vec<&str> = vec!["a"; allowed_seg_count];
+        let overflow: Vec<&str> = vec!["a"; overflow_seg_count];
+
+        SpiffeId::from_segments(td.clone(), &allowed).unwrap();
+        assert!(matches!(
+            SpiffeId::from_segments(td, &overflow),
+            Err(SpiffeIdError::SpiffeIdTooLong { .. })
+        ));
     }
 
     #[test]
