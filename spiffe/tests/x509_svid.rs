@@ -271,4 +271,170 @@ mod x509_svid_tests {
             "should reject certificate chain exceeding MAX_CERT_CHAIN_LENGTH"
         );
     }
+
+    // --- Helpers for extension corruption tests ---
+
+    /// DER-encoded OID for `BasicConstraints` (2.5.29.19).
+    const OID_BASIC_CONSTRAINTS_DER: &[u8] = b"\x06\x03\x55\x1d\x13";
+    /// DER-encoded OID for `KeyUsage` (2.5.29.15).
+    const OID_KEY_USAGE_DER: &[u8] = b"\x06\x03\x55\x1d\x0f";
+
+    /// Corrupts the content of an X.509 extension identified by its DER-encoded OID.
+    ///
+    /// Finds the first occurrence of `oid_der` in `der`, then replaces the associated
+    /// OCTET STRING content with invalid bytes. This produces a certificate where the
+    /// extension OID is present but the value cannot be parsed.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::expect_used,
+        reason = "test helper operating on known-valid test data with assertions"
+    )]
+    fn corrupt_extension_value(der: &[u8], oid_der: &[u8]) -> Vec<u8> {
+        let mut result = der.to_vec();
+        let oid_pos = der
+            .windows(oid_der.len())
+            .position(|w| w == oid_der)
+            .expect("OID not found in DER bytes");
+
+        let mut pos = oid_pos + oid_der.len();
+
+        // Skip optional BOOLEAN (critical flag): tag=0x01, length=0x01, value
+        if pos < der.len() && der[pos] == 0x01 {
+            pos += 3;
+        }
+
+        // Expect OCTET STRING tag (0x04)
+        assert_eq!(
+            der[pos], 0x04,
+            "expected OCTET STRING tag after extension OID"
+        );
+        pos += 1;
+
+        // Read single-byte length (sufficient for test extension values)
+        let content_len = der[pos] as usize;
+        pos += 1;
+
+        // Replace content with invalid bytes
+        for byte in &mut result[pos..pos + content_len] {
+            *byte = 0xFF;
+        }
+
+        result
+    }
+
+    /// Splits a concatenated DER certificate chain into individual certificates
+    /// by parsing the outer SEQUENCE tag and length of each certificate.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::missing_asserts_for_indexing,
+        reason = "test helper operating on known-valid DER data with assertions"
+    )]
+    fn split_der_chain(chain: &[u8]) -> Vec<Vec<u8>> {
+        let mut certs = Vec::new();
+        let mut rest = chain;
+        while !rest.is_empty() {
+            assert_eq!(rest[0], 0x30, "expected SEQUENCE tag");
+            let (body_len, header_len) = if rest[1] & 0x80 == 0 {
+                (rest[1] as usize, 2)
+            } else {
+                let num_len_bytes = (rest[1] & 0x7F) as usize;
+                let mut len = 0usize;
+                for i in 0..num_len_bytes {
+                    len = (len << 8) | rest[2 + i] as usize;
+                }
+                (len, 2 + num_len_bytes)
+            };
+            let total = header_len + body_len;
+            certs.push(rest[..total].to_vec());
+            rest = &rest[total..];
+        }
+        certs
+    }
+
+    // --- Unparseable extension tests ---
+    //
+    // These tests verify that certificates with malformed (present but unparseable)
+    // BasicConstraints or KeyUsage extensions are rejected with the dedicated
+    // `UnparseableExtension` error, preventing validation bypass via malformed
+    // extensions.
+
+    #[test]
+    fn test_leaf_unparseable_basic_constraints() {
+        let cert_bytes: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns-key.der");
+
+        let corrupted = corrupt_extension_value(cert_bytes, OID_BASIC_CONSTRAINTS_DER);
+        let result = X509Svid::parse_from_der(&corrupted, key_bytes);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::UnparseableExtension {
+                extension: "BasicConstraints"
+            }
+        );
+    }
+
+    #[test]
+    fn test_leaf_unparseable_key_usage() {
+        let cert_bytes: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns-key.der");
+
+        let corrupted = corrupt_extension_value(cert_bytes, OID_KEY_USAGE_DER);
+        let result = X509Svid::parse_from_der(&corrupted, key_bytes);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::UnparseableExtension {
+                extension: "KeyUsage"
+            }
+        );
+    }
+
+    #[test]
+    fn test_signing_cert_unparseable_basic_constraints() {
+        let chain_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+
+        let mut certs = split_der_chain(chain_bytes).into_iter();
+        let leaf = certs.next().unwrap();
+        let signing = certs.next().unwrap();
+
+        // Corrupt BasicConstraints in the signing certificate only
+        let corrupted_signing = corrupt_extension_value(&signing, OID_BASIC_CONSTRAINTS_DER);
+        let mut corrupted_chain = leaf;
+        corrupted_chain.extend_from_slice(&corrupted_signing);
+
+        let result = X509Svid::parse_from_der(&corrupted_chain, key_bytes);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::UnparseableExtension {
+                extension: "BasicConstraints"
+            }
+        );
+    }
+
+    #[test]
+    fn test_signing_cert_unparseable_key_usage() {
+        let chain_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+
+        let mut certs = split_der_chain(chain_bytes).into_iter();
+        let leaf = certs.next().unwrap();
+        let signing = certs.next().unwrap();
+
+        // Corrupt KeyUsage in the signing certificate only
+        let corrupted_signing = corrupt_extension_value(&signing, OID_KEY_USAGE_DER);
+        let mut corrupted_chain = leaf;
+        corrupted_chain.extend_from_slice(&corrupted_signing);
+
+        let result = X509Svid::parse_from_der(&corrupted_chain, key_bytes);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::UnparseableExtension {
+                extension: "KeyUsage"
+            }
+        );
+    }
 }
