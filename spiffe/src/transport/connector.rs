@@ -38,11 +38,17 @@ pub async fn connect(endpoint: &Endpoint) -> Result<Channel, TransportError> {
     }
 }
 
-async fn connect_tcp(host: IpAddr, port: u16) -> Result<Channel, TransportError> {
-    let uri = match host {
+/// Format a TCP URI for the given host and port, bracketing IPv6 addresses
+/// per RFC 2732.
+fn tcp_uri(host: IpAddr, port: u16) -> String {
+    match host {
         IpAddr::V4(v4) => format!("http://{v4}:{port}"),
         IpAddr::V6(v6) => format!("http://[{v6}]:{port}"),
-    };
+    }
+}
+
+async fn connect_tcp(host: IpAddr, port: u16) -> Result<Channel, TransportError> {
+    let uri = tcp_uri(host, port);
     Ok(TonicEndpoint::try_from(uri)?.connect().await?)
 }
 
@@ -68,5 +74,23 @@ async fn connect_unix(path: &Path) -> Result<Channel, TransportError> {
             .await?;
 
         Ok(channel)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn tcp_uri_formats_ipv4() {
+        let uri = tcp_uri(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080);
+        assert_eq!(uri, "http://127.0.0.1:8080");
+    }
+
+    #[test]
+    fn tcp_uri_brackets_ipv6() {
+        let uri = tcp_uri(IpAddr::V6(Ipv6Addr::LOCALHOST), 443);
+        assert_eq!(uri, "http://[::1]:443");
     }
 }
