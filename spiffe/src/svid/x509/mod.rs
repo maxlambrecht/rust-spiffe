@@ -58,6 +58,13 @@ pub enum X509SvidError {
     #[error("signing certificate must have 'keyCertSign' set as key usage")]
     SigningCertificateMissingKeyCertSign,
 
+    /// Extension is present but could not be parsed.
+    #[error("{extension} extension is present but could not be parsed")]
+    UnparseableExtension {
+        /// The name of the extension that failed to parse.
+        extension: &'static str,
+    },
+
     /// Error processing or validating the X.509 certificates.
     #[error(transparent)]
     Certificate(#[from] CertificateError),
