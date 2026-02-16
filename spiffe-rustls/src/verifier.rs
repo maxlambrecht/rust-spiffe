@@ -352,7 +352,7 @@ pub(crate) struct SpiffeServerCertVerifier {
     provider: Arc<dyn MaterialProvider>,
     authorizer: Arc<dyn Authorizer>,
     policy: TrustDomainPolicy,
-    cache: Arc<Mutex<Vec<ServerVerifierCache>>>,
+    cache: Arc<Mutex<VecDeque<ServerVerifierCache>>>,
     parse_cache: Arc<Mutex<CertParseCache>>,
     last_logged_gen: Arc<Mutex<Option<u64>>>,
 }
@@ -367,7 +367,7 @@ impl SpiffeServerCertVerifier {
             provider,
             authorizer: Arc::new(authorizer),
             policy,
-            cache: Arc::new(Mutex::new(Vec::with_capacity(VERIFIER_CACHE_CAPACITY))),
+            cache: Arc::new(Mutex::new(VecDeque::with_capacity(VERIFIER_CACHE_CAPACITY))),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
             last_logged_gen: Arc::new(Mutex::new(None)),
         }
@@ -404,9 +404,9 @@ impl SpiffeServerCertVerifier {
             } else {
                 let cell = Arc::new(ServerBuildCell::new());
                 if guard.len() >= VERIFIER_CACHE_CAPACITY {
-                    guard.remove(0); // FIFO eviction of oldest entry
+                    guard.pop_front(); // FIFO eviction of oldest entry
                 }
-                guard.push(ServerVerifierCache {
+                guard.push_back(ServerVerifierCache {
                     key: cache_key,
                     cell: Arc::clone(&cell),
                 });
@@ -591,7 +591,7 @@ pub(crate) struct SpiffeClientCertVerifier {
     provider: Arc<dyn MaterialProvider>,
     authorizer: Arc<dyn Authorizer>,
     policy: TrustDomainPolicy,
-    cache: Arc<Mutex<Vec<ClientVerifierCache>>>,
+    cache: Arc<Mutex<VecDeque<ClientVerifierCache>>>,
     parse_cache: Arc<Mutex<CertParseCache>>,
     last_logged_gen: Arc<Mutex<Option<u64>>>,
 }
@@ -606,7 +606,7 @@ impl SpiffeClientCertVerifier {
             provider,
             authorizer: Arc::new(authorizer),
             policy,
-            cache: Arc::new(Mutex::new(Vec::with_capacity(VERIFIER_CACHE_CAPACITY))),
+            cache: Arc::new(Mutex::new(VecDeque::with_capacity(VERIFIER_CACHE_CAPACITY))),
             parse_cache: Arc::new(Mutex::new(CertParseCache::new())),
             last_logged_gen: Arc::new(Mutex::new(None)),
         }
@@ -642,9 +642,9 @@ impl SpiffeClientCertVerifier {
             } else {
                 let cell = Arc::new(ClientBuildCell::new());
                 if guard.len() >= VERIFIER_CACHE_CAPACITY {
-                    guard.remove(0); // FIFO eviction of oldest entry
+                    guard.pop_front(); // FIFO eviction of oldest entry
                 }
-                guard.push(ClientVerifierCache {
+                guard.push_back(ClientVerifierCache {
                     key: cache_key,
                     cell: Arc::clone(&cell),
                 });
