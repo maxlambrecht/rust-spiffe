@@ -2,8 +2,12 @@
 
 ## [0.4.8] – 2026-02-24
 
+### Changed
+- Bump `spiffe` dependency from 0.11 to 0.12.
+
 ### Fixed
 - Replace single-entry verifier cache with a bounded multi-entry FIFO cache (capacity 8) to reduce federation thrashing. Alternating peers across trust domains previously triggered repeated verifier rebuilds.
+
 
 ## [0.4.7] – 2026-02-14
 
