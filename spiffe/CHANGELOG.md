@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.12.0] – 2026-02-24
+
+### Breaking changes
+- `WorkloadApiClient::validate_jwt_token` now accepts `audience: &str` instead of a generic `IntoIterator`, matching the protobuf `ValidateJWTSVIDRequest` schema (single `audience` field).
+- JWT `parse_and_validate` leeway set to 0, enforcing the documented “no clock skew” behavior. Tokens previously accepted within 60 seconds of expiry are now rejected.
+
+### Fixed
+- Reject certificates with unparseable `BasicConstraints` or `KeyUsage` extensions instead of silently skipping validation (`X509SvidError::UnparseableExtension`).
+- Reject trailing bytes in single-certificate DER parsing.
+- Supervisor backoff improvements:
+  - Reset backoff only after successfully processing a stream update.
+  - Respect user-configured `max_backoff` in the no-identity policy.
+  - Preserve jitter at maximum backoff to prevent thundering-herd reconnections.
+- Retry `JwtSource` client creation with a short delay after initial sync succeeds.
+- Enforce SPIFFE ID URI length limit (2048 bytes) in `SpiffeId::from_segments`.
+- Reject password-only user info in endpoint URI validation.
+- Require bracketed IPv6 addresses in TCP connector URIs.
+
+### Changed
+- Document plaintext security implications of the TCP transport.
+
+
 ## [0.11.4] – 2026-02-14
 
 ### Security
