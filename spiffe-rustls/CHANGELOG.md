@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.4.8] – 2026-02-24
+
+### Fixed
+- Replace single-entry verifier cache with a bounded multi-entry FIFO cache (capacity 8) to reduce federation thrashing. Alternating peers across trust domains previously triggered repeated verifier rebuilds.
+
 ## [0.4.7] – 2026-02-14
 
 ### Changed
