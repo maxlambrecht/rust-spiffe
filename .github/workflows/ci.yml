@@ -91,9 +91,21 @@ jobs:
         run: make msrv MSRV=${{ env.MSRV }}
 
   test:
-    name: Unit Tests
+    name: Unit Tests (${{ matrix.crate }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - crate: spiffe
+            target: spiffe-ci-test
+          - crate: spire-api
+            target: spire-api-ci-test
+          - crate: spiffe-rustls
+            target: spiffe-rustls-ci-test
+          - crate: spiffe-rustls-tokio
+            target: spiffe-rustls-tokio-ci-test
     steps:
       - name: Check out code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -111,10 +123,11 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Build + test (feature matrices)
-        run: make spiffe spire-api spiffe-rustls spiffe-rustls-tokio
+      - name: Test (feature lanes)
+        run: make ${{ matrix.target }}
 
       - name: Build examples
+        if: matrix.crate == 'spiffe-rustls'
         run: make examples
 
   integration:

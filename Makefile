@@ -56,7 +56,8 @@ DEFAULT_LANE := @default
   audit deny \
   lanes \
   spiffe spire-api spiffe-rustls spiffe-rustls-tokio \
-  spiffe-all-lanes rustls-all-lanes rustls-tokio-all-lanes
+  spiffe-all-lanes rustls-all-lanes rustls-tokio-all-lanes \
+  spiffe-ci-test spire-api-ci-test spiffe-rustls-ci-test spiffe-rustls-tokio-ci-test
 
 help:
 	@echo "Common targets:"
@@ -81,6 +82,12 @@ help:
 	@echo "  make spiffe-rustls"
 	@echo "  make spiffe-rustls-tokio"
 	@echo "  make spire-api"
+	@echo ""
+	@echo "CI test targets (reduced lanes, no clippy/build):"
+	@echo "  make spiffe-ci-test"
+	@echo "  make spiffe-rustls-ci-test"
+	@echo "  make spiffe-rustls-tokio-ci-test"
+	@echo "  make spire-api-ci-test"
 	@echo ""
 	@echo "Other:"
 	@echo "  make integration-tests   Run ignored tests requiring SPIRE"
@@ -152,6 +159,21 @@ SPIRE_API_ALL_FEATURES := \
 
 RUSTLS_TOKIO_ALL_FEATURES := \
   $(DEFAULT_LANE)
+
+# CI feature lanes (representative subset — covers every feature boundary
+# without redundant subsets already implied by the feature DAG).
+# Clippy runs in the lint job; these lanes are test + doctests only.
+SPIFFE_CI_FEATURES := \
+  x509 \
+  jwt \
+  jwt-verify-rust-crypto \
+  jwt-verify-aws-lc-rs \
+  x509-source,jwt-source,jwt-verify-rust-crypto,tracing \
+  x509-source,jwt-source,jwt-verify-aws-lc-rs,logging
+
+RUSTLS_CI_FEATURES      := $(RUSTLS_ALL_FEATURES)
+SPIRE_API_CI_FEATURES   := $(SPIRE_API_ALL_FEATURES)
+RUSTLS_TOKIO_CI_FEATURES := $(RUSTLS_TOKIO_ALL_FEATURES)
 
 # -----------------------------------------------------------------------------
 # Runner helpers
@@ -256,6 +278,26 @@ rustls-tokio-all-lanes:
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: build  (all lanes),build,$(RUSTLS_TOKIO_ALL_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test   (all lanes),test,$(RUSTLS_TOKIO_ALL_FEATURES))
 	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests (all lanes),doc,$(RUSTLS_TOKIO_ALL_FEATURES))
+
+# -----------------------------------------------------------------------------
+# Per-crate CI targets (test + doctests only; clippy runs in the lint job)
+# -----------------------------------------------------------------------------
+# These use reduced, representative feature lanes and skip clippy/build
+spiffe-ci-test:
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: test (CI lanes),test,$(SPIFFE_CI_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_MANIFEST),spiffe: doctests (CI lanes),doc,$(SPIFFE_CI_FEATURES))
+
+spire-api-ci-test:
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: test,test,$(SPIRE_API_CI_FEATURES))
+	$(call _run_feature_lanes,$(SPIRE_API_MANIFEST),spire-api: doctests,doc,$(SPIRE_API_CI_FEATURES))
+
+spiffe-rustls-ci-test:
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: test (CI lanes),test,$(RUSTLS_CI_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_MANIFEST),spiffe-rustls: doctests (CI lanes),doc,$(RUSTLS_CI_FEATURES))
+
+spiffe-rustls-tokio-ci-test:
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: test,test,$(RUSTLS_TOKIO_CI_FEATURES))
+	$(call _run_feature_lanes,$(SPIFFE_RUSTLS_TOKIO_MANIFEST),spiffe-rustls-tokio: doctests,doc,$(RUSTLS_TOKIO_CI_FEATURES))
 
 # -----------------------------------------------------------------------------
 # Integration tests (SPIRE)
@@ -386,12 +428,18 @@ lanes:
 	@echo "SPIFFE_DEV_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_DEV_FEATURES)
 	@echo ""
+	@echo "SPIFFE_CI_FEATURES:"
+	@printf "  %s\n" $(SPIFFE_CI_FEATURES)
+	@echo ""
 	@echo "SPIFFE_ALL_FEATURES:"
 	@printf "  %s\n" $(SPIFFE_ALL_FEATURES)
 	@echo ""
 
 	@echo "RUSTLS_DEV_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_DEV_FEATURES)
+	@echo ""
+	@echo "RUSTLS_CI_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_CI_FEATURES)
 	@echo ""
 	@echo "RUSTLS_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_ALL_FEATURES)
@@ -400,12 +448,18 @@ lanes:
 	@echo "RUSTLS_TOKIO_DEV_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_TOKIO_DEV_FEATURES)
 	@echo ""
+	@echo "RUSTLS_TOKIO_CI_FEATURES:"
+	@printf "  %s\n" $(RUSTLS_TOKIO_CI_FEATURES)
+	@echo ""
 	@echo "RUSTLS_TOKIO_ALL_FEATURES:"
 	@printf "  %s\n" $(RUSTLS_TOKIO_ALL_FEATURES)
 	@echo ""
 
 	@echo "SPIRE_API_DEV_FEATURES:"
 	@printf "  %s\n" $(SPIRE_API_DEV_FEATURES)
+	@echo ""
+	@echo "SPIRE_API_CI_FEATURES:"
+	@printf "  %s\n" $(SPIRE_API_CI_FEATURES)
 	@echo ""
 	@echo "SPIRE_API_ALL_FEATURES:"
 	@printf "  %s\n" $(SPIRE_API_ALL_FEATURES)
