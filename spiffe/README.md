@@ -20,16 +20,16 @@ Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 ```toml
 [dependencies]
 # Minimal: only SPIFFE primitives 
-spiffe = "0.11"
+spiffe = "0.12"
 
 # OR X.509 workloads (recommended)
-# spiffe = { version = "0.11", features = ["x509-source"] }
+# spiffe = { version = "0.12", features = ["x509-source"] }
 
 # OR JWT workloads (recommended)
-# spiffe = { version = "0.11", features = ["jwt-source"] }
+# spiffe = { version = "0.12", features = ["jwt-source"] }
 
 # OR Direct Workload API usage
-# spiffe = { version = "0.11", features = ["workload-api"] }
+# spiffe = { version = "0.12", features = ["workload-api"] }
 ```
 
 ---
@@ -275,14 +275,14 @@ backend.
 
 ```toml
 [dependencies]
-spiffe = { version = "0.11", features = ["jwt-verify-rust-crypto"] }
+spiffe = { version = "0.12", features = ["jwt-verify-rust-crypto"] }
 ```
 
 #### Using the AWS-LC backend
 
 ```toml
 [dependencies]
-spiffe = { version = "0.11", features = ["jwt-verify-aws-lc-rs"] }
+spiffe = { version = "0.12", features = ["jwt-verify-aws-lc-rs"] }
 ```
 
 This enables local signature verification using JWT authorities from bundles:
@@ -436,7 +436,7 @@ facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `l
 
 ```toml
 [dependencies]
-spiffe = { version = "0.11", features = ["logging"] }
+spiffe = { version = "0.12", features = ["logging"] }
 ```
 
 **Note:** The `logging` feature is not included in the default `workload-api` feature.
@@ -452,7 +452,7 @@ or distributed tracing systems. When both `tracing` and `logging` features are e
 
 ```toml
 [dependencies]
-spiffe = { version = "0.11", features = ["tracing"] }
+spiffe = { version = "0.12", features = ["tracing"] }
 ```
 
 **Note:** The `tracing` and `logging` features are not mutually exclusive. When both
@@ -468,7 +468,7 @@ In addition to the higher-level bundles (`workload-api-x509`, `workload-api-jwt`
 
 ```toml
 [dependencies]
-spiffe = { version = "0.11", features = ["workload-api-core"] }
+spiffe = { version = "0.12", features = ["workload-api-core"] }
 ```
 
 This feature includes:
