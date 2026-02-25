@@ -1,6 +1,6 @@
 [package]
 name = "spire-api"
-version = "0.5.3"
+version = "0.5.4"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -21,7 +21,7 @@ workspace = true
 [dependencies]
 futures = { version = "0.3", default-features = false }
 prost = { version = "0.14", default-features = false }
-spiffe = { version = "0.11", features = ["x509", "jwt", "transport-grpc"] }
+spiffe = { version = "0.12", features = ["x509", "jwt", "transport-grpc"] }
 thiserror = { version = "2", default-features = false }
 tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
 tonic-prost = { version = "0.14", default-features = false }
