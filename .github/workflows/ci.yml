@@ -182,7 +182,7 @@ jobs:
           components: cargo
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@470679bc3a1580072dac4e67535d1aa3a3dcdf51
+        uses: taiki-e/install-action@68675c5a5f1a6950c3975d33f3ae0ef155e5bf3d
         with:
           tool: cargo-audit
 
@@ -206,7 +206,7 @@ jobs:
           components: cargo
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@470679bc3a1580072dac4e67535d1aa3a3dcdf51
+        uses: taiki-e/install-action@68675c5a5f1a6950c3975d33f3ae0ef155e5bf3d
         with:
           tool: cargo-deny
 
