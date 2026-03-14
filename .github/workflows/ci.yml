@@ -37,7 +37,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-on-failure: true
 
@@ -60,7 +60,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-on-failure: true
 
@@ -83,7 +83,7 @@ jobs:
           toolchain: ${{ env.MSRV }}
 
       - name: Cache project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-on-failure: true
 
@@ -119,7 +119,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-on-failure: true
 
@@ -151,7 +151,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache project
-        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           cache-on-failure: true
 
@@ -182,7 +182,7 @@ jobs:
           components: cargo
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@5faf876256ccfc7ba64a4f87314c3457cc374b98
+        uses: taiki-e/install-action@a888d8f01506d4d9870e4a94d8b2ff13cc956c2e
         with:
           tool: cargo-audit
 
@@ -206,7 +206,7 @@ jobs:
           components: cargo
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@5faf876256ccfc7ba64a4f87314c3457cc374b98
+        uses: taiki-e/install-action@a888d8f01506d4d9870e4a94d8b2ff13cc956c2e
         with:
           tool: cargo-deny
 
