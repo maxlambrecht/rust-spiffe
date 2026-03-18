@@ -69,6 +69,14 @@ pub enum X509SvidError {
     #[error(transparent)]
     Certificate(#[from] CertificateError),
 
+    /// The leaf certificate's SPIFFE ID must contain a non-root path component.
+    ///
+    /// Per the X.509-SVID specification, leaf SVIDs MUST NOT use a bare trust
+    /// domain SPIFFE ID (e.g. `spiffe://example.org`) and instead MUST include
+    /// at least one path segment.
+    #[error("leaf certificate SPIFFE ID must have a non-root path component")]
+    LeafSpiffeIdMissingPath,
+
     /// Error processing the private key.
     #[error(transparent)]
     PrivateKey(#[from] PrivateKeyError),

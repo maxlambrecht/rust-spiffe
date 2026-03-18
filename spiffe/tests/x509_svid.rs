@@ -437,4 +437,93 @@ mod x509_svid_tests {
             }
         );
     }
+
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test helper generating known-valid X.509 certs"
+    )]
+    fn generate_leaf_cert_with_spiffe_uri(uri: &str) -> (Vec<u8>, Vec<u8>) {
+        use openssl::asn1::Asn1Time;
+        use openssl::bn::BigNum;
+        use openssl::hash::MessageDigest;
+        use openssl::nid::Nid;
+        use openssl::pkey::PKey;
+        use openssl::rsa::Rsa;
+        use openssl::x509::extension::{BasicConstraints, KeyUsage, SubjectAlternativeName};
+        use openssl::x509::{X509NameBuilder, X509};
+
+        let rsa = Rsa::generate(2048).unwrap();
+        let pkey = PKey::from_rsa(rsa).unwrap();
+
+        let mut name_builder = X509NameBuilder::new().unwrap();
+        name_builder
+            .append_entry_by_nid(Nid::COMMONNAME, "spiffe-test")
+            .unwrap();
+        let name = name_builder.build();
+
+        let mut builder = X509::builder().unwrap();
+        builder.set_version(2).unwrap();
+
+        let mut serial_bn = BigNum::new().unwrap();
+        serial_bn
+            .rand(128, openssl::bn::MsbOption::MAYBE_ZERO, false)
+            .unwrap();
+        let serial = serial_bn.to_asn1_integer().unwrap();
+        builder.set_serial_number(&serial).unwrap();
+
+        builder.set_subject_name(&name).unwrap();
+        builder.set_issuer_name(&name).unwrap();
+
+        let not_before = Asn1Time::days_from_now(0).unwrap();
+        let not_after = Asn1Time::days_from_now(365).unwrap();
+        builder.set_not_before(&not_before).unwrap();
+        builder.set_not_after(&not_after).unwrap();
+
+        builder.set_pubkey(&pkey).unwrap();
+
+        // For leaf SVIDs, CA must be false.
+        let basic_constraints = BasicConstraints::new().critical().build().unwrap();
+        builder.append_extension(basic_constraints).unwrap();
+
+        let key_usage = KeyUsage::new().digital_signature().build().unwrap();
+        builder.append_extension(key_usage).unwrap();
+
+        let context = builder.x509v3_context(None, None);
+        let san = SubjectAlternativeName::new()
+            .uri(uri)
+            .build(&context)
+            .unwrap();
+        builder.append_extension(san).unwrap();
+
+        builder.sign(&pkey, MessageDigest::sha256()).unwrap();
+
+        let cert = builder.build();
+        let cert_der = cert.to_der().unwrap();
+        // The library expects PKCS#8 DER for `PrivateKey`.
+        let key_der = pkey.private_key_to_pkcs8().unwrap();
+
+        (cert_der, key_der)
+    }
+
+    #[test]
+    fn test_leaf_spiffe_id_with_path_is_accepted() {
+        let (cert_der, key_der) =
+            generate_leaf_cert_with_spiffe_uri("spiffe://example.org/workload");
+
+        let x509_svid = X509Svid::parse_from_der(&cert_der, &key_der).unwrap();
+
+        assert_eq!(
+            x509_svid.spiffe_id().to_string(),
+            "spiffe://example.org/workload"
+        );
+    }
+
+    #[test]
+    fn test_leaf_spiffe_id_without_path_is_rejected() {
+        let (cert_der, key_der) = generate_leaf_cert_with_spiffe_uri("spiffe://example.org");
+
+        let result = X509Svid::parse_from_der(&cert_der, &key_der);
+
+        assert_eq!(result.unwrap_err(), X509SvidError::LeafSpiffeIdMissingPath);
+    }
 }
