@@ -791,6 +791,67 @@ mod test {
         assert_eq!(jwt_svid.token(), token);
     }
 
+    /// When a bundle contains no usable JWT-SVID keys (e.g. only `use = "x509-svid"`),
+    /// signature validation must fail with `AuthorityNotFound` for the requested `kid`.
+    #[test]
+    fn test_parse_and_validate_fails_when_no_usable_jwt_svid_keys() {
+        let kid = "jwt-svid-kid";
+
+        // Signing key used to mint the token (ES256).
+        let signing_key = SigningKey::random(&mut OsRng);
+        let pkcs8_der = signing_key
+            .to_pkcs8_der()
+            .expect("PKCS#8 DER serialization should succeed");
+        let encoding_key = EncodingKey::from_ec_der(pkcs8_der.as_bytes());
+
+        // Build a bundle from SPIFFE bundle JSON where the only JWK has `use = "x509-svid"`.
+        // Per spec, this key must be ignored for JWT-SVID verification, leaving the bundle
+        // effectively empty for JWT authorities.
+        let verifying_key = signing_key.verifying_key();
+        let point = verifying_key.to_encoded_point(false);
+        let x = point.x().expect("x coordinate missing");
+        let y = point.y().expect("y coordinate missing");
+
+        let jwks = serde_json::json!({
+            "keys": [{
+                "kty": "EC",
+                "crv": "P-256",
+                "x": b64u(x),
+                "y": b64u(y),
+                "alg": "ES256",
+                "use": "x509-svid",
+                "kid": kid,
+            }]
+        });
+
+        let trust_domain = TrustDomain::new("example.org").expect("valid trust domain");
+        let jwks_bytes = serde_json::to_vec(&jwks).expect("jwks should serialize");
+        let bundle =
+            JwtBundle::from_jwt_authorities(trust_domain, &jwks_bytes).expect("jwks parses");
+
+        // BundleSet containing a bundle with no usable JWT-SVID authorities.
+        let mut bundle_set = JwtBundleSet::new();
+        bundle_set.add_bundle(bundle);
+
+        // Generate a token that references the same `kid`. Validation must fail because
+        // the bundle has no JWT-SVID authorities after filtering by `use`.
+        let target_audience = vec!["audience".to_owned()];
+        let token = generate_token(
+            target_audience,
+            "spiffe://example.org/service".to_string(),
+            Some("JWT".to_string()),
+            Some(kid.to_string()),
+            0xFFFF_FFFF,
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        let result = JwtSvid::parse_and_validate(&token, &bundle_set, &["audience"]).unwrap_err();
+        assert!(
+            matches!(result, JwtSvidError::AuthorityNotFound(missing_kid) if missing_kid == kid)
+        );
+    }
+
     #[test]
     fn test_parse_jwt_svid_with_unsupported_algorithm() {
         let target_audience = vec!["audience".to_owned()];

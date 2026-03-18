@@ -177,6 +177,18 @@ impl JwtBundle {
         let mut authorities: HashMap<String, Arc<JwtAuthority>> = HashMap::new();
 
         for key in keys {
+            // Per SPIFFE Trust Domain and Bundle spec §4.2.2:
+            // - JWKs in SPIFFE bundles MUST include `use`
+            // - For JWT-SVID verification, only keys with `use = "jwt-svid"` are valid
+            // - JWKs with missing/unknown `use` (including `use = "x509-svid"`) MUST be ignored.
+            //
+            // We enforce this by filtering here at bundle construction time, while preserving
+            // fail-closed behavior for malformed JSON/JWKs (e.g. invalid structure, missing `kid`).
+            let jwk_use = key.get("use").and_then(Value::as_str);
+            if !matches!(jwk_use, Some("jwt-svid")) {
+                continue;
+            }
+
             let jwk_json = serde_json::to_vec(key)?;
             let authority = JwtAuthority::from_jwk_json(&jwk_json)?;
             authorities.insert(authority.key_id().to_owned(), Arc::new(authority));
@@ -400,6 +412,7 @@ mod jwt_bundle_test {
             r#"{{
                 "kty": "oct",
                 "kid": "{kid}",
+                "use": "jwt-svid",
                 "k": "AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"
             }}"#
         );
@@ -421,6 +434,7 @@ mod jwt_bundle_test {
             "keys": [
                 {
                     "kty": "EC",
+                    "use": "jwt-svid",
                     "kid": "C6vs25welZOx6WksNYfbMfiw9l96pMnD",
                     "crv": "P-256",
                     "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
@@ -444,6 +458,7 @@ mod jwt_bundle_test {
             "keys": [
                 {
                     "kty": "EC",
+                    "use": "jwt-svid",
                     "kid": "C6vs25welZOx6WksNYfbMfiw9l96pMnD",
                     "crv": "P-256",
                     "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
@@ -451,6 +466,7 @@ mod jwt_bundle_test {
                 },
                 {
                     "kty": "EC",
+                    "use": "jwt-svid",
                     "kid": "gHTCunJbefYtnZnTctd84xeRWyMrEsWD",
                     "crv": "P-256",
                     "x": "7MGOl06DP9df2u8oHY6lqYFIoQWzCj9UYlp-MFeEYeY",
@@ -483,11 +499,126 @@ mod jwt_bundle_test {
     }
 
     #[test]
+    fn test_parse_bundle_filters_jwks_by_use_field() {
+        // Single JWT-SVID key is kept.
+        let jwt_svid_only = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "use": "jwt-svid",
+                    "kid": "jwt-svid-kid",
+                    "crv": "P-256",
+                    "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
+                    "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
+                }
+            ]
+        }"#;
+
+        let trust_domain = td("example.org");
+        let bundle =
+            JwtBundle::from_jwt_authorities(trust_domain.clone(), jwt_svid_only.as_bytes())
+                .expect("jwt-svid key should be accepted");
+        assert!(bundle.find_jwt_authority("jwt-svid-kid").is_some());
+
+        // Single X.509-SVID key is ignored (no authorities).
+        let x509_only = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "use": "x509-svid",
+                    "kid": "x509-svid-kid",
+                    "crv": "P-256",
+                    "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
+                    "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
+                }
+            ]
+        }"#;
+
+        let bundle =
+            JwtBundle::from_jwt_authorities(trust_domain.clone(), x509_only.as_bytes()).unwrap();
+        assert!(bundle.jwt_authorities.is_empty());
+        assert!(bundle.find_jwt_authority("x509-svid-kid").is_none());
+
+        // Single key missing `use` is ignored (no authorities).
+        let missing_use = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "kid": "missing-use-kid",
+                    "crv": "P-256",
+                    "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
+                    "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
+                }
+            ]
+        }"#;
+
+        let bundle =
+            JwtBundle::from_jwt_authorities(trust_domain.clone(), missing_use.as_bytes()).unwrap();
+        assert!(bundle.jwt_authorities.is_empty());
+        assert!(bundle.find_jwt_authority("missing-use-kid").is_none());
+
+        // Single key with unknown `use` is ignored (no authorities).
+        let unknown_use = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "use": "unknown-use",
+                    "kid": "unknown-use-kid",
+                    "crv": "P-256",
+                    "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
+                    "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
+                }
+            ]
+        }"#;
+
+        let bundle =
+            JwtBundle::from_jwt_authorities(trust_domain.clone(), unknown_use.as_bytes()).unwrap();
+        assert!(bundle.jwt_authorities.is_empty());
+        assert!(bundle.find_jwt_authority("unknown-use-kid").is_none());
+
+        // Mixed bundle: only jwt-svid key remains.
+        let mixed = r#"{
+            "keys": [
+                {
+                    "kty": "EC",
+                    "use": "x509-svid",
+                    "kid": "x509-svid-kid",
+                    "crv": "P-256",
+                    "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
+                    "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
+                },
+                {
+                    "kty": "EC",
+                    "use": "jwt-svid",
+                    "kid": "jwt-svid-kid",
+                    "crv": "P-256",
+                    "x": "7MGOl06DP9df2u8oHY6lqYFIoQWzCj9UYlp-MFeEYeY",
+                    "y": "PSLLy5Pg0_kNGFFXq_eeq9kYcGDM3MPHJ6ncteNOr6w"
+                },
+                {
+                    "kty": "EC",
+                    "use": "unknown-use",
+                    "kid": "unknown-use-kid",
+                    "crv": "P-256",
+                    "x": "7MGOl06DP9df2u8oHY6lqYFIoQWzCj9UYlp-MFeEYeY",
+                    "y": "PSLLy5Pg0_kNGFFXq_eeq9kYcGDM3MPHJ6ncteNOr6w"
+                }
+            ]
+        }"#;
+
+        let bundle = JwtBundle::from_jwt_authorities(trust_domain, mixed.as_bytes()).unwrap();
+        assert!(bundle.find_jwt_authority("jwt-svid-kid").is_some());
+        assert!(bundle.find_jwt_authority("x509-svid-kid").is_none());
+        assert!(bundle.find_jwt_authority("unknown-use-kid").is_none());
+    }
+
+    #[test]
     fn test_parse_bundle_missing_kid_returns_missing_key_id() {
         let bundle_bytes = r#"{
             "keys": [
                 {
                     "kty": "EC",
+                    "use": "jwt-svid",
                     "crv": "P-256",
                     "x": "ngLYQnlfF6GsojUwqtcEE3WgTNG2RUlsGhK73RNEl5k",
                     "y": "tKbiDSUSsQ3F1P7wteeHNXIcU-cx6CgSbroeQrQHTLM"
