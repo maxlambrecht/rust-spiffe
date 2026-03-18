@@ -13,9 +13,18 @@ pub const SPIFFE_SCHEME: &str = "spiffe";
 
 /// The URI prefix used by SPIFFE IDs.
 ///
-/// This is equivalent to `"{SPIFFE_SCHEME}://"` and is provided as a
-/// convenience for prefix checks and parsing.
+/// This is equivalent to `"{SPIFFE_SCHEME}://"` in canonical lowercase. For
+/// case-insensitive scheme detection, use [`uri_has_spiffe_scheme`].
 pub const SPIFFE_SCHEME_PREFIX: &str = "spiffe://";
+
+/// Returns `true` if `uri` begins with `scheme://` where `scheme` is `spiffe` (ASCII case-insensitive).
+///
+/// Use for early filtering (e.g. URI SAN entries) before [`SpiffeId::new`]; full validation still
+/// happens during parse.
+pub fn uri_has_spiffe_scheme(uri: &str) -> bool {
+    uri.split_once("://")
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case(SPIFFE_SCHEME))
+}
 
 /// Maximum length for a SPIFFE ID URI in bytes, including the `spiffe://` prefix.
 ///
@@ -73,7 +82,7 @@ pub enum SpiffeIdError {
 
     /// A trust domain name can only contain chars in a limited char set.
     #[error(
-        "trust domain characters are limited to lowercase letters, numbers, dots, dashes, and \
+        "trust domain may only contain ASCII letters (case-insensitive), digits, dots, dashes, and \
          underscores"
     )]
     BadTrustDomainChar,
@@ -588,6 +597,15 @@ mod spiffe_id_tests {
                 path: "/path".to_string(),
             }
         ),
+    }
+
+    #[test]
+    fn uri_has_spiffe_scheme_case_insensitive() {
+        assert!(uri_has_spiffe_scheme("spiffe://example.org/p"));
+        assert!(uri_has_spiffe_scheme("SPIFFE://example.org/p"));
+        assert!(uri_has_spiffe_scheme("SpIfFe://example.org/p"));
+        assert!(!uri_has_spiffe_scheme("https://example.org"));
+        assert!(!uri_has_spiffe_scheme("spiffe:example.org"));
     }
 
     #[test]

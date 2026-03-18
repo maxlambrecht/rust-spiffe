@@ -2,7 +2,7 @@
 
 use crate::cert::error::CertificateError;
 use crate::cert::Certificate;
-use crate::spiffe_id::SPIFFE_SCHEME_PREFIX;
+use crate::spiffe_id::uri_has_spiffe_scheme;
 use crate::SpiffeId;
 use x509_parser::certificate::X509Certificate;
 use x509_parser::der_parser::oid::Oid;
@@ -170,11 +170,11 @@ pub(crate) fn extract_spiffe_ids_from_uri_san(
             continue;
         }
 
-        if !uri.starts_with(SPIFFE_SCHEME_PREFIX) {
+        if !uri_has_spiffe_scheme(uri) {
             continue;
         }
 
-        // Strict: any spiffe:// URI must be valid.
+        // Strict: any SPIFFE-scheme URI must parse as a valid SPIFFE ID.
         ids.push(SpiffeId::new(uri)?);
     }
 
