@@ -13,9 +13,18 @@ pub const SPIFFE_SCHEME: &str = "spiffe";
 
 /// The URI prefix used by SPIFFE IDs.
 ///
-/// This is equivalent to `"{SPIFFE_SCHEME}://"` and is provided as a
-/// convenience for prefix checks and parsing.
+/// This is equivalent to `"{SPIFFE_SCHEME}://"` in canonical lowercase. For
+/// case-insensitive scheme detection, use [`uri_has_spiffe_scheme`].
 pub const SPIFFE_SCHEME_PREFIX: &str = "spiffe://";
+
+/// Returns `true` if `uri` begins with `scheme://` where `scheme` is `spiffe` (ASCII case-insensitive).
+///
+/// Use for early filtering (e.g. URI SAN entries) before [`SpiffeId::new`]; full validation still
+/// happens during parse.
+pub fn uri_has_spiffe_scheme(uri: &str) -> bool {
+    uri.split_once("://")
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case(SPIFFE_SCHEME))
+}
 
 /// Maximum length for a SPIFFE ID URI in bytes, including the `spiffe://` prefix.
 ///
@@ -45,12 +54,11 @@ pub struct SpiffeId {
 /// specification:
 /// <https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE-ID.md#21-trust-domain>.
 ///
-/// Trust domains **must be lowercase**. Inputs containing uppercase letters
-/// or other disallowed characters are rejected with
-/// [`SpiffeIdError::BadTrustDomainChar`] instead of being silently normalized.
-///
-/// If you accept user-provided trust domain names, normalize them (e.g., convert
-/// to lowercase and validate) before constructing a `TrustDomain`.
+/// Trust domains are **case-insensitive** per the SPIFFE specification.
+/// This type stores and exposes trust domains in a **canonical lowercase
+/// representation**. Inputs containing uppercase ASCII letters are accepted
+/// and normalized to lowercase; other disallowed characters are rejected with
+/// [`SpiffeIdError::BadTrustDomainChar`].
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct TrustDomain {
     name: String,
@@ -74,7 +82,7 @@ pub enum SpiffeIdError {
 
     /// A trust domain name can only contain chars in a limited char set.
     #[error(
-        "trust domain characters are limited to lowercase letters, numbers, dots, dashes, and \
+        "trust domain may only contain ASCII letters (case-insensitive), digits, dots, dashes, and \
          underscores"
     )]
     BadTrustDomainChar,
@@ -138,9 +146,7 @@ impl SpiffeId {
             });
         }
 
-        let rest = id
-            .strip_prefix(SPIFFE_SCHEME_PREFIX)
-            .ok_or(SpiffeIdError::WrongScheme)?;
+        let rest = strip_spiffe_scheme(id)?;
 
         let (td, path) = match rest.find('/') {
             Some(idx) => rest.split_at(idx),
@@ -151,18 +157,15 @@ impl SpiffeId {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        if !td.as_bytes().iter().all(|&b| is_valid_trust_domain_byte(b)) {
-            return Err(SpiffeIdError::BadTrustDomainChar);
-        }
+        // Normalize the trust domain to lowercase while validating allowed characters.
+        let canonical_td = normalize_trust_domain_to_lower(td)?;
 
         if !path.is_empty() {
             validate_path(path)?;
         }
 
         Ok(Self {
-            trust_domain: TrustDomain {
-                name: td.to_string(),
-            },
+            trust_domain: TrustDomain { name: canonical_td },
             path: path.to_string(),
         })
     }
@@ -347,13 +350,18 @@ impl TrustDomain {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        // Fast-path parse if this looks like a SPIFFE ID
-        if let Some(rest) = id_or_name.strip_prefix(SPIFFE_SCHEME_PREFIX) {
+        // Any input containing `://` is treated as a `scheme://...` URI: we require
+        // the scheme to be `spiffe` (ASCII case-insensitive) via `strip_spiffe_scheme`;
+        // other schemes (e.g. `http://...`) yield [`SpiffeIdError::WrongScheme`].
+        if id_or_name.contains("://") {
+            // Enforce SPIFFE ID URI max length when parsing from a full URI string.
             if id_or_name.len() > MAX_SPIFFE_ID_URI_LENGTH {
                 return Err(SpiffeIdError::SpiffeIdTooLong {
                     max: MAX_SPIFFE_ID_URI_LENGTH,
                 });
             }
+
+            let rest = strip_spiffe_scheme(id_or_name)?;
 
             let td = rest.split_once('/').map_or(rest, |(td, _path)| td);
 
@@ -361,23 +369,17 @@ impl TrustDomain {
                 return Err(SpiffeIdError::MissingTrustDomain);
             }
 
-            if !td.as_bytes().iter().all(|&b| is_valid_trust_domain_byte(b)) {
-                return Err(SpiffeIdError::BadTrustDomainChar);
-            }
+            let name = normalize_trust_domain_to_lower(td)?;
 
-            return Ok(Self {
-                name: td.to_string(),
-            });
+            return Ok(Self { name });
         }
 
         if id_or_name.contains(":/") {
             return Err(SpiffeIdError::WrongScheme);
         }
 
-        validate_trust_domain_name(id_or_name)?;
-        Ok(Self {
-            name: id_or_name.to_string(),
-        })
+        let name = normalize_trust_domain_to_lower(id_or_name)?;
+        Ok(Self { name })
     }
 
     /// Returns the trust domain name as a string slice.
@@ -521,16 +523,40 @@ fn validate_path(path: &str) -> Result<(), SpiffeIdError> {
     Ok(())
 }
 
-fn validate_trust_domain_name(name: &str) -> Result<(), SpiffeIdError> {
-    if name
-        .as_bytes()
-        .iter()
-        .all(|&b| is_valid_trust_domain_byte(b))
-    {
-        Ok(())
-    } else {
-        Err(SpiffeIdError::BadTrustDomainChar)
+fn strip_spiffe_scheme(id: &str) -> Result<&str, SpiffeIdError> {
+    let (scheme, rest) = id.split_once("://").ok_or(SpiffeIdError::WrongScheme)?;
+
+    if !scheme.eq_ignore_ascii_case(SPIFFE_SCHEME) {
+        return Err(SpiffeIdError::WrongScheme);
     }
+
+    Ok(rest)
+}
+
+fn normalize_trust_domain_to_lower(raw: &str) -> Result<String, SpiffeIdError> {
+    // Normalize to lowercase while validating that all characters are in the
+    // allowed trust-domain character set after normalization.
+    //
+    // This permits mixed-case ASCII letters in input while keeping the internal
+    // representation canonical and rejecting non-ASCII / disallowed characters.
+    let mut out = String::with_capacity(raw.len());
+
+    for b in raw.bytes() {
+        // Convert ASCII uppercase letters to lowercase; leave all other bytes as-is.
+        let lb = if b.is_ascii_uppercase() {
+            b + (b'a' - b'A')
+        } else {
+            b
+        };
+
+        if !is_valid_trust_domain_byte(lb) {
+            return Err(SpiffeIdError::BadTrustDomainChar);
+        }
+
+        out.push(char::from(lb));
+    }
+
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -565,6 +591,22 @@ mod spiffe_id_tests {
                 path: "/path/element".to_string(),
             }
         ),
+        from_mixed_case_scheme_and_trust_domain: (
+            "SpIfFe://Example.Org/path",
+            SpiffeId {
+                trust_domain: TrustDomain::from_str("example.org").unwrap(),
+                path: "/path".to_string(),
+            }
+        ),
+    }
+
+    #[test]
+    fn uri_has_spiffe_scheme_case_insensitive() {
+        assert!(uri_has_spiffe_scheme("spiffe://example.org/p"));
+        assert!(uri_has_spiffe_scheme("SPIFFE://example.org/p"));
+        assert!(uri_has_spiffe_scheme("SpIfFe://example.org/p"));
+        assert!(!uri_has_spiffe_scheme("https://example.org"));
+        assert!(!uri_has_spiffe_scheme("spiffe:example.org"));
     }
 
     #[test]
@@ -735,16 +777,19 @@ mod spiffe_id_tests {
 
             let td = format!("spiffe://trustdomain{c}");
 
-            // Expect validity only for allowed ASCII trust-domain chars.
+            // Expect validity only for allowed ASCII trust-domain chars, treating
+            // ASCII letters case-insensitively (upper-case is normalized).
             let expect_td_ok = c.is_ascii()
                 && matches!(
-                    b,
+                    b.to_ascii_lowercase(),
                     b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_'
                 );
 
             if expect_td_ok {
                 let spiffe_id = SpiffeId::new(&td).unwrap();
-                assert_eq!(spiffe_id.to_string(), td);
+                // Trust domain is canonicalized to lowercase; path (none here) is preserved.
+                let expected = format!("spiffe://trustdomain{}", c.to_ascii_lowercase());
+                assert_eq!(spiffe_id.to_string(), expected);
             } else {
                 assert_eq!(
                     SpiffeId::new(&td).unwrap_err(),
@@ -832,6 +877,8 @@ mod trust_domain_tests {
         from_str_domain: ("trustdomain", TrustDomain{name: "trustdomain".to_string()}),
         from_str_spiffeid: ("spiffe://other.test", TrustDomain{name: "other.test".to_string()}),
         from_str_spiffeid_with_path: ("spiffe://domain.test/path/element", TrustDomain{name: "domain.test".to_string()}),
+        from_mixed_case_domain: ("Example.Org", TrustDomain{name: "example.org".to_string()}),
+        from_mixed_case_spiffeid: ("SpIfFe://Example.Org/Service", TrustDomain{name: "example.org".to_string()}),
     }
 
     macro_rules! trust_domain_error_tests {
@@ -904,12 +951,17 @@ mod trust_domain_tests {
             let c = char::from(b);
             let td = format!("trustdomain{c}");
 
-            let expect_ok =
-                c.is_ascii() && matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_');
+            let expect_ok = c.is_ascii()
+                && matches!(
+                    b.to_ascii_lowercase(),
+                    b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_'
+                );
 
             if expect_ok {
                 let trust_domain = TrustDomain::new(&td).unwrap();
-                assert_eq!(trust_domain.to_string(), td);
+                // TrustDomain is canonicalized to lowercase.
+                let expected = format!("trustdomain{}", c.to_ascii_lowercase());
+                assert_eq!(trust_domain.to_string(), expected);
             } else {
                 assert_eq!(
                     TrustDomain::new(&td).unwrap_err(),
