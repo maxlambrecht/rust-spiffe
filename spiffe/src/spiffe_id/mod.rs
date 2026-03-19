@@ -350,10 +350,11 @@ impl TrustDomain {
             return Err(SpiffeIdError::MissingTrustDomain);
         }
 
-        // Fast-path parse if this looks like a SPIFFE ID
+        // Any input containing `://` is treated as a `scheme://...` URI: we require
+        // the scheme to be `spiffe` (ASCII case-insensitive) via `strip_spiffe_scheme`;
+        // other schemes (e.g. `http://...`) yield [`SpiffeIdError::WrongScheme`].
         if id_or_name.contains("://") {
-            // Parse as a SPIFFE ID-like URI, but only accept the `spiffe` scheme
-            // (in a case-insensitive manner) and enforce the overall URI length.
+            // Enforce SPIFFE ID URI max length when parsing from a full URI string.
             if id_or_name.len() > MAX_SPIFFE_ID_URI_LENGTH {
                 return Err(SpiffeIdError::SpiffeIdTooLong {
                     max: MAX_SPIFFE_ID_URI_LENGTH,
