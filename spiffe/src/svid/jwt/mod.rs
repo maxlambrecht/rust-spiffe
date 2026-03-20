@@ -30,7 +30,12 @@ use jsonwebtoken::{DecodingKey, Validation};
 /// Algorithms supported for JWT-SVIDs according to the SPIFFE JWT-SVID profile.
 ///
 /// Represents the subset of JWT signature algorithms compliant with the SPIFFE JWT-SVID specification.
+///
+/// Offline verification (`parse_and_validate`) currently depends on the
+/// `jsonwebtoken` crate, which does not provide ES512 (P-521) verification.
+///  ES512 JWT-SVIDs are accepted by parsing APIs, but offline verification returns [`JwtSvidError::UnsupportedAlgorithm`].
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum JwtAlg {
     /// RSASSA-PKCS1-v1_5 using SHA-256
     RS256,
@@ -42,6 +47,8 @@ pub enum JwtAlg {
     ES256,
     /// ECDSA using P-384 and SHA-384
     ES384,
+    /// ECDSA using P-521 and SHA-512
+    ES512,
     /// RSASSA-PSS using SHA-256 and MGF1 with SHA-256
     PS256,
     /// RSASSA-PSS using SHA-384 and MGF1 with SHA-384
@@ -58,6 +65,7 @@ impl JwtAlg {
             "RS512" => Self::RS512,
             "ES256" => Self::ES256,
             "ES384" => Self::ES384,
+            "ES512" => Self::ES512,
             "PS256" => Self::PS256,
             "PS384" => Self::PS384,
             "PS512" => Self::PS512,
@@ -66,17 +74,19 @@ impl JwtAlg {
     }
 
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
-    const fn to_jsonwebtoken(self) -> jsonwebtoken::Algorithm {
+    const fn to_jsonwebtoken(self) -> Option<jsonwebtoken::Algorithm> {
         match self {
-            Self::RS256 => jsonwebtoken::Algorithm::RS256,
-            Self::RS384 => jsonwebtoken::Algorithm::RS384,
-            Self::RS512 => jsonwebtoken::Algorithm::RS512,
-            Self::ES256 => jsonwebtoken::Algorithm::ES256,
-            Self::ES384 => jsonwebtoken::Algorithm::ES384,
-            // jsonwebtoken supports ES512 too, but SPIFFE JWT-SVID profile does not.
-            Self::PS256 => jsonwebtoken::Algorithm::PS256,
-            Self::PS384 => jsonwebtoken::Algorithm::PS384,
-            Self::PS512 => jsonwebtoken::Algorithm::PS512,
+            Self::RS256 => Some(jsonwebtoken::Algorithm::RS256),
+            Self::RS384 => Some(jsonwebtoken::Algorithm::RS384),
+            Self::RS512 => Some(jsonwebtoken::Algorithm::RS512),
+            Self::ES256 => Some(jsonwebtoken::Algorithm::ES256),
+            Self::ES384 => Some(jsonwebtoken::Algorithm::ES384),
+            // ES512 is valid per SPIFFE JWT-SVID, but is unavailable in the
+            // jsonwebtoken verification backend used here.
+            Self::ES512 => None,
+            Self::PS256 => Some(jsonwebtoken::Algorithm::PS256),
+            Self::PS384 => Some(jsonwebtoken::Algorithm::PS384),
+            Self::PS512 => Some(jsonwebtoken::Algorithm::PS512),
         }
     }
 }
@@ -287,7 +297,8 @@ impl JwtSvid {
     /// - **Expiration (`exp`)**: Token must not be expired (no clock skew leeway)
     /// - **Audience (`aud`)**: Must match one of the values in `expected_audience`
     /// - **Required claims**: `sub`, `aud`, `exp` must be present and valid
-    /// - **Algorithm**: Must be supported by the SPIFFE JWT-SVID profile
+    /// - **Algorithm**: Must be supported by the SPIFFE JWT-SVID profile and by
+    ///   the configured offline verification backend
     ///
     /// This method does **not** validate:
     /// - **Issued at (`iat`)**: Not checked
@@ -323,13 +334,18 @@ impl JwtSvid {
         // rejecting oversized arrays before signature verification and other expensive processing.
         let untrusted = Self::parse_insecure(token)?;
 
+        let jw_alg = untrusted
+            .alg
+            .to_jsonwebtoken()
+            .ok_or(JwtSvidError::UnsupportedAlgorithm)?;
+
         let jwt_authority = Self::find_jwt_authority(
             bundle_source,
             untrusted.spiffe_id.trust_domain(),
             &untrusted.kid,
         )?;
 
-        let mut validation = Validation::new(untrusted.alg.to_jsonwebtoken());
+        let mut validation = Validation::new(jw_alg);
         validation.validate_exp = true;
         validation.leeway = 0;
 
@@ -641,6 +657,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_insecure_accepts_es512_alg() {
+        let token = mk_token(
+            r#"{"alg":"ES512","kid":"k1"}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295}"#,
+        );
+
+        let svid = JwtSvid::parse_insecure(&token).unwrap();
+        assert_eq!(svid.alg, JwtAlg::ES512);
+    }
+
+    #[test]
     fn parse_insecure_rejects_bad_format() {
         let err = JwtSvid::parse_insecure("a.b").unwrap_err();
         assert!(matches!(err, JwtSvidError::InvalidJwtFormat));
@@ -710,6 +737,12 @@ mod test {
 
     fn b64u(data: &[u8]) -> String {
         Base64UrlUnpadded::encode_string(data)
+    }
+
+    fn mk_token(header_json: &str, claims_json: &str) -> String {
+        let h = Base64UrlUnpadded::encode_string(header_json.as_bytes());
+        let c = Base64UrlUnpadded::encode_string(claims_json.as_bytes());
+        format!("{h}.{c}.sig")
     }
 
     /// Build a minimal ES256 public JWK JSON with `kid`.
@@ -807,6 +840,22 @@ mod test {
         );
 
         let result = JwtSvid::parse_insecure(&token).unwrap_err();
+        assert!(matches!(result, JwtSvidError::UnsupportedAlgorithm));
+    }
+
+    #[test]
+    fn test_parse_and_validate_es512_fails_before_bundle_lookup() {
+        // ES512 is accepted by parse_insecure but is currently unsupported by
+        // offline verification with jsonwebtoken.
+        let token = mk_token(
+            r#"{"alg":"ES512","kid":"some_key_id"}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":"audience","exp":4294967295}"#,
+        );
+
+        // Unsupported algorithm should be reported before bundle lookup errors.
+        let bundle_source = JwtBundleSet::default();
+        let result =
+            JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap_err();
         assert!(matches!(result, JwtSvidError::UnsupportedAlgorithm));
     }
 
