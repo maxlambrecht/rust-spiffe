@@ -518,12 +518,18 @@ mod x509_svid_tests {
         );
     }
 
+    /// Per the SPIFFE X.509-SVID and SPIFFE ID specifications, bare trust-domain
+    /// SPIFFE IDs (e.g. `spiffe://example.org` with no path) are valid. The Rust
+    /// library must accept them to match the Go reference implementation and the spec.
     #[test]
-    fn test_leaf_spiffe_id_without_path_is_rejected() {
+    fn test_leaf_spiffe_id_without_path_is_accepted() {
         let (cert_der, key_der) = generate_leaf_cert_with_spiffe_uri("spiffe://example.org");
 
-        let result = X509Svid::parse_from_der(&cert_der, &key_der);
+        let x509_svid = X509Svid::parse_from_der(&cert_der, &key_der).unwrap();
 
-        assert_eq!(result.unwrap_err(), X509SvidError::LeafSpiffeIdMissingPath);
+        assert_eq!(
+            x509_svid.spiffe_id().to_string(),
+            "spiffe://example.org"
+        );
     }
 }

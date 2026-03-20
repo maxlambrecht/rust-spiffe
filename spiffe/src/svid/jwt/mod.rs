@@ -30,6 +30,14 @@ use jsonwebtoken::{DecodingKey, Validation};
 /// Algorithms supported for JWT-SVIDs according to the SPIFFE JWT-SVID profile.
 ///
 /// Represents the subset of JWT signature algorithms compliant with the SPIFFE JWT-SVID specification.
+///
+/// Per [section 2.1 of the JWT-SVID specification](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#21-algorithm),
+/// the following algorithms are supported: RS256, RS384, RS512, ES256, ES384, ES512, PS256, PS384, PS512.
+///
+/// Note: ES512 (ECDSA using P-521 and SHA-512) is part of the specification but is not currently
+/// supported by the offline verification backend (`parse_and_validate`). Tokens using ES512 can be
+/// parsed without signature verification via [`JwtSvid::parse_insecure`] or
+/// [`JwtSvid::from_workload_api_token`].
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum JwtAlg {
     /// RSASSA-PKCS1-v1_5 using SHA-256
@@ -42,6 +50,8 @@ pub enum JwtAlg {
     ES256,
     /// ECDSA using P-384 and SHA-384
     ES384,
+    /// ECDSA using P-521 and SHA-512
+    ES512,
     /// RSASSA-PSS using SHA-256 and MGF1 with SHA-256
     PS256,
     /// RSASSA-PSS using SHA-384 and MGF1 with SHA-384
@@ -58,6 +68,7 @@ impl JwtAlg {
             "RS512" => Self::RS512,
             "ES256" => Self::ES256,
             "ES384" => Self::ES384,
+            "ES512" => Self::ES512,
             "PS256" => Self::PS256,
             "PS384" => Self::PS384,
             "PS512" => Self::PS512,
@@ -65,18 +76,24 @@ impl JwtAlg {
         })
     }
 
+    /// Maps this algorithm to a [`jsonwebtoken::Algorithm`], returning `None` for algorithms
+    /// that are valid SPIFFE JWT-SVID algorithms but not supported by the current
+    /// `jsonwebtoken`-based offline verification backend (e.g. ES512 / P-521).
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
-    const fn to_jsonwebtoken(self) -> jsonwebtoken::Algorithm {
+    fn to_jsonwebtoken(self) -> Option<jsonwebtoken::Algorithm> {
         match self {
-            Self::RS256 => jsonwebtoken::Algorithm::RS256,
-            Self::RS384 => jsonwebtoken::Algorithm::RS384,
-            Self::RS512 => jsonwebtoken::Algorithm::RS512,
-            Self::ES256 => jsonwebtoken::Algorithm::ES256,
-            Self::ES384 => jsonwebtoken::Algorithm::ES384,
-            // jsonwebtoken supports ES512 too, but SPIFFE JWT-SVID profile does not.
-            Self::PS256 => jsonwebtoken::Algorithm::PS256,
-            Self::PS384 => jsonwebtoken::Algorithm::PS384,
-            Self::PS512 => jsonwebtoken::Algorithm::PS512,
+            Self::RS256 => Some(jsonwebtoken::Algorithm::RS256),
+            Self::RS384 => Some(jsonwebtoken::Algorithm::RS384),
+            Self::RS512 => Some(jsonwebtoken::Algorithm::RS512),
+            Self::ES256 => Some(jsonwebtoken::Algorithm::ES256),
+            Self::ES384 => Some(jsonwebtoken::Algorithm::ES384),
+            // ES512 (P-521) is a valid SPIFFE JWT-SVID algorithm but is not supported
+            // by the current jsonwebtoken backend. Tokens can still be parsed without
+            // signature verification via parse_insecure / from_workload_api_token.
+            Self::ES512 => None,
+            Self::PS256 => Some(jsonwebtoken::Algorithm::PS256),
+            Self::PS384 => Some(jsonwebtoken::Algorithm::PS384),
+            Self::PS512 => Some(jsonwebtoken::Algorithm::PS512),
         }
     }
 }
@@ -329,7 +346,12 @@ impl JwtSvid {
             &untrusted.kid,
         )?;
 
-        let mut validation = Validation::new(untrusted.alg.to_jsonwebtoken());
+        let jw_alg = untrusted
+            .alg
+            .to_jsonwebtoken()
+            .ok_or(JwtSvidError::UnsupportedAlgorithm)?;
+
+        let mut validation = Validation::new(jw_alg);
         validation.validate_exp = true;
         validation.leeway = 0;
 
@@ -638,6 +660,19 @@ mod tests {
 
         let err = JwtSvid::parse_insecure(&token).unwrap_err();
         assert!(matches!(err, JwtSvidError::UnsupportedAlgorithm));
+    }
+
+    /// ES512 (ECDSA using P-521 and SHA-512) is a valid SPIFFE JWT-SVID algorithm per the spec.
+    /// Tokens using ES512 MUST be accepted by `parse_insecure` / `from_workload_api_token`.
+    #[test]
+    fn parse_insecure_accepts_es512_alg() {
+        let token = mk_token(
+            r#"{"alg":"ES512","kid":"k1"}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295}"#,
+        );
+
+        let svid = JwtSvid::parse_insecure(&token).unwrap();
+        assert_eq!(svid.alg, JwtAlg::ES512);
     }
 
     #[test]

@@ -13,10 +13,6 @@ pub(crate) fn validate_leaf_certificate(cert: &Certificate) -> Result<SpiffeId, 
     validate_x509_leaf_certificate(&x509)?;
     let spiffe_id = extract_single_spiffe_id_from_uri_san(&x509)?;
 
-    if spiffe_id.path().is_empty() {
-        return Err(X509SvidError::LeafSpiffeIdMissingPath);
-    }
-
     Ok(spiffe_id)
 }
 
