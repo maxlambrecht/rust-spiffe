@@ -53,7 +53,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // when you trust an entire trust domain.
     // Pass string literals directly - trust_domains() will convert them.
     let allowed_trust_domains = [
-        "example.org",
+        "domain.test",
         // In a federation scenario, you might also allow:
         // "broker.example",
     ];
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // provides bundles for multiple trust domains (federation scenario).
     // This is the most restrictive policy and ensures we only accept connections
     // from our own trust domain.
-    let local_trust_domain: TrustDomain = "example.org".try_into()?;
+    let local_trust_domain: TrustDomain = "domain.test".try_into()?;
 
     // Build rustls server config with:
     // - Authorization: accept clients from the specified trust domains
@@ -79,8 +79,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = "127.0.0.1:50051".parse()?;
     eprintln!("gRPC server listening on https://{addr}");
     eprintln!("Server configured to:");
-    eprintln!("  - Accept clients from trust domains: example.org");
-    eprintln!("  - Trust domain policy: LocalOnly (example.org)");
+    eprintln!("  - Accept clients from trust domains: domain.test");
+    eprintln!("  - Trust domain policy: LocalOnly (domain.test)");
 
     let mut server = Server::builder().tls_config(server_cfg)?;
 

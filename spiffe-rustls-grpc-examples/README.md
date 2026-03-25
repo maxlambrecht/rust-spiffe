@@ -14,12 +14,12 @@ The examples require:
 
 - A running **SPIRE agent**
 - A valid SPIFFE Workload API socket (`SPIFFE_ENDPOINT_SOCKET`)
-- Local DNS resolution for `example.org`
+- Local DNS resolution for `domain.test`
 
 For local testing, add:
 
 ```text
-127.0.0.1 example.org
+127.0.0.1 domain.test
 ```
 
 to `/etc/hosts`.

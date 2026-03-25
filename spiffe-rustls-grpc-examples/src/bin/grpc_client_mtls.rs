@@ -38,8 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Only accept connections to servers with these specific SPIFFE IDs.
     // Pass string literals directly - exact() will convert them.
     let allowed_server_ids = [
-        "spiffe://example.org/myservice",
-        "spiffe://example.org/myservice2",
+        "spiffe://domain.test/myservice",
+        "spiffe://domain.test/myservice2",
     ];
 
     // Example 2: Trust Domain Policy (defense-in-depth)
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This is a defense-in-depth mechanism - the primary trust comes from
     // the bundle set, but this policy adds an additional restriction.
     let mut allowed_trust_domains = BTreeSet::new();
-    allowed_trust_domains.insert("example.org".try_into()?);
+    allowed_trust_domains.insert("domain.test".try_into()?);
     // In a federation scenario, you might also allow:
     // allowed_trust_domains.insert("broker.example".try_into()?);
     // allowed_trust_domains.insert("stockmarket.example".try_into()?);
@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_alpn_protocols([b"h2"])
         .build()?;
 
-    let uri: Uri = "https://example.org:50051".parse()?;
+    let uri: Uri = "https://domain.test:50051".parse()?;
 
     let channel: Channel = Endpoint::from(uri)
         .tls_config(client_cfg)?

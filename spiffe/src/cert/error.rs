@@ -24,8 +24,11 @@ pub enum CertificateError {
     #[error("certificate is missing SPIFFE ID in URI SAN")]
     MissingSpiffeId,
 
-    /// The certificate contains more than one URI SAN that parses as a SPIFFE ID.
-    #[error("certificate contains multiple SPIFFE IDs in URI SAN")]
+    /// The certificate contains more than one URI SAN entry.
+    ///
+    /// X.509-SVID validation requires exactly one URI SAN entry that carries the
+    /// SPIFFE ID.
+    #[error("certificate contains multiple URI SAN entries")]
     MultipleSpiffeIds,
 
     /// The certificate has too many URI SAN entries to process safely.
