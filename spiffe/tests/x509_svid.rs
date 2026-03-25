@@ -543,7 +543,7 @@ mod x509_svid_tests {
 
         assert_eq!(
             result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::MultipleSpiffeIds)
+            X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
         );
     }
 }

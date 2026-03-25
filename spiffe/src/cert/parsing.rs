@@ -161,7 +161,7 @@ pub(crate) fn extract_spiffe_ids_from_uri_san(
         // X.509-SVID leaf certificates must contain exactly one URI SAN entry.
         // Reject early as soon as a second URI SAN appears, regardless of scheme.
         if uri_count > 1 {
-            return Err(CertificateError::MultipleSpiffeIds);
+            return Err(CertificateError::MultipleUriSanEntries);
         }
 
         // Skip large junk without allocating/parsing.

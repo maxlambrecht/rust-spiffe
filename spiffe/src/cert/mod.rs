@@ -33,7 +33,7 @@ impl Certificate {
     ///
     /// # Errors
     /// - [`CertificateError::MissingSpiffeId`] if no SPIFFE ID is present in the URI SAN.
-    /// - [`CertificateError::MultipleSpiffeIds`] if the certificate contains multiple URI SAN entries.
+    /// - [`CertificateError::MultipleUriSanEntries`] if the certificate contains multiple URI SAN entries.
     /// - [`CertificateError::ParseX509Certificate`] for parsing errors.
     pub fn spiffe_id(&self) -> Result<SpiffeId, CertificateError> {
         let x509 = parse_der_encoded_bytes_as_x509_certificate(self.as_bytes())?;
@@ -128,7 +128,7 @@ impl std::fmt::Debug for PrivateKey {
 ///
 /// # Errors
 /// - [`CertificateError::MissingSpiffeId`] if no SPIFFE ID is present in the URI SAN.
-/// - [`CertificateError::MultipleSpiffeIds`] if the certificate contains multiple URI SAN entries.
+/// - [`CertificateError::MultipleUriSanEntries`] if the certificate contains multiple URI SAN entries.
 /// - [`CertificateError::ParseX509Certificate`] for parsing errors.
 pub fn spiffe_id_from_der(der: &[u8]) -> Result<SpiffeId, CertificateError> {
     let x509 = parse_der_encoded_bytes_as_x509_certificate(der)?;
