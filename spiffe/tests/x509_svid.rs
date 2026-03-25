@@ -442,7 +442,7 @@ mod x509_svid_tests {
         clippy::unwrap_used,
         reason = "test helper generating known-valid X.509 certs"
     )]
-    fn generate_leaf_cert_with_spiffe_uri(uri: &str) -> (Vec<u8>, Vec<u8>) {
+    fn generate_leaf_cert_with_uri_sans(uris: &[&str]) -> (Vec<u8>, Vec<u8>) {
         use openssl::asn1::Asn1Time;
         use openssl::bn::BigNum;
         use openssl::hash::MessageDigest;
@@ -489,10 +489,11 @@ mod x509_svid_tests {
         builder.append_extension(key_usage).unwrap();
 
         let context = builder.x509v3_context(None, None);
-        let san = SubjectAlternativeName::new()
-            .uri(uri)
-            .build(&context)
-            .unwrap();
+        let mut san_builder = SubjectAlternativeName::new();
+        for uri in uris {
+            san_builder.uri(uri);
+        }
+        let san = san_builder.build(&context).unwrap();
         builder.append_extension(san).unwrap();
 
         builder.sign(&pkey, MessageDigest::sha256()).unwrap();
@@ -503,6 +504,10 @@ mod x509_svid_tests {
         let key_der = pkey.private_key_to_pkcs8().unwrap();
 
         (cert_der, key_der)
+    }
+
+    fn generate_leaf_cert_with_spiffe_uri(uri: &str) -> (Vec<u8>, Vec<u8>) {
+        generate_leaf_cert_with_uri_sans(&[uri])
     }
 
     #[test]
@@ -525,5 +530,20 @@ mod x509_svid_tests {
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
 
         assert_eq!(result.unwrap_err(), X509SvidError::LeafSpiffeIdMissingPath);
+    }
+
+    #[test]
+    fn test_leaf_with_multiple_uri_sans_is_rejected() {
+        let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&[
+            "spiffe://example.org/workload",
+            "https://example.org/not-allowed",
+        ]);
+
+        let result = X509Svid::parse_from_der(&cert_der, &key_der);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
+        );
     }
 }

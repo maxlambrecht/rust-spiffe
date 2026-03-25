@@ -12,7 +12,6 @@ use x509_parser::nom::Err;
 use x509_parser::oid_registry;
 use x509_parser::prelude::GeneralName;
 
-const MAX_URI_SAN_ENTRIES: usize = 32;
 const MAX_URI_LENGTH: usize = 2048;
 
 /// Maximum number of certificates allowed in a certificate chain.
@@ -159,10 +158,10 @@ pub(crate) fn extract_spiffe_ids_from_uri_san(
         };
 
         uri_count += 1;
-        if uri_count > MAX_URI_SAN_ENTRIES {
-            return Err(CertificateError::TooManyUriSanEntries {
-                max: MAX_URI_SAN_ENTRIES,
-            });
+        // X.509-SVID leaf certificates must contain exactly one URI SAN entry.
+        // Reject early as soon as a second URI SAN appears, regardless of scheme.
+        if uri_count > 1 {
+            return Err(CertificateError::MultipleUriSanEntries);
         }
 
         // Skip large junk without allocating/parsing.

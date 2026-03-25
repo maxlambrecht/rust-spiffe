@@ -1061,6 +1061,15 @@ mod test {
         let mut bundle_set = JwtBundleSet::default();
         bundle_set.add_bundle(bundle);
 
+        // Use a near-future expiration to avoid boundary flakiness around "now".
+        let exp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before UNIX_EPOCH")
+            .as_secs()
+            .saturating_add(60)
+            .try_into()
+            .unwrap();
+
         // Test with excessive `aud` claim values in token (MAX_JWT_AUDIENCE_COUNT is 32, so 33 should trigger)
         let excessive_audiences: Vec<String> = (0..33).map(|i| format!("aud{i}")).collect();
         let oversized_token = generate_token(
@@ -1068,12 +1077,7 @@ mod test {
             "spiffe://example.org/workload".to_string(),
             None,
             Some(kid.to_string()),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before UNIX_EPOCH")
-                .as_secs()
-                .try_into()
-                .unwrap(),
+            exp,
             Algorithm::ES256,
             &encoding_key,
         );
@@ -1102,12 +1106,7 @@ mod test {
             "spiffe://example.org/workload".to_string(),
             None,
             Some(kid.to_string()),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("system clock before UNIX_EPOCH")
-                .as_secs()
-                .try_into()
-                .unwrap(),
+            exp,
             Algorithm::ES256,
             &encoding_key,
         );
