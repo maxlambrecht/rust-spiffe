@@ -851,6 +851,45 @@ mod spiffe_id_tests {
     }
 
     #[test]
+    fn test_from_segments_rejects_empty_segment() {
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        assert_eq!(
+            SpiffeId::from_segments(trust_domain, &[""]).unwrap_err(),
+            SpiffeIdError::EmptySegment
+        );
+    }
+
+    #[test]
+    fn test_from_segments_rejects_dot_segments() {
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        assert_eq!(
+            SpiffeId::from_segments(trust_domain.clone(), &["."]).unwrap_err(),
+            SpiffeIdError::DotSegment
+        );
+        assert_eq!(
+            SpiffeId::from_segments(trust_domain, &[".."]).unwrap_err(),
+            SpiffeIdError::DotSegment
+        );
+    }
+
+    #[test]
+    fn test_from_segments_rejects_embedded_slash() {
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        assert_eq!(
+            SpiffeId::from_segments(trust_domain, &["foo/bar"]).unwrap_err(),
+            SpiffeIdError::BadPathSegmentChar
+        );
+    }
+
+    #[test]
+    fn test_from_segments_preserves_path_case() {
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let spiffe_id = SpiffeId::from_segments(trust_domain, &["MyService"]).unwrap();
+        assert_eq!(spiffe_id.path(), "/MyService");
+        assert_eq!(spiffe_id.to_string(), "spiffe://example.org/MyService");
+    }
+
+    #[test]
     fn test_ipv4_trust_domain_is_accepted() {
         let spiffe_id = SpiffeId::from_str("spiffe://1.2.3.4/service").unwrap();
         assert_eq!(spiffe_id.trust_domain_name(), "1.2.3.4");
