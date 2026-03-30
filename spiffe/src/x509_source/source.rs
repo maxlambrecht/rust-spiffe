@@ -171,6 +171,13 @@ impl Inner {
     }
 }
 
+impl Drop for Inner {
+    fn drop(&mut self) {
+        // Best-effort cancellation. Do not block in Drop.
+        self.cancel.cancel();
+    }
+}
+
 impl Debug for Inner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("X509Source")
@@ -643,13 +650,6 @@ impl Inner {
             self.limits,
             self.metrics.as_deref(),
         )
-    }
-}
-
-impl Drop for X509Source {
-    fn drop(&mut self) {
-        // Best-effort cancellation. Do not block in Drop.
-        self.inner.cancel.cancel();
     }
 }
 
