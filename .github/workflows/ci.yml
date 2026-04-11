@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 1
 
       - name: Install Rust (MSRV)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: ${{ env.MSRV }}
 
@@ -176,13 +176,13 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Rust (minimal)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: stable
           components: cargo
 
       - name: Install cargo-audit
-        uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5
+        uses: taiki-e/install-action@0fde6d128a3d980ceac30be8c8b8739abd963b81
         with:
           tool: cargo-audit
 
@@ -200,13 +200,13 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Rust (minimal)
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: stable
           components: cargo
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@06203676c62f0d3c765be3f2fcfbebbcb02d09f5
+        uses: taiki-e/install-action@0fde6d128a3d980ceac30be8c8b8739abd963b81
         with:
           tool: cargo-deny
 
