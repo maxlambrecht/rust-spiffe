@@ -16,6 +16,9 @@
 //! trust domain bundle based on the peer's SPIFFE ID. Authorization is applied **after**
 //! cryptographic verification succeeds.
 //!
+//! For outbound TLS, peer identity is the SPIFFE ID in the URI SAN, not the TLS server name.
+//! Connecting to `localhost` or an IP is supported even when the X.509-SVID has no matching DNS SAN.
+//!
 //! ## Feature flags
 //!
 //! Exactly **one** `rustls` crypto provider must be enabled:

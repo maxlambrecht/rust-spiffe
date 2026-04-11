@@ -1,5 +1,10 @@
 //! rustls verifiers that authenticate with SPIFFE trust bundles and authorize by SPIFFE ID.
 //!
+//! For outbound TLS (client), the server certificate verifier validates the certificate chain
+//! against the SPIFFE trust bundle and authorizes the peer by SPIFFE ID. It does **not** require
+//! the TLS `server_name` to match DNS or IP subjectAltNames; peer identity comes from the SPIFFE ID
+//! (URI SAN).
+//!
 //! This module is internal to the crate. It intentionally keeps the public API
 //! surface minimal and avoids leaking rustls implementation details.
 
@@ -345,6 +350,26 @@ fn build_client_verifier(
     Ok(v)
 }
 
+/// Returns `true` if `err` is a TLS server-name mismatch from the webpki name check.
+///
+/// When clearing these errors in `SpiffeServerCertVerifier::verify_server_cert`, we rely on the
+/// **current** rustls behavior of `WebPkiServerVerifier::verify_server_cert`:
+/// certificate path validation runs before server-name validation, so treating only name-mismatch
+/// errors as non-fatal does not bypass chain validation. That ordering is rustls’s, not a contract
+/// defined by this crate.
+///
+/// SPIFFE peer authentication uses the configured trust bundle and the SPIFFE ID (URI SAN), not
+/// DNS/IP SAN matching to the dial target.
+const fn webpki_tls_hostname_mismatch(err: &rustls::Error) -> bool {
+    matches!(
+        err,
+        rustls::Error::InvalidCertificate(
+            rustls::CertificateError::NotValidForName
+                | rustls::CertificateError::NotValidForNameContext { .. }
+        )
+    )
+}
+
 // ------------ Server verifier (client side) ------------
 
 #[derive(Clone)]
@@ -526,9 +551,23 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         // Step 3: Get or build verifier for this trust domain
         let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Verify certificate chain cryptographically
-        let ok =
-            inner.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)?;
+        // Step 4: Verify certificate chain (via inner `WebPkiServerVerifier`), then SPIFFE policy.
+        //
+        // For SPIFFE we ignore only `NotValidForName` and `NotValidForNameContext`, relying on
+        // rustls path validation having already succeeded before name checks run.
+        let ok = match inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(ok) => ok,
+            Err(e) if webpki_tls_hostname_mismatch(&e) => {
+                rustls::client::danger::ServerCertVerified::assertion()
+            }
+            Err(e) => return Err(e),
+        };
 
         // Step 5: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
@@ -954,6 +993,14 @@ mod tests {
         ))
     }
 
+    /// Leaf certificate with only a SPIFFE URI in SAN (typical SPIRE default; no DNS SAN).
+    fn fixture_spiffe_leaf_uri_only_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/spiffe_leaf_uri_only.der"
+        ))
+    }
+
     fn fixture_no_spiffe_leaf_der() -> &'static [u8] {
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -979,6 +1026,10 @@ mod tests {
         CertificateDer::from(fixture_spiffe_leaf_der().to_vec())
     }
 
+    fn cert_with_spiffe_uri_only() -> CertificateDer<'static> {
+        CertificateDer::from(fixture_spiffe_leaf_uri_only_der().to_vec())
+    }
+
     fn cert_without_spiffe() -> CertificateDer<'static> {
         CertificateDer::from(fixture_no_spiffe_leaf_der().to_vec())
     }
@@ -987,6 +1038,21 @@ mod tests {
         let mut roots = RootCertStore::empty();
         roots
             .add(CertificateDer::from(fixture_ca_der().to_vec()))
+            .expect("fixture CA must parse");
+        Arc::new(roots)
+    }
+
+    fn fixture_ca_uri_only_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ca_uri_only.der"
+        ))
+    }
+
+    fn roots_with_ca_uri_only() -> Arc<RootCertStore> {
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(fixture_ca_uri_only_der().to_vec()))
             .expect("fixture CA must parse");
         Arc::new(roots)
     }
@@ -1038,6 +1104,22 @@ mod tests {
 
     fn server_name_example_org() -> ServerName<'static> {
         ServerName::try_from("example.org").unwrap()
+    }
+
+    fn server_name_localhost() -> ServerName<'static> {
+        ServerName::try_from("localhost").unwrap()
+    }
+
+    fn static_provider_uri_only_example_org(generation: u64) -> Arc<dyn MaterialProvider> {
+        let mut roots_by_td = BTreeMap::new();
+        let td = TrustDomain::new("example.org").expect("valid trust domain");
+        roots_by_td.insert(td, roots_with_ca_uri_only());
+
+        Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
+            generation,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        })))
     }
 
     fn assert_other_downcasts_to_error(err: &rustls::Error) -> &Error {
@@ -1126,6 +1208,98 @@ mod tests {
                 UnixTime::now(),
             )
             .unwrap();
+    }
+
+    /// URI-only SVID (no DNS SAN) with `server_name` `localhost`, as when dialing a SPIRE workload
+    /// on loopback. Chain validation must succeed; TLS hostname checks must not apply.
+    #[test]
+    fn server_verifier_accepts_uri_only_svid_when_server_name_is_localhost() {
+        ensure_provider();
+
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_uri_only_example_org(1),
+            |id: &SpiffeId| id.to_string() == "spiffe://example.org/service",
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let _: rustls::client::danger::ServerCertVerified = verifier
+            .verify_server_cert(
+                &cert_with_spiffe_uri_only(),
+                &[],
+                &server_name_localhost(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap();
+    }
+
+    /// Wrong trust anchor: chain validation fails inside rustls before hostname checks. We must not
+    /// treat that as a hostname-only case or accept the certificate.
+    #[test]
+    fn server_verifier_rejects_mismatched_trust_anchor_with_uri_only_leaf_and_localhost() {
+        ensure_provider();
+
+        // `cert_with_spiffe_uri_only` chains to `ca_uri_only.der`; provider supplies `ca.der` only.
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe_uri_only(),
+                &[],
+                &server_name_localhost(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(
+            !webpki_tls_hostname_mismatch(&err),
+            "unknown issuer must not be classified as hostname mismatch: {err:?}"
+        );
+        assert!(
+            matches!(
+                err,
+                rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+            ),
+            "expected UnknownIssuer, got {err:?}"
+        );
+    }
+
+    /// Same scenario as `server_verifier_rejects_mismatched_trust_anchor_with_uri_only_leaf_and_localhost`,
+    /// but with a leaf that includes a DNS SAN: chain failure must still be fatal.
+    #[test]
+    fn server_verifier_rejects_mismatched_trust_anchor_with_dns_san_leaf() {
+        ensure_provider();
+
+        // `cert_with_spiffe` chains to `ca.der`; provider supplies `ca_uri_only.der` only.
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_uri_only_example_org(1),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(!webpki_tls_hostname_mismatch(&err));
+        assert!(
+            matches!(
+                err,
+                rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+            ),
+            "expected UnknownIssuer, got {err:?}"
+        );
     }
 
     #[test]

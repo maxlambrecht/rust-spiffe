@@ -62,6 +62,16 @@ trust domains.
 
 ---
 
+## TLS server name vs SPIFFE identity
+
+`rustls` normally checks that the certificate’s DNS/IP subjectAltNames match the connection’s
+server name (e.g. `localhost`). For SPIFFE X.509-SVIDs, this crate instead relies on validating
+the chain to the configured **trust bundle** and on the SPIFFE ID (URI SAN), with authorization
+via the `Authorizer` trait. This crate does not require the TLS server name to match DNS or IP SANs
+on the peer certificate when validating server X.509-SVIDs.
+
+---
+
 ## Trust Domain Policy (verification)
 
 You may optionally restrict which trust domains are allowed during **certificate verification**
