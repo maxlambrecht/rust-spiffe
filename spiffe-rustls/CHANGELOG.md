@@ -1,10 +1,15 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.9] – 2026-04-18
+
+### Changed
+
+- Bump the `spiffe` dependency from 0.12 to 0.13.
 
 ### Fixed
 
-- Client TLS: Do not treat webpki hostname or SNI mismatches as fatal during X.509-SVID server verification. SPIFFE TLS relies on validation against the trust bundle plus SPIFFE ID authorization through the `Authorizer`, not on DNS or IP SAN matching.
+- Skip TLS hostname mismatch checks during SPIFFE server X.509-SVID verification (#329). WebPKI hostname and SNI mismatches are no longer treated as fatal during server certificate verification. SPIFFE TLS relies on trust bundle validation and SPIFFE ID authorization through the `Authorizer`, not on DNS or IP SAN matching.
+
 
 ## [0.4.8] – 2026-02-24
 

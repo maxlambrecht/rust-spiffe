@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.0] – 2026-04-18
+
+### Breaking changes
+
+- **JWT:** Added ES512 parsing support; offline verification errors are backend-specific (#322).
+
+### Fixed
+
+- **X509 source:** Only cancel the underlying source when the last `X509Source` is dropped (#327).
+- **X.509-SVID:** Reject leaf certificates with multiple URI SAN entries (#325).
+- **X.509-SVID:** Reject root-only leaf SPIFFE IDs.
+- **SPIFFE ID:** Enforce trust domain length limits and adjust parse-time URI limits.
+- **SPIFFE ID:** Accept the `spiffe:` scheme case-insensitively and canonicalize the trust domain (#320).
+
+
 ## [0.12.0] – 2026-02-24
 
 ### Breaking changes
