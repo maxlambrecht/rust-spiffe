@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Client TLS: Do not treat webpki hostname or SNI mismatches as fatal during X.509-SVID server verification. SPIFFE TLS relies on validation against the trust bundle plus SPIFFE ID authorization through the `Authorizer`, not on DNS or IP SAN matching.
+
 ## [0.4.8] – 2026-02-24
 
 ### Changed
