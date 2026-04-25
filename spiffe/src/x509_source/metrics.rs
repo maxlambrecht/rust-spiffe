@@ -4,6 +4,7 @@ use super::errors::MetricsErrorKind;
 ///
 /// Implement this trait to integrate with your metrics system (e.g., Prometheus, `StatsD`).
 /// Prefer stable, low-cardinality labels when recording metrics.
+/// Implementations must not panic.
 ///
 /// # Example
 ///
