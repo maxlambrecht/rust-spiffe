@@ -169,13 +169,13 @@ pub(super) struct Inner {
 
     // Lifecycle / shutdown.
     closed: AtomicBool,
+    supervisor_running: AtomicBool,
     cancel: CancellationToken,
     shutdown_timeout: Option<Duration>,
 
     // Update notifications (monotonic sequence).
     update_seq: AtomicU64,
     update_tx: watch::Sender<u64>,
-    _update_rx: watch::Receiver<u64>,
 
     // Supervisor task handle (joined/aborted at shutdown).
     supervisor: Mutex<Option<JoinHandle<()>>>,
@@ -257,10 +257,13 @@ impl Debug for Inner {
             )
             .field("shutdown_timeout", &self.shutdown_timeout)
             .field("closed", &self.closed.load(Ordering::Relaxed))
+            .field(
+                "supervisor_running",
+                &self.supervisor_running.load(Ordering::Relaxed),
+            )
             .field("cancel", &self.cancel)
             .field("update_seq", &self.update_seq)
             .field("update_tx", &"<watch::Sender<u64>>")
-            .field("_update_rx", &"<watch::Receiver<u64>>")
             .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
             .finish()
     }
@@ -337,11 +340,18 @@ impl JwtSource {
         }
     }
 
-    /// Returns `true` if the source appears healthy and can likely provide bundles.
+    /// Returns `true` if the source appears healthy and can likely provide usable JWT
+    /// bundle material (at least one bundle with at least one JWT authority).
     ///
     /// This method checks that:
     /// - The source is not closed or cancelled
-    /// - There are bundles available
+    /// - The update supervisor is still running
+    /// - The cached [`JwtBundleSet`] has at least one bundle with at least one JWT authority
+    ///   (see `JwtBundle::jwt_authorities`)
+    ///
+    /// This does not perform network probes, does not validate that your Workload API client
+    /// is still connected or responsive, and does not verify client liveness. It reflects
+    /// local, cached state only.
     ///
     /// **Note:** This check is inherently racy. Between calling `is_healthy()` and
     /// `bundle_set()`, the source may be shut down or the bundle set may change. Use this
@@ -364,12 +374,18 @@ impl JwtSource {
     /// # }
     /// ```
     pub fn is_healthy(&self) -> bool {
-        if self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled() {
+        if self.inner.closed.load(Ordering::Acquire)
+            || self.inner.cancel.is_cancelled()
+            || !self.inner.supervisor_running.load(Ordering::Acquire)
+        {
             return false;
         }
 
         let bundle_set = self.inner.bundle_set.load();
-        !bundle_set.is_empty()
+        let has_jwt_signing_key = bundle_set
+            .iter()
+            .any(|(_td, b)| b.jwt_authorities().next().is_some());
+        has_jwt_signing_key
     }
 
     /// Returns the current JWT bundle set.
@@ -613,7 +629,7 @@ impl JwtSource {
     ) -> Result<Self, JwtSourceError> {
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
-        let (update_tx, update_rx) = watch::channel(0u64);
+        let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
@@ -644,17 +660,19 @@ impl JwtSource {
             metrics,
             shutdown_timeout,
             closed: AtomicBool::new(false),
+            supervisor_running: AtomicBool::new(false),
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         });
 
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
+        let terminate_guard =
+            SupervisorTerminationGuard::new(Arc::clone(&task_inner), token.clone());
         let handle = tokio::spawn(async move {
-            let _cancel_on_drop = token.clone().drop_guard();
+            let _terminate_on_drop = terminate_guard;
             task_inner.run_update_supervisor(token).await;
         });
 
@@ -680,7 +698,7 @@ impl JwtSource {
         // Normalize reconnect config at the boundary (same as build_with)
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
-        let (update_tx, update_rx) = watch::channel(0u64);
+        let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
@@ -697,10 +715,10 @@ impl JwtSource {
             metrics,
             shutdown_timeout: None,
             closed: AtomicBool::new(false),
+            supervisor_running: AtomicBool::new(false),
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         };
 
@@ -715,6 +733,27 @@ impl JwtSource {
             return Err(JwtSourceError::Closed);
         }
         Ok(())
+    }
+}
+
+struct SupervisorTerminationGuard {
+    inner: Arc<Inner>,
+    token: CancellationToken,
+}
+
+impl SupervisorTerminationGuard {
+    fn new(inner: Arc<Inner>, token: CancellationToken) -> Self {
+        inner.supervisor_running.store(true, Ordering::Release);
+        Self { inner, token }
+    }
+}
+
+impl Drop for SupervisorTerminationGuard {
+    fn drop(&mut self) {
+        self.inner
+            .supervisor_running
+            .store(false, Ordering::Release);
+        self.token.cancel();
     }
 }
 
@@ -755,7 +794,7 @@ impl Inner {
 
     pub(super) fn notify_update(&self) {
         let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _unused: Result<_, _> = self.update_tx.send(next);
+        let _prev = self.update_tx.send_replace(next);
     }
 
     pub(super) fn validate_bundle_set(
@@ -812,6 +851,28 @@ mod tests {
         let mut bundle_set = JwtBundleSet::new();
         bundle_set.add_bundle(bundle);
         Arc::new(bundle_set)
+    }
+
+    /// Trust domain present but no JWT keys (e.g. empty JWKS) — not sufficient for `is_healthy`.
+    fn create_bundle_set_trust_domain_without_jwt_authorities() -> Arc<JwtBundleSet> {
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let mut bundle_set = JwtBundleSet::new();
+        bundle_set.add_bundle(JwtBundle::new(trust_domain));
+        Arc::new(bundle_set)
+    }
+
+    fn supervisor_running_guard_for_test(source: &JwtSource) -> SupervisorTerminationGuard {
+        let task_inner = Arc::clone(&source.inner);
+        let token = task_inner.cancel.clone();
+        SupervisorTerminationGuard::new(task_inner, token)
+    }
+
+    async fn terminate_supervisor_for_test(terminate_guard: SupervisorTerminationGuard) {
+        tokio::spawn(async move {
+            let _terminate_on_drop = terminate_guard;
+        })
+        .await
+        .expect("supervisor termination task should not panic");
     }
 
     #[tokio::test]
@@ -908,6 +969,21 @@ mod tests {
 
         source.inner.notify_update();
         assert_eq!(updates.changed().await.unwrap(), 2);
+    }
+
+    /// With no `updated()` / `watch` subscribers yet, `notify_update` must still advance the
+    /// shared sequence; the first `updated()` should observe that value.
+    #[test]
+    fn test_notify_update_sequence_before_first_subscriber() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        source.inner.notify_update();
+        let updates = source.updated();
+        assert_eq!(updates.last(), 1);
     }
 
     #[tokio::test]
@@ -1012,6 +1088,82 @@ mod tests {
             .await
             .expect("supervisor token should be cancelled when last source handle is dropped")
             .expect("supervisor observer should send stop notification");
+    }
+
+    #[tokio::test]
+    async fn test_supervisor_termination_marks_unhealthy_and_closes_updates() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let running_guard = supervisor_running_guard_for_test(&source);
+        let mut changed_updates = source.updated();
+        let mut wait_updates = source.updated();
+
+        assert!(
+            source.is_healthy(),
+            "cached bundle set should be healthy while supervisor is running"
+        );
+
+        terminate_supervisor_for_test(running_guard).await;
+
+        assert!(
+            !source.is_healthy(),
+            "source must be unhealthy after supervisor termination"
+        );
+        let changed = tokio::time::timeout(Duration::from_secs(1), changed_updates.changed())
+            .await
+            .expect("changed should stop waiting after supervisor termination");
+        assert!(matches!(changed, Err(JwtSourceError::Closed)));
+
+        let waited = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_updates.wait_for(|&seq| seq > 0),
+        )
+        .await
+        .expect("wait_for should stop waiting after supervisor termination");
+        assert!(matches!(waited, Err(JwtSourceError::Closed)));
+    }
+
+    #[test]
+    fn test_is_healthy_false_when_bundle_set_is_empty() {
+        let source = JwtSource::new_for_test(
+            Arc::new(JwtBundleSet::new()),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let _guard = supervisor_running_guard_for_test(&source);
+        assert!(!source.is_healthy(), "empty bundle set must be unhealthy");
+    }
+
+    #[test]
+    fn test_is_healthy_false_when_trust_domain_has_no_jwt_authorities() {
+        let source = JwtSource::new_for_test(
+            create_bundle_set_trust_domain_without_jwt_authorities(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let _guard = supervisor_running_guard_for_test(&source);
+        assert!(
+            !source.is_healthy(),
+            "bundle with no signing keys must be unhealthy even if the trust domain is present"
+        );
+    }
+
+    #[test]
+    fn test_is_healthy_true_when_trust_domain_has_jwt_authority() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let _guard = supervisor_running_guard_for_test(&source);
+        assert!(source.is_healthy());
     }
 
     /// Test metrics recorder that counts error recordings by kind.

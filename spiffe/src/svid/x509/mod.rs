@@ -22,6 +22,7 @@ pub struct X509Svid {
     spiffe_id: SpiffeId,
     cert_chain: Vec<Certificate>,
     private_key: PrivateKey,
+    expiry_unix: i64,
     hint: Option<Arc<str>>,
 }
 
@@ -127,7 +128,7 @@ impl X509Svid {
             return Err(X509SvidError::EmptyChain);
         };
 
-        let spiffe_id = validate_leaf_certificate(leaf)?;
+        let (spiffe_id, expiry_unix) = validate_leaf_certificate(leaf)?;
         validate_signing_certificates(rest)?;
         let private_key = PrivateKey::try_from(private_key_der)?;
 
@@ -135,6 +136,7 @@ impl X509Svid {
             spiffe_id,
             cert_chain,
             private_key,
+            expiry_unix,
             hint,
         })
     }
@@ -166,6 +168,11 @@ impl X509Svid {
     /// Returns the private key.
     pub const fn private_key(&self) -> &PrivateKey {
         &self.private_key
+    }
+
+    #[cfg(feature = "x509-source")]
+    pub(crate) const fn expiry_unix(&self) -> i64 {
+        self.expiry_unix
     }
 
     /// Returns the optional hint provided by the Workload API.

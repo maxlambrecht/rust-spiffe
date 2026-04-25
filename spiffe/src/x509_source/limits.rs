@@ -3,7 +3,9 @@ use super::errors::{LimitKind, MetricsErrorKind, X509SourceError};
 use super::metrics::MetricsRecorder;
 use crate::workload_api::x509_context::X509Context;
 use crate::x509_source::types::SvidPicker;
+use crate::X509Svid;
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub(super) fn validate_limits(
     ctx: &X509Context,
@@ -106,7 +108,7 @@ pub(super) const fn metric_kind_for_limit(kind: LimitKind) -> MetricsErrorKind {
 pub(super) fn select_svid(
     ctx: &X509Context,
     picker: Option<&dyn SvidPicker>,
-) -> Option<Arc<crate::X509Svid>> {
+) -> Option<Arc<X509Svid>> {
     if let Some(p) = picker {
         // Picker must return a valid index that maps to an actual SVID.
         p.pick_svid(ctx.svids())
@@ -127,17 +129,77 @@ pub(super) fn validate_context(
     picker: Option<&dyn SvidPicker>,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
-) -> Result<(), X509SourceError> {
+) -> Result<Arc<X509Svid>, X509SourceError> {
     // Validate limits and record specific limit metrics if exceeded.
     validate_limits_and_record_metric(ctx, limits, metrics)?;
 
     // Ensure the context is usable for callers (picker or default can select).
-    if select_svid(ctx, picker).is_none() {
-        if let Some(m) = metrics {
-            m.record_error(MetricsErrorKind::NoSuitableSvid);
+    match select_svid(ctx, picker) {
+        Some(svid) if selected_svid_is_not_expired(&svid) => Ok(svid),
+        Some(_) | None => {
+            if let Some(m) = metrics {
+                m.record_error(MetricsErrorKind::NoSuitableSvid);
+            }
+            Err(X509SourceError::NoSuitableSvid)
         }
-        return Err(X509SourceError::NoSuitableSvid);
+    }
+}
+
+fn selected_svid_is_not_expired(svid: &X509Svid) -> bool {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_secs()).ok())
+        .ok()
+        .flatten();
+
+    now.is_none_or(|now| svid.expiry_unix() > now)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::X509BundleSet;
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+
+    struct TestMetricsRecorder {
+        counts: Mutex<HashMap<MetricsErrorKind, u64>>,
     }
 
-    Ok(())
+    impl TestMetricsRecorder {
+        fn new() -> Self {
+            Self {
+                counts: Mutex::new(HashMap::new()),
+            }
+        }
+
+        fn count(&self, kind: MetricsErrorKind) -> u64 {
+            *self.counts.lock().unwrap().get(&kind).unwrap_or(&0)
+        }
+    }
+
+    impl MetricsRecorder for TestMetricsRecorder {
+        fn record_update(&self) {}
+        fn record_reconnect(&self) {}
+        fn record_error(&self, kind: MetricsErrorKind) {
+            *self.counts.lock().unwrap().entry(kind).or_insert(0) += 1;
+        }
+    }
+
+    #[test]
+    fn validate_context_rejects_expired_selected_svid_once() {
+        let cert_bytes = include_bytes!("../../tests/testdata/svid/x509/expired-svid-chain.der");
+        let key_bytes = include_bytes!("../../tests/testdata/svid/x509/expired-key.der");
+        let svid = Arc::new(
+            X509Svid::parse_from_der(cert_bytes, key_bytes)
+                .expect("expired fixture should parse as an X509-SVID"),
+        );
+        let ctx = X509Context::new([svid], Arc::new(X509BundleSet::new()));
+        let metrics = TestMetricsRecorder::new();
+
+        let result = validate_context(&ctx, None, ResourceLimits::default(), Some(&metrics));
+
+        assert!(matches!(result, Err(X509SourceError::NoSuitableSvid)));
+        assert_eq!(metrics.count(MetricsErrorKind::NoSuitableSvid), 1);
+    }
 }

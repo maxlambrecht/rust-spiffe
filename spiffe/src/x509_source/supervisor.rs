@@ -11,6 +11,7 @@ use crate::workload_api::x509_context::X509Context;
 use crate::workload_api::WorkloadApiClient;
 use crate::x509_source::source::Inner;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
+use crate::X509Svid;
 use futures::StreamExt as _;
 use std::sync::Arc;
 use std::time::Duration;
@@ -164,7 +165,7 @@ pub(super) async fn initial_sync_with_retry(
     reconnect: ReconnectConfig,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
-) -> Result<Arc<X509Context>, X509SourceError> {
+) -> Result<(Arc<X509Context>, Arc<X509Svid>), X509SourceError> {
     let mut backoff = reconnect.min_backoff;
     let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
 
@@ -224,7 +225,7 @@ async fn try_sync_once(
     metrics: Option<&dyn MetricsRecorder>,
     backoff: Duration,
     error_tracker: &mut ErrorTracker,
-) -> Result<Arc<X509Context>, X509SourceError> {
+) -> Result<(Arc<X509Context>, Arc<X509Svid>), X509SourceError> {
     // Use shared client creation logic (records ClientCreation metric on failure).
     // Initial sync does not record reconnect metrics (it's not a reconnect).
     let client = match try_create_client(make_client, backoff, error_tracker, metrics).await {
@@ -255,11 +256,12 @@ async fn try_sync_once(
 
     match stream.next().await {
         Some(Ok(ctx)) => {
-            validate_context(&ctx, picker, limits, metrics).inspect_err(|e| {
-                warn!("Initial X509 context rejected; will retry: error={e}");
-            })?;
+            let selected_svid =
+                validate_context(&ctx, picker, limits, metrics).inspect_err(|e| {
+                    warn!("Initial X509 context rejected; will retry: error={e}");
+                })?;
 
-            Ok(Arc::new(ctx))
+            Ok((Arc::new(ctx), selected_svid))
         }
         Some(Err(e)) => {
             // Record StreamError for stream read errors.

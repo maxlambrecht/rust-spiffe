@@ -7,8 +7,10 @@ use x509_parser::extensions::ParsedExtension;
 use x509_parser::oid_registry;
 
 /// Parses `cert` as X.509, validates it as an X.509-SVID leaf,
-/// and returns the [`SpiffeId`] from the URI SAN.
-pub(crate) fn validate_leaf_certificate(cert: &Certificate) -> Result<SpiffeId, X509SvidError> {
+/// and returns the [`SpiffeId`] from the URI SAN and leaf expiry.
+pub(crate) fn validate_leaf_certificate(
+    cert: &Certificate,
+) -> Result<(SpiffeId, i64), X509SvidError> {
     let x509 = parse_der_encoded_bytes_as_x509_certificate(cert.as_bytes())?;
     validate_x509_leaf_certificate(&x509)?;
     let spiffe_id = extract_single_spiffe_id_from_uri_san(&x509)?;
@@ -17,7 +19,7 @@ pub(crate) fn validate_leaf_certificate(cert: &Certificate) -> Result<SpiffeId, 
         return Err(X509SvidError::LeafSpiffeIdMissingPath);
     }
 
-    Ok(spiffe_id)
+    Ok((spiffe_id, x509.validity().not_after.timestamp()))
 }
 
 /// Parses and validates `certs` as signing certificates.

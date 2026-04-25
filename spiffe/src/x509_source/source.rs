@@ -13,7 +13,7 @@ use arc_swap::ArcSwap;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::{CancellationToken, DropGuard};
@@ -149,9 +149,14 @@ pub struct X509Source {
     _shutdown_guard: Arc<DropGuard>,
 }
 
+struct Snapshot {
+    ctx: Arc<X509Context>,
+    expiry_unix: i64,
+}
+
 pub(super) struct Inner {
-    // Atomically replaced, last-known-good X.509 context (SVIDs + bundles).
-    x509_context: ArcSwap<X509Context>,
+    // Atomically replaced, last-known-good X.509 context and selected SVID expiry.
+    snapshot: ArcSwap<Snapshot>,
 
     // Policy for selecting an SVID when multiple are present.
     svid_picker: Option<Box<dyn SvidPicker>>,
@@ -164,13 +169,13 @@ pub(super) struct Inner {
 
     // Lifecycle / shutdown.
     closed: AtomicBool,
+    supervisor_running: AtomicBool,
     cancel: CancellationToken,
     shutdown_timeout: Option<Duration>,
 
     // Update notifications (monotonic sequence).
     update_seq: AtomicU64,
     update_tx: watch::Sender<u64>,
-    _update_rx: watch::Receiver<u64>,
 
     // Supervisor task handle (joined/aborted at shutdown).
     supervisor: Mutex<Option<JoinHandle<()>>>,
@@ -191,7 +196,7 @@ impl Inner {
 impl Debug for Inner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("X509Source")
-            .field("x509_context", &"<ArcSwap<X509Context>>")
+            .field("snapshot", &"<ArcSwap<Snapshot>>")
             .field(
                 "svid_picker",
                 &self.svid_picker.as_ref().map(|_| "<SvidPicker>"),
@@ -205,10 +210,13 @@ impl Debug for Inner {
             )
             .field("shutdown_timeout", &self.shutdown_timeout)
             .field("closed", &self.closed.load(Ordering::Relaxed))
+            .field(
+                "supervisor_running",
+                &self.supervisor_running.load(Ordering::Relaxed),
+            )
             .field("cancel", &self.cancel)
             .field("update_seq", &self.update_seq)
             .field("update_tx", &"<watch::Sender<u64>>")
-            .field("_update_rx", &"<watch::Receiver<u64>>")
             .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
             .finish()
     }
@@ -291,8 +299,9 @@ impl X509Source {
     ///
     /// This method checks that:
     /// - The source is not closed or cancelled
-    /// - There are SVIDs available
-    /// - An SVID can be selected (either via picker or default)
+    /// - The update supervisor is still running
+    /// - The most recently accepted update produced a selectable SVID
+    /// - That selected SVID's leaf certificate `notAfter` is still in the future
     ///
     /// **Note:** This check is inherently racy. Between calling `is_healthy()` and
     /// `svid()`, the source may be shut down or the context may change. Use this
@@ -315,14 +324,18 @@ impl X509Source {
     /// # }
     /// ```
     pub fn is_healthy(&self) -> bool {
-        if self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled() {
+        if self.inner.closed.load(Ordering::Acquire)
+            || self.inner.cancel.is_cancelled()
+            || !self.inner.supervisor_running.load(Ordering::Acquire)
+        {
             return false;
         }
 
-        let ctx = self.inner.x509_context.load();
-        // Check that an SVID can actually be selected (using shared selection logic).
-        // This ensures is_healthy() matches the same selection logic used by svid().
-        select_svid(&ctx, self.inner.svid_picker.as_deref()).is_some()
+        let Some(now) = unix_timestamp_now() else {
+            return false;
+        };
+
+        self.inner.snapshot.load().expiry_unix > now
     }
 
     /// Returns the current X.509 context (SVID + bundles) as a single value.
@@ -333,7 +346,7 @@ impl X509Source {
     /// cannot be constructed.
     pub fn x509_context(&self) -> Result<Arc<X509Context>, X509SourceError> {
         self.assert_open()?;
-        Ok(self.inner.x509_context.load_full())
+        Ok(Arc::clone(&self.inner.snapshot.load().ctx))
     }
 
     /// Returns the current X.509 SVID selected by the picker (or default).
@@ -344,8 +357,8 @@ impl X509Source {
     pub fn svid(&self) -> Result<Arc<X509Svid>, X509SourceError> {
         self.assert_open()?;
 
-        let ctx = self.inner.x509_context.load();
-        select_svid(&ctx, self.inner.svid_picker.as_deref()).ok_or_else(|| {
+        let snapshot = self.inner.snapshot.load();
+        select_svid(&snapshot.ctx, self.inner.svid_picker.as_deref()).ok_or_else(|| {
             self.inner.record_error(MetricsErrorKind::NoSuitableSvid);
             X509SourceError::NoSuitableSvid
         })
@@ -386,7 +399,7 @@ impl X509Source {
     /// Returns [`X509SourceError`] if the source is closed.
     pub fn bundle_set(&self) -> Result<Arc<X509BundleSet>, X509SourceError> {
         self.assert_open()?;
-        Ok(Arc::clone(self.inner.x509_context.load().bundle_set()))
+        Ok(Arc::clone(self.inner.snapshot.load().ctx.bundle_set()))
     }
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
@@ -527,11 +540,11 @@ impl X509Source {
     ) -> Result<Self, X509SourceError> {
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
-        let (update_tx, update_rx) = watch::channel(0u64);
+        let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
-        let initial_ctx = initial_sync_with_retry(
+        let (initial_ctx, selected_svid) = initial_sync_with_retry(
             &make_client,
             svid_picker.as_deref(),
             &cancel,
@@ -540,9 +553,13 @@ impl X509Source {
             metrics.as_deref(),
         )
         .await?;
+        let snapshot = Arc::new(Snapshot {
+            ctx: initial_ctx,
+            expiry_unix: selected_svid.expiry_unix(),
+        });
 
         let inner = Arc::new(Inner {
-            x509_context: ArcSwap::from(initial_ctx),
+            snapshot: ArcSwap::from(snapshot),
             svid_picker,
             reconnect,
             make_client,
@@ -550,17 +567,19 @@ impl X509Source {
             metrics,
             shutdown_timeout,
             closed: AtomicBool::new(false),
+            supervisor_running: AtomicBool::new(false),
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         });
 
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
+        let terminate_guard =
+            SupervisorTerminationGuard::new(Arc::clone(&task_inner), token.clone());
         let handle = tokio::spawn(async move {
-            let _cancel_on_drop = token.clone().drop_guard();
+            let _terminate_on_drop = terminate_guard;
             task_inner.run_update_supervisor(token).await;
         });
 
@@ -587,15 +606,21 @@ impl X509Source {
         // Normalize reconnect config at the boundary (same as new_with)
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
-        let (update_tx, update_rx) = watch::channel(0u64);
+        let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
         let make_client: ClientFactory =
             Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
+        let selected_svid_expires_at_unix =
+            select_svid(&initial_ctx, svid_picker.as_deref()).map_or(0, |svid| svid.expiry_unix());
+        let snapshot = Arc::new(Snapshot {
+            ctx: initial_ctx,
+            expiry_unix: selected_svid_expires_at_unix,
+        });
 
         let inner = Inner {
-            x509_context: ArcSwap::from(initial_ctx),
+            snapshot: ArcSwap::from(snapshot),
             svid_picker,
             reconnect,
             make_client,
@@ -603,10 +628,10 @@ impl X509Source {
             metrics,
             shutdown_timeout: None,
             closed: AtomicBool::new(false),
+            supervisor_running: AtomicBool::new(false),
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         };
 
@@ -622,6 +647,32 @@ impl X509Source {
         }
         Ok(())
     }
+}
+
+struct SupervisorTerminationGuard {
+    inner: Arc<Inner>,
+    token: CancellationToken,
+}
+
+impl SupervisorTerminationGuard {
+    fn new(inner: Arc<Inner>, token: CancellationToken) -> Self {
+        inner.supervisor_running.store(true, Ordering::Release);
+        Self { inner, token }
+    }
+}
+
+impl Drop for SupervisorTerminationGuard {
+    fn drop(&mut self) {
+        self.inner
+            .supervisor_running
+            .store(false, Ordering::Release);
+        self.token.cancel();
+    }
+}
+
+fn unix_timestamp_now() -> Option<i64> {
+    let duration = SystemTime::now().duration_since(UNIX_EPOCH).ok()?;
+    i64::try_from(duration.as_secs()).ok()
 }
 
 impl Inner {
@@ -642,8 +693,11 @@ impl Inner {
         // We only record UpdateRejected here if validation fails, and the supervisor loop
         // should NOT record it again to avoid double-counting.
         match self.validate_and_select(&new_ctx) {
-            Ok(()) => {
-                self.x509_context.store(new_ctx);
+            Ok(svid) => {
+                self.snapshot.store(Arc::new(Snapshot {
+                    ctx: new_ctx,
+                    expiry_unix: svid.expiry_unix(),
+                }));
                 self.record_update();
                 self.notify_update();
                 Ok(())
@@ -658,10 +712,13 @@ impl Inner {
 
     pub(super) fn notify_update(&self) {
         let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _unused: Result<_, _> = self.update_tx.send(next);
+        let _prev = self.update_tx.send_replace(next);
     }
 
-    pub(super) fn validate_and_select(&self, ctx: &X509Context) -> Result<(), X509SourceError> {
+    pub(super) fn validate_and_select(
+        &self,
+        ctx: &X509Context,
+    ) -> Result<Arc<X509Svid>, X509SourceError> {
         validate_context(
             ctx,
             self.svid_picker.as_deref(),
@@ -689,8 +746,8 @@ impl BundleSource for X509Source {
         trust_domain: &TrustDomain,
     ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
         self.assert_open()?;
-        let ctx = self.inner.x509_context.load();
-        Ok(ctx.bundle_set().get(trust_domain))
+        let snapshot = self.inner.snapshot.load();
+        Ok(snapshot.ctx.bundle_set().get(trust_domain))
     }
 }
 
@@ -712,6 +769,28 @@ mod tests {
         let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
         Arc::new(X509Context::new([svid], Arc::new(X509BundleSet::new())))
+    }
+
+    fn supervisor_running_guard_for_test(source: &X509Source) -> SupervisorTerminationGuard {
+        let task_inner = Arc::clone(&source.inner);
+        let token = task_inner.cancel.clone();
+        SupervisorTerminationGuard::new(task_inner, token)
+    }
+
+    async fn terminate_supervisor_for_test(terminate_guard: SupervisorTerminationGuard) {
+        tokio::spawn(async move {
+            let _terminate_on_drop = terminate_guard;
+        })
+        .await
+        .expect("supervisor termination task should not panic");
+    }
+
+    fn set_selected_svid_expiry_for_test(source: &X509Source, expiry_unix: i64) {
+        let snapshot = source.inner.snapshot.load();
+        source.inner.snapshot.store(Arc::new(Snapshot {
+            ctx: Arc::clone(&snapshot.ctx),
+            expiry_unix,
+        }));
     }
 
     #[tokio::test]
@@ -809,6 +888,22 @@ mod tests {
 
         source.inner.notify_update();
         assert_eq!(updates.changed().await.unwrap(), 2);
+    }
+
+    /// With no `updated()` / `watch` subscribers yet, `notify_update` must still advance the
+    /// shared sequence; the first `updated()` should observe that value.
+    #[test]
+    fn test_notify_update_sequence_before_first_subscriber() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        source.inner.notify_update();
+        let updates = source.updated();
+        assert_eq!(updates.last(), 1);
     }
 
     #[tokio::test]
@@ -918,6 +1013,68 @@ mod tests {
             .await
             .expect("supervisor token should be cancelled when last source handle is dropped")
             .expect("supervisor observer should send stop notification");
+    }
+
+    #[tokio::test]
+    async fn test_supervisor_termination_marks_unhealthy_and_closes_updates() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let running_guard = supervisor_running_guard_for_test(&source);
+        let mut changed_updates = source.updated();
+        let mut wait_updates = source.updated();
+
+        assert!(
+            source.is_healthy(),
+            "cached SVID should be healthy while supervisor is running"
+        );
+
+        terminate_supervisor_for_test(running_guard).await;
+
+        assert!(
+            !source.is_healthy(),
+            "source must be unhealthy after supervisor termination"
+        );
+        let changed = tokio::time::timeout(Duration::from_secs(1), changed_updates.changed())
+            .await
+            .expect("changed should stop waiting after supervisor termination");
+        assert!(matches!(changed, Err(X509SourceError::Closed)));
+
+        let waited = tokio::time::timeout(
+            Duration::from_secs(1),
+            wait_updates.wait_for(|&seq| seq > 0),
+        )
+        .await
+        .expect("wait_for should stop waiting after supervisor termination");
+        assert!(matches!(waited, Err(X509SourceError::Closed)));
+    }
+
+    #[test]
+    fn test_is_healthy_returns_false_when_selected_svid_is_expired() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let _running_guard = supervisor_running_guard_for_test(&source);
+        let now = unix_timestamp_now().expect("system time should be after UNIX epoch");
+
+        assert!(
+            source.is_healthy(),
+            "source should be healthy while selected SVID expiry is in the future"
+        );
+
+        set_selected_svid_expiry_for_test(&source, now);
+        assert!(
+            !source.is_healthy(),
+            "source should be unhealthy once selected SVID expiry is reached"
+        );
     }
 
     /// Test metrics recorder that counts error recordings by kind.
