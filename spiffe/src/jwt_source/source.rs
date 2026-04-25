@@ -780,8 +780,8 @@ impl Inner {
         match self.validate_bundle_set(&new_bundle_set) {
             Ok(()) => {
                 self.bundle_set.store(new_bundle_set);
-                self.record_update();
                 self.notify_update();
+                self.record_update();
                 Ok(())
             }
             Err(e) => {
@@ -1189,6 +1189,117 @@ mod tests {
         fn record_error(&self, kind: MetricsErrorKind) {
             *self.counts.lock().unwrap().entry(kind).or_insert(0) += 1;
         }
+    }
+
+    struct OrderingMetricsRecorder {
+        updates: Mutex<Option<JwtSourceUpdates>>,
+        update_sequences: Mutex<Vec<Option<u64>>>,
+    }
+
+    impl OrderingMetricsRecorder {
+        fn new() -> Self {
+            Self {
+                updates: Mutex::new(None),
+                update_sequences: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn set_updates(&self, updates: JwtSourceUpdates) {
+            *self.updates.lock().unwrap() = Some(updates);
+        }
+
+        fn update_sequences(&self) -> Vec<Option<u64>> {
+            self.update_sequences.lock().unwrap().clone()
+        }
+
+        fn record_observed_update(&self) {
+            let sequence = self
+                .updates
+                .lock()
+                .unwrap()
+                .as_ref()
+                .map(JwtSourceUpdates::last);
+            self.update_sequences.lock().unwrap().push(sequence);
+        }
+    }
+
+    impl MetricsRecorder for OrderingMetricsRecorder {
+        fn record_update(&self) {
+            self.record_observed_update();
+        }
+
+        fn record_reconnect(&self) {}
+        fn record_error(&self, _kind: MetricsErrorKind) {}
+    }
+
+    struct PanickingOrderingMetricsRecorder {
+        inner: OrderingMetricsRecorder,
+    }
+
+    impl PanickingOrderingMetricsRecorder {
+        fn new() -> Self {
+            Self {
+                inner: OrderingMetricsRecorder::new(),
+            }
+        }
+
+        fn set_updates(&self, updates: JwtSourceUpdates) {
+            self.inner.set_updates(updates);
+        }
+
+        fn update_sequences(&self) -> Vec<Option<u64>> {
+            self.inner.update_sequences()
+        }
+    }
+
+    impl MetricsRecorder for PanickingOrderingMetricsRecorder {
+        fn record_update(&self) {
+            self.inner.record_observed_update();
+            panic!("intentional metrics panic for update ordering test");
+        }
+
+        fn record_reconnect(&self) {}
+        fn record_error(&self, _kind: MetricsErrorKind) {}
+    }
+
+    #[test]
+    fn test_apply_update_notifies_before_recording_success_metrics() {
+        let metrics = Arc::new(OrderingMetricsRecorder::new());
+        let source = JwtSource::new_for_test(
+            Arc::new(JwtBundleSet::new()),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<OrderingMetricsRecorder>::clone(&metrics)),
+        );
+        metrics.set_updates(source.updated());
+
+        let result = source.inner.apply_update(create_test_bundle_set());
+
+        result.expect("valid JWT bundle set update should be accepted");
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
+        assert_eq!(source.updated().last(), 1);
+        assert_eq!(source.bundle_set().unwrap().iter().count(), 1);
+    }
+
+    #[test]
+    fn test_apply_update_publishes_and_notifies_before_panicking_success_metrics() {
+        let metrics = Arc::new(PanickingOrderingMetricsRecorder::new());
+        let source = JwtSource::new_for_test(
+            Arc::new(JwtBundleSet::new()),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<PanickingOrderingMetricsRecorder>::clone(&metrics)),
+        );
+        metrics.set_updates(source.updated());
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            source.inner.apply_update(create_test_bundle_set())
+        }));
+
+        result.expect_err("metrics recorder should panic after notification");
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
+        assert_eq!(source.updated().last(), 1);
+        assert_eq!(source.bundle_set().unwrap().iter().count(), 1);
     }
 
     #[test]
