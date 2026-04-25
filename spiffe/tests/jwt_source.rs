@@ -563,13 +563,27 @@ mod integration_tests_jwt_source {
             "Sequence should not change immediately after shutdown"
         );
 
-        // Use a timeout to verify no updates come after shutdown
-        // If changed() completes, that means an update occurred (which shouldn't happen)
-        let update_occurred = tokio::time::timeout(Duration::from_millis(100), updates.changed())
+        let result = tokio::time::timeout(Duration::from_secs(1), updates.changed())
             .await
-            .is_ok();
+            .expect("changed() should report closure after shutdown");
+        match result {
+            Ok(seq) => {
+                assert_eq!(
+                    seq, seq_before,
+                    "Only an already-pending update may be observed after shutdown"
+                );
 
-        assert!(!update_occurred, "No updates should occur after shutdown");
+                let closed = tokio::time::timeout(Duration::from_secs(1), updates.changed())
+                    .await
+                    .expect("changed() should report closure after pending update");
+                assert!(matches!(
+                    closed,
+                    Err(spiffe::jwt_source::JwtSourceError::Closed)
+                ));
+            }
+            Err(spiffe::jwt_source::JwtSourceError::Closed) => {}
+            Err(err) => panic!("Unexpected update error after shutdown: {err}"),
+        }
 
         let seq_after = updates.last();
         assert_eq!(
