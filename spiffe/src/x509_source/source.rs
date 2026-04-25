@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
+use tokio_util::sync::{CancellationToken, DropGuard};
 
 #[cfg(test)]
 use crate::WorkloadApiError;
@@ -52,6 +52,7 @@ use crate::WorkloadApiError;
 #[derive(Clone, Debug)]
 pub struct X509SourceUpdates {
     rx: watch::Receiver<u64>,
+    shutdown: CancellationToken,
 }
 
 impl X509SourceUpdates {
@@ -72,11 +73,26 @@ impl X509SourceUpdates {
     /// - Explicit shutdown via [`X509Source::shutdown`] or [`X509Source::shutdown_with_timeout`]
     /// - Internal task termination (e.g., supervisor task panic)
     pub async fn changed(&mut self) -> Result<u64, X509SourceError> {
-        self.rx
-            .changed()
-            .await
-            .map_err(|watch::error::RecvError { .. }| X509SourceError::Closed)?;
-        Ok(*self.rx.borrow())
+        if self.rx.has_changed().unwrap_or(false) {
+            self.rx
+                .changed()
+                .await
+                .map_err(|watch::error::RecvError { .. }| X509SourceError::Closed)?;
+            return Ok(*self.rx.borrow());
+        }
+
+        if self.shutdown.is_cancelled() {
+            return Err(X509SourceError::Closed);
+        }
+
+        tokio::select! {
+            biased;
+            result = self.rx.changed() => {
+                result.map_err(|watch::error::RecvError { .. }| X509SourceError::Closed)?;
+                Ok(*self.rx.borrow())
+            }
+            () = self.shutdown.cancelled() => Err(X509SourceError::Closed),
+        }
     }
 
     /// Returns the last sequence number without waiting.
@@ -130,6 +146,7 @@ impl X509SourceUpdates {
 #[derive(Clone, Debug)]
 pub struct X509Source {
     inner: Arc<Inner>,
+    _shutdown_guard: Arc<DropGuard>,
 }
 
 pub(super) struct Inner {
@@ -153,7 +170,7 @@ pub(super) struct Inner {
     // Update notifications (monotonic sequence).
     update_seq: AtomicU64,
     update_tx: watch::Sender<u64>,
-    update_rx: watch::Receiver<u64>,
+    _update_rx: watch::Receiver<u64>,
 
     // Supervisor task handle (joined/aborted at shutdown).
     supervisor: Mutex<Option<JoinHandle<()>>>,
@@ -168,13 +185,6 @@ impl Inner {
     }
     pub(super) fn make_client(&self) -> &ClientFactory {
         &self.make_client
-    }
-}
-
-impl Drop for Inner {
-    fn drop(&mut self) {
-        // Best-effort cancellation. Do not block in Drop.
-        self.cancel.cancel();
     }
 }
 
@@ -198,7 +208,7 @@ impl Debug for Inner {
             .field("cancel", &self.cancel)
             .field("update_seq", &self.update_seq)
             .field("update_tx", &"<watch::Sender<u64>>")
-            .field("update_rx", &"<watch::Receiver<u64>>")
+            .field("_update_rx", &"<watch::Receiver<u64>>")
             .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
             .finish()
     }
@@ -272,7 +282,8 @@ impl X509Source {
     /// ```
     pub fn updated(&self) -> X509SourceUpdates {
         X509SourceUpdates {
-            rx: self.inner.update_rx.clone(),
+            rx: self.inner.update_tx.subscribe(),
+            shutdown: self.inner.cancel.clone(),
         }
     }
 
@@ -518,6 +529,7 @@ impl X509Source {
 
         let (update_tx, update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
+        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
         let initial_ctx = initial_sync_with_retry(
             &make_client,
@@ -541,19 +553,23 @@ impl X509Source {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            update_rx,
+            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         });
 
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
         let handle = tokio::spawn(async move {
+            let _cancel_on_drop = token.clone().drop_guard();
             task_inner.run_update_supervisor(token).await;
         });
 
         *inner.supervisor.lock().await = Some(handle);
 
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            _shutdown_guard: shutdown_guard,
+        })
     }
 
     /// Test-only constructor that creates an `X509Source` with a provided initial context
@@ -573,6 +589,7 @@ impl X509Source {
 
         let (update_tx, update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
+        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
         let make_client: ClientFactory =
             Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
@@ -589,12 +606,13 @@ impl X509Source {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            update_rx,
+            _update_rx: update_rx,
             supervisor: Mutex::new(None),
         };
 
         Self {
             inner: Arc::new(inner),
+            _shutdown_guard: shutdown_guard,
         }
     }
 
@@ -682,10 +700,24 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Mutex;
 
+    fn updates_for_test(rx: watch::Receiver<u64>) -> X509SourceUpdates {
+        X509SourceUpdates {
+            rx,
+            shutdown: CancellationToken::new(),
+        }
+    }
+
+    fn test_x509_context() -> Arc<X509Context> {
+        let cert_bytes = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
+        Arc::new(X509Context::new([svid], Arc::new(X509BundleSet::new())))
+    }
+
     #[tokio::test]
     async fn test_wait_for_immediate_satisfaction() {
         let (tx, rx) = watch::channel(5u64);
-        let mut updates = X509SourceUpdates { rx };
+        let mut updates = updates_for_test(rx);
 
         // Predicate is already satisfied (current value is 5, which is > 3)
         let result = updates.wait_for(|&seq| seq > 3).await;
@@ -704,7 +736,7 @@ mod tests {
     #[tokio::test]
     async fn test_wait_for_waits_when_not_satisfied() {
         let (tx, rx) = watch::channel(1u64);
-        let mut updates = X509SourceUpdates { rx };
+        let mut updates = updates_for_test(rx);
 
         // Spawn a task to update the value after a short delay
         let tx_clone = tx.clone();
@@ -727,7 +759,7 @@ mod tests {
         // Verify that updated().changed() only notifies on rotations after initial sync,
         // not on the initial sync itself. The initial sequence number is 0.
         let (tx, rx) = watch::channel(0u64);
-        let mut updates = X509SourceUpdates { rx: rx.clone() };
+        let mut updates = updates_for_test(rx.clone());
 
         // Initial value is 0, so changed() should wait for an update
         let tx_clone = tx.clone();
@@ -750,8 +782,142 @@ mod tests {
     async fn test_updated_initial_sequence_is_zero() {
         // Verify that the initial sequence number is 0
         let (_tx, rx) = watch::channel(0u64);
-        let updates = X509SourceUpdates { rx };
+        let updates = updates_for_test(rx);
         assert_eq!(updates.last(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_updated_subscribes_at_current_sequence() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+
+        source.inner.notify_update();
+
+        let mut updates = source.updated();
+        assert_eq!(updates.last(), 1);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), updates.changed())
+                .await
+                .is_err(),
+            "new subscribers should wait for updates after subscription"
+        );
+
+        source.inner.notify_update();
+        assert_eq!(updates.changed().await.unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_updates_changed_returns_closed_after_shutdown() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let mut updates = source.updated();
+
+        source.shutdown().await;
+
+        let result = tokio::time::timeout(Duration::from_secs(1), updates.changed())
+            .await
+            .expect("changed should return after shutdown");
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn test_updates_wait_for_returns_closed_after_shutdown() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let mut updates = source.updated();
+
+        source.shutdown().await;
+
+        let result = tokio::time::timeout(Duration::from_secs(1), updates.wait_for(|&seq| seq > 0))
+            .await
+            .expect("wait_for should return after shutdown");
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn test_updates_changed_delivers_pending_update_before_closed() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let mut updates = source.updated();
+
+        source.inner.notify_update();
+        source.inner.cancel.cancel();
+
+        assert_eq!(updates.changed().await.unwrap(), 1);
+        let result = tokio::time::timeout(Duration::from_secs(1), updates.changed())
+            .await
+            .expect("changed should return closed after pending update is observed");
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn test_updates_changed_returns_closed_after_last_source_drop() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let mut updates = source.updated();
+
+        drop(source);
+
+        let result = tokio::time::timeout(Duration::from_secs(1), updates.changed())
+            .await
+            .expect("changed should return after last source handle is dropped");
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
+    #[tokio::test]
+    async fn test_dropping_last_source_handle_cancels_supervisor_token() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let clone = source.clone();
+        let task_inner = Arc::clone(&source.inner);
+        let token = task_inner.cancel.clone();
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+
+        tokio::spawn(async move {
+            token.cancelled().await;
+            let _unused: Result<_, _> = stopped_tx.send(());
+            drop(task_inner);
+        });
+
+        drop(source);
+        // One public handle still holds the shutdown guard, so cancellation must not fire yet.
+        assert!(!clone.inner.cancel.is_cancelled());
+
+        drop(clone);
+        tokio::time::timeout(Duration::from_secs(1), stopped_rx)
+            .await
+            .expect("supervisor token should be cancelled when last source handle is dropped")
+            .expect("supervisor observer should send stop notification");
     }
 
     /// Test metrics recorder that counts error recordings by kind.
