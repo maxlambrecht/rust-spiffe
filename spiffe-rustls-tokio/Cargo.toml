@@ -19,7 +19,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-spiffe = { version = "0.13", path = "../spiffe", features = ["x509-source"] }
+spiffe = { version = "0.14", path = "../spiffe", features = ["x509-source"] }
 tokio = { version = "1", default-features = false, features = ["net", "rt"] }
 tokio-rustls = { version = "0.26", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std"] }

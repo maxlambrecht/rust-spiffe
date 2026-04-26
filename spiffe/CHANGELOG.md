@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.14.0] – 2026-04-25
+
+### Breaking changes
+
+- `X509SourceError` and `JwtSourceError` are now `#[non_exhaustive]`; exhaustive matches must include a wildcard arm.
+- `is_healthy()` is stricter and now returns `false` when the supervisor has stopped, the selected X.509 SVID is expired, or the JWT bundle set has no signing authorities.
+
+### Added
+
+- **X509Source / JwtSource:** Added `initial_sync_timeout(Duration)` builder support. The timeout applies only to construction-time initial sync and does not affect background reconnects.
+- **X509Source / JwtSource:** Added `InitialSyncTimeout` error variants, returned only when `initial_sync_timeout()` is configured.
+
+### Fixed
+
+- **X509Source / JwtSource:** Dropping the last source handle now cancels the background supervisor.
+- **X509Source / JwtSource:** `changed()` and `wait_for()` now return `Closed` after shutdown or supervisor exit instead of potentially blocking indefinitely.
+- **X509Source / JwtSource:** Successful updates now notify subscribers before recording success metrics.
+
+### Changed
+
+- **JwtSource:** The on-demand JWT SVID client is now created lazily on the first `get_jwt_svid` call instead of during `build()`.
+
+
 ## [0.13.0] – 2026-04-18
 
 ### Breaking changes
