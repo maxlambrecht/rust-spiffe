@@ -16,6 +16,12 @@
 //! trust domain bundle based on the peer's SPIFFE ID. Authorization is applied **after**
 //! cryptographic verification succeeds.
 //!
+//! By default, builders use [`TrustDomainPolicy::AnyInBundleSet`] and
+//! [`authorizer::any`]. This accepts any authenticated SPIFFE ID from any trust domain
+//! present in the source bundle set. For non-federated deployments, use
+//! [`TrustDomainPolicy::LocalOnly`]; for production deployments, configure an
+//! authorizer that matches the peer identities your application expects.
+//!
 //! For outbound TLS, peer identity is the SPIFFE ID in the URI SAN, not the TLS server name.
 //! Connecting to `localhost` or an IP is supported even when the X.509-SVID has no matching DNS SAN.
 //!
@@ -63,7 +69,16 @@ pub use spiffe::{SpiffeId, TrustDomain};
 
 /// Constructor for the mTLS client builder.
 ///
-/// Creates a client builder with default settings (accepts any SPIFFE ID, uses all bundles from the Workload API).
+/// Creates a client builder with default settings:
+///
+/// * authorizer: [`authorizer::any`], which accepts any authenticated SPIFFE ID
+///   from any trust domain accepted by the configured trust-domain policy. By default,
+///   this means every trust domain in the source bundle set.
+/// * trust-domain policy: [`TrustDomainPolicy::AnyInBundleSet`], which accepts any
+///   trust domain present in the source bundle set
+///
+/// Production deployments should usually configure a more specific authorizer. Non-federated
+/// deployments should usually configure [`TrustDomainPolicy::LocalOnly`].
 ///
 /// # Examples
 ///
@@ -87,7 +102,16 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
 
 /// Constructor for the mTLS server builder.
 ///
-/// Creates a server builder with default settings (accepts any SPIFFE ID, uses all bundles from the Workload API).
+/// Creates a server builder with default settings:
+///
+/// * authorizer: [`authorizer::any`], which accepts any authenticated SPIFFE ID
+///   from any trust domain accepted by the configured trust-domain policy. By default,
+///   this means every trust domain in the source bundle set.
+/// * trust-domain policy: [`TrustDomainPolicy::AnyInBundleSet`], which accepts any
+///   trust domain present in the source bundle set
+///
+/// Production deployments should usually configure a more specific authorizer. Non-federated
+/// deployments should usually configure [`TrustDomainPolicy::LocalOnly`].
 ///
 /// # Examples
 ///

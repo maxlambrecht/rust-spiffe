@@ -27,12 +27,20 @@ type ServerConfigCustomizer = Box<dyn FnOnce(&mut ServerConfig) + Send>;
 /// manual configuration is required. You can optionally restrict which trust
 /// domains are accepted using [`Self::trust_domain_policy`].
 ///
+/// The default policy is [`TrustDomainPolicy::AnyInBundleSet`], which accepts any
+/// trust domain present in the source bundle set. For non-federated deployments,
+/// prefer [`TrustDomainPolicy::LocalOnly`] to restrict verification to the local
+/// trust domain.
+///
 /// ## Authorization
 ///
 /// Client authorization is performed by invoking the provided [`Authorizer`] with
 /// the client's SPIFFE ID extracted from the certificate's URI SAN.
 ///
-/// Use [`authorizer::any`] to disable authorization while retaining full TLS authentication.
+/// The default authorizer is [`crate::authorizer::any`]. It accepts any authenticated
+/// SPIFFE ID from any trust domain accepted by the configured trust-domain policy.
+/// By default, this means every trust domain in the source bundle set. Production
+/// deployments should usually configure a more specific authorizer.
 ///
 /// # Examples
 ///
@@ -79,9 +87,15 @@ impl ServerConfigBuilder {
     /// Creates a new builder from an `X509Source`.
     ///
     /// Defaults:
-    /// - Authorization: accepts any SPIFFE ID (authentication only)
-    /// - Trust domain policy: `AnyInBundleSet` (uses all bundles from the Workload API)
+    /// - Authorization: [`crate::authorizer::any`], which accepts any authenticated
+    ///   SPIFFE ID from any trust domain accepted by the configured trust-domain policy.
+    ///   By default, this means every trust domain in the source bundle set.
+    /// - Trust domain policy: [`TrustDomainPolicy::AnyInBundleSet`], which accepts any
+    ///   trust domain present in the source bundle set
     /// - ALPN protocols: empty (no ALPN)
+    ///
+    /// Production deployments should usually configure a more specific authorizer.
+    /// Non-federated deployments should usually configure [`TrustDomainPolicy::LocalOnly`].
     pub fn new(source: X509Source) -> Self {
         Self {
             source: Arc::new(source),
@@ -131,7 +145,10 @@ impl ServerConfigBuilder {
 
     /// Sets the trust domain policy.
     ///
-    /// Defaults to `AnyInBundleSet` (uses all bundles from the Workload API).
+    /// Defaults to [`TrustDomainPolicy::AnyInBundleSet`], which accepts any trust
+    /// domain present in the source bundle set. For non-federated deployments,
+    /// prefer [`TrustDomainPolicy::LocalOnly`] to restrict verification to the local
+    /// trust domain.
     #[must_use]
     pub fn trust_domain_policy(mut self, policy: TrustDomainPolicy) -> Self {
         self.trust_domain_policy = policy;
@@ -173,11 +190,11 @@ impl ServerConfigBuilder {
     ///
     /// This is an **advanced** API for configuration not directly exposed by the builder.
     /// The customizer is called **last**, after all other builder settings (including
-    /// ALPN) have been applied, allowing you to override any configuration.
+    /// ALPN) have been applied, and gives direct access to the underlying `rustls`
+    /// configuration.
     ///
-    /// **Warning:** Do not modify or replace the verifier or server certificate resolver,
-    /// as they are required for SPIFFE authentication and authorization. Safe to modify:
-    /// ALPN, cipher suites, protocol versions, and other non-security-critical settings.
+    /// **Warning:** Replacing the verifier or resolver disables SPIFFE authentication.
+    /// Do not use this hook for that purpose; build a custom `rustls` configuration instead.
     ///
     /// # Examples
     ///

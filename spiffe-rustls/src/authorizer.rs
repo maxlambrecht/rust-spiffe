@@ -37,7 +37,14 @@ impl Authorizer for Box<dyn Authorizer> {
     }
 }
 
-/// Authorizes any SPIFFE ID (authentication only, no authorization).
+/// Authorizes any authenticated SPIFFE ID under the active trust-domain policy.
+///
+/// By default (`TrustDomainPolicy::AnyInBundleSet`), every trust domain in the source
+/// bundle set is accepted.
+///
+/// This is the default authorizer for client and server builders. Production
+/// deployments should usually configure a more specific authorizer, such as
+/// [`exact`] or [`trust_domains`].
 #[must_use]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Any;
@@ -138,11 +145,18 @@ impl Authorizer for TrustDomainAllowList {
     }
 }
 
-/// Returns an authorizer that accepts any SPIFFE ID.
+/// Returns an authorizer that accepts any authenticated SPIFFE ID.
+///
+/// The peer's trust domain must be accepted by the configured trust-domain policy.
+/// By default (`TrustDomainPolicy::AnyInBundleSet`), every trust domain in the source
+/// bundle set is accepted.
 ///
 /// This is useful when authorization is performed at another layer
 /// (e.g., application-level RBAC). Authentication (certificate verification)
 /// still applies.
+///
+/// This is the default authorizer for client and server builders. Production
+/// deployments should usually configure a more specific authorizer.
 ///
 /// Returns a zero-sized `Any` value that can be used directly.
 ///
