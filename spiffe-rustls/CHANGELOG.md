@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] – 2026-04-25
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.13` to `0.14`. Because
+  `spiffe-rustls` exposes `spiffe` types in its public API, downstream users
+  must use compatible `spiffe` `0.14` types.
+
+### Changed
+
+- Updated `spiffe-rustls` to use the latest `spiffe` source lifecycle,
+  health-check, and initial-sync timeout behavior.
+
 ## [0.4.9] – 2026-04-18
 
 ### Changed
