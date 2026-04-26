@@ -147,6 +147,14 @@ impl ResourceLimits {
 /// Builder for [`JwtSource`].
 ///
 /// Use this when you need explicit configuration (socket path, backoff, resource limits).
+/// By default, `build()` waits until initial synchronization succeeds or returns a
+/// non-retryable error according to the source's existing behavior. Use
+/// [`JwtSourceBuilder::initial_sync_timeout`] to opt into bounding only that construction-time
+/// initial sync.
+///
+/// Construction may succeed even if the current bundle set contains no JWT signing
+/// authorities. In that case, [`JwtSource::is_healthy`] may immediately report `false`
+/// until the agent publishes usable authorities.
 ///
 /// # Example
 ///
@@ -173,6 +181,7 @@ pub struct JwtSourceBuilder {
     limits: ResourceLimits,
     metrics: Option<Arc<dyn MetricsRecorder>>,
     shutdown_timeout: Option<Duration>,
+    initial_sync_timeout: Option<Duration>,
 }
 
 impl Debug for JwtSourceBuilder {
@@ -189,6 +198,7 @@ impl Debug for JwtSourceBuilder {
                 &self.metrics.as_ref().map(|_| "<MetricsRecorder>"),
             )
             .field("shutdown_timeout", &self.shutdown_timeout)
+            .field("initial_sync_timeout", &self.initial_sync_timeout)
             .finish()
     }
 }
@@ -220,6 +230,7 @@ impl JwtSourceBuilder {
             limits: ResourceLimits::default(),
             metrics: None,
             shutdown_timeout: Some(Duration::from_secs(30)),
+            initial_sync_timeout: None,
         }
     }
 
@@ -361,15 +372,46 @@ impl JwtSourceBuilder {
         self
     }
 
+    /// Sets an optional timeout for the initial synchronization performed by `build()`.
+    ///
+    /// By default this is `None`, preserving the existing behavior: source construction waits
+    /// until initial sync succeeds or returns a non-retryable error according to the source's
+    /// existing retry behavior.
+    ///
+    /// When configured, the timeout bounds only the initial sync performed during source
+    /// construction. It does not bound future background reconnects or update retries after the
+    /// source has been constructed.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use spiffe::jwt_source::JwtSourceBuilder;
+    /// use std::time::Duration;
+    ///
+    /// let builder = JwtSourceBuilder::new()
+    ///     .initial_sync_timeout(Duration::from_secs(10));
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
+    /// ```
+    #[must_use]
+    pub const fn initial_sync_timeout(mut self, timeout: Duration) -> Self {
+        self.initial_sync_timeout = Some(timeout);
+        self
+    }
+
     /// Builds a ready-to-use [`JwtSource`].
     ///
     /// On success, the returned source has completed an initial synchronization with
     /// the Workload API and will continue updating in the background.
+    /// The initial bundle set may contain no JWT signing authorities; in that case,
+    /// [`JwtSource::is_healthy`] may report `false` until usable authorities arrive.
+    /// The on-demand JWT SVID client is created lazily on the first
+    /// [`JwtSource::get_jwt_svid`] call, so client-creation failures for on-demand
+    /// JWT SVID fetching are reported by `get_jwt_svid` rather than `build`.
     ///
     /// # Errors
     ///
     /// Returns a [`JwtSourceError`] if the Workload API endpoint cannot be resolved
-    /// or connected to, or the initial synchronization fails.
+    /// or connected to, or the initial synchronization fails or times out.
     pub async fn build(self) -> Result<JwtSource, JwtSourceError> {
         let make_client = self.make_client.unwrap_or_else(|| {
             Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }))
@@ -381,6 +423,7 @@ impl JwtSourceBuilder {
             self.limits,
             self.metrics,
             self.shutdown_timeout,
+            self.initial_sync_timeout,
         )
         .await
     }
@@ -429,6 +472,18 @@ mod tests {
         // Builder stores raw values; normalization happens later at the boundary
         assert_eq!(builder.reconnect.min_backoff, Duration::from_secs(10));
         assert_eq!(builder.reconnect.max_backoff, Duration::from_secs(1));
+    }
+
+    #[test]
+    fn initial_sync_timeout_defaults_to_none() {
+        let builder = JwtSourceBuilder::new();
+        assert_eq!(builder.initial_sync_timeout, None);
+    }
+
+    #[test]
+    fn initial_sync_timeout_setter_stores_timeout() {
+        let builder = JwtSourceBuilder::new().initial_sync_timeout(Duration::from_secs(5));
+        assert_eq!(builder.initial_sync_timeout, Some(Duration::from_secs(5)));
     }
 
     #[test]
