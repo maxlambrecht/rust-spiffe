@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Errors returned by `X509Source`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum X509SourceError {
     /// Failed to retrieve or refresh X.509 material from the source.
     #[error("x509 source error: {0}")]

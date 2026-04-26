@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Errors returned by `JwtSource`.
 #[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum JwtSourceError {
     /// Failed to retrieve or refresh JWT material from the source.
     #[error("jwt source error: {0}")]
