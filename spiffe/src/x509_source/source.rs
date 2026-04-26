@@ -11,6 +11,7 @@ use crate::x509_source::types::{ClientFactory, SvidPicker};
 use crate::{TrustDomain, X509Bundle, X509BundleSet, X509SourceBuilder, X509Svid};
 use arc_swap::ArcSwap;
 use std::fmt::Debug;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -105,9 +106,10 @@ impl X509SourceUpdates {
 
     /// Waits for the sequence number to satisfy a predicate.
     ///
-    /// This method first checks the current sequence number; if the predicate
-    /// is already satisfied, it returns immediately without waiting. Otherwise,
-    /// it repeatedly calls `changed()` until the predicate returns `true`.
+    /// This method first checks whether the source is closed, then checks the
+    /// current sequence number; if the predicate is already satisfied, it returns
+    /// immediately without waiting. Otherwise, it repeatedly calls `changed()`
+    /// until the predicate returns `true`.
     ///
     /// # Errors
     ///
@@ -116,6 +118,10 @@ impl X509SourceUpdates {
     where
         F: FnMut(&u64) -> bool,
     {
+        if self.shutdown.is_cancelled() {
+            return Err(X509SourceError::Closed);
+        }
+
         let current = self.last();
         if f(&current) {
             return Ok(current);
@@ -307,6 +313,14 @@ impl X509Source {
     /// `svid()`, the source may be shut down or the context may change. Use this
     /// for best-effort health checks (e.g., monitoring), not for synchronization.
     /// If you need a guaranteed check, call `svid()` directly and handle the error.
+    /// `build()` / builder `build()` only indicates that initial sync completed successfully;
+    /// `is_healthy()` is a runtime health signal, not a construction-success signal. There
+    /// may be a brief scheduler-dependent window immediately after construction where this
+    /// method returns `false` until the background supervisor task is first polled.
+    ///
+    /// If a [`MetricsRecorder`] or picker callback panics, the supervisor task terminates,
+    /// update handles close, and this method reports `false` afterward. Rebuild the source
+    /// to resume updates.
     ///
     /// # Examples
     ///
@@ -332,6 +346,9 @@ impl X509Source {
         }
 
         let Some(now) = unix_timestamp_now() else {
+            // If the wall clock is unavailable, health is reported conservatively as
+            // unhealthy. Validation is more optimistic to avoid rejecting otherwise
+            // usable initial sync data.
             return false;
         };
 
@@ -537,6 +554,7 @@ impl X509Source {
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
         shutdown_timeout: Option<Duration>,
+        initial_sync_timeout: Option<Duration>,
     ) -> Result<Self, X509SourceError> {
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
@@ -544,15 +562,16 @@ impl X509Source {
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
-        let (initial_ctx, selected_svid) = initial_sync_with_retry(
+        let initial_sync = initial_sync_with_retry(
             &make_client,
             svid_picker.as_deref(),
             &cancel,
             reconnect,
             limits,
             metrics.as_deref(),
-        )
-        .await?;
+        );
+        let (initial_ctx, selected_svid) =
+            initial_sync_with_timeout(initial_sync, &cancel, initial_sync_timeout).await?;
         let snapshot = Arc::new(Snapshot {
             ctx: initial_ctx,
             expiry_unix: selected_svid.expiry_unix(),
@@ -576,10 +595,9 @@ impl X509Source {
 
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
-        let terminate_guard =
-            SupervisorTerminationGuard::new(Arc::clone(&task_inner), token.clone());
+        let guard_inner = Arc::clone(&task_inner);
         let handle = tokio::spawn(async move {
-            let _terminate_on_drop = terminate_guard;
+            let _terminate_on_drop = SupervisorTerminationGuard::new(guard_inner);
             task_inner.run_update_supervisor(token).await;
         });
 
@@ -651,13 +669,12 @@ impl X509Source {
 
 struct SupervisorTerminationGuard {
     inner: Arc<Inner>,
-    token: CancellationToken,
 }
 
 impl SupervisorTerminationGuard {
-    fn new(inner: Arc<Inner>, token: CancellationToken) -> Self {
+    fn new(inner: Arc<Inner>) -> Self {
         inner.supervisor_running.store(true, Ordering::Release);
-        Self { inner, token }
+        Self { inner }
     }
 }
 
@@ -666,7 +683,7 @@ impl Drop for SupervisorTerminationGuard {
         self.inner
             .supervisor_running
             .store(false, Ordering::Release);
-        self.token.cancel();
+        self.inner.cancel.cancel();
     }
 }
 
@@ -728,6 +745,27 @@ impl Inner {
     }
 }
 
+async fn initial_sync_with_timeout<T, F>(
+    initial_sync: F,
+    cancel: &CancellationToken,
+    timeout: Option<Duration>,
+) -> Result<T, X509SourceError>
+where
+    F: Future<Output = Result<T, X509SourceError>>,
+{
+    let Some(timeout) = timeout else {
+        return initial_sync.await;
+    };
+
+    match tokio::time::timeout(timeout, initial_sync).await {
+        Ok(result) => result,
+        Err(_elapsed) => {
+            cancel.cancel();
+            Err(X509SourceError::InitialSyncTimeout)
+        }
+    }
+}
+
 impl SvidSource for X509Source {
     type Item = X509Svid;
     type Error = X509SourceError;
@@ -772,9 +810,7 @@ mod tests {
     }
 
     fn supervisor_running_guard_for_test(source: &X509Source) -> SupervisorTerminationGuard {
-        let task_inner = Arc::clone(&source.inner);
-        let token = task_inner.cancel.clone();
-        SupervisorTerminationGuard::new(task_inner, token)
+        SupervisorTerminationGuard::new(Arc::clone(&source.inner))
     }
 
     async fn terminate_supervisor_for_test(terminate_guard: SupervisorTerminationGuard) {
@@ -783,6 +819,48 @@ mod tests {
         })
         .await
         .expect("supervisor termination task should not panic");
+    }
+
+    #[tokio::test]
+    async fn initial_sync_timeout_returns_timeout_and_cancels_token() {
+        let cancel = CancellationToken::new();
+
+        let result = initial_sync_with_timeout(
+            std::future::pending::<Result<(), X509SourceError>>(),
+            &cancel,
+            Some(Duration::ZERO),
+        )
+        .await;
+
+        assert!(matches!(result, Err(X509SourceError::InitialSyncTimeout)));
+        assert!(cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn initial_sync_timeout_allows_success_before_timeout() {
+        let cancel = CancellationToken::new();
+
+        let result = initial_sync_with_timeout(
+            async { Ok::<_, X509SourceError>("synced") },
+            &cancel,
+            Some(Duration::from_secs(60)),
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), "synced");
+        assert!(!cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn initial_sync_without_timeout_waits_for_future() {
+        let cancel = CancellationToken::new();
+
+        let result =
+            initial_sync_with_timeout(async { Ok::<_, X509SourceError>("synced") }, &cancel, None)
+                .await;
+
+        assert_eq!(result.unwrap(), "synced");
+        assert!(!cancel.is_cancelled());
     }
 
     fn set_selected_svid_expiry_for_test(source: &X509Source, expiry_unix: i64) {
@@ -945,6 +1023,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wait_for_returns_closed_after_shutdown_even_when_predicate_matches_current() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let mut updates = source.updated();
+        let current = updates.last();
+
+        source.shutdown().await;
+
+        let result = updates.wait_for(|seq| *seq == current).await;
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
+    #[tokio::test]
     async fn test_updates_changed_delivers_pending_update_before_closed() {
         let source = X509Source::new_for_test(
             test_x509_context(),
@@ -1053,6 +1149,26 @@ mod tests {
         assert!(matches!(waited, Err(X509SourceError::Closed)));
     }
 
+    #[tokio::test]
+    async fn wait_for_returns_closed_after_supervisor_termination_even_when_predicate_matches_current(
+    ) {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let running_guard = supervisor_running_guard_for_test(&source);
+        let mut updates = source.updated();
+        let current = updates.last();
+
+        terminate_supervisor_for_test(running_guard).await;
+
+        let result = updates.wait_for(|seq| *seq == current).await;
+        assert!(matches!(result, Err(X509SourceError::Closed)));
+    }
+
     #[test]
     fn test_is_healthy_returns_false_when_selected_svid_is_expired() {
         let source = X509Source::new_for_test(
@@ -1075,6 +1191,38 @@ mod tests {
             !source.is_healthy(),
             "source should be unhealthy once selected SVID expiry is reached"
         );
+    }
+
+    #[tokio::test]
+    async fn is_healthy_false_after_shutdown() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let _running_guard = supervisor_running_guard_for_test(&source);
+
+        assert!(source.is_healthy());
+        source.shutdown().await;
+        assert!(!source.is_healthy());
+    }
+
+    #[test]
+    fn is_healthy_false_after_cancel() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let _running_guard = supervisor_running_guard_for_test(&source);
+
+        assert!(source.is_healthy());
+        source.inner.cancel.cancel();
+        assert!(!source.is_healthy());
     }
 
     /// Test metrics recorder that counts error recordings by kind.
