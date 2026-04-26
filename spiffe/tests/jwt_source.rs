@@ -104,6 +104,19 @@ mod integration_tests_jwt_source {
         JwtSource::new().await.expect("Failed to create JwtSource")
     }
 
+    async fn wait_until_healthy(source: &JwtSource) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if source.is_healthy() {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Source should become healthy after creation");
+    }
+
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_get_bundle_for_trust_domain() {
@@ -189,20 +202,15 @@ mod integration_tests_jwt_source {
     async fn test_is_healthy() {
         let source = get_source().await;
 
-        // Should be healthy when source is active
-        assert!(
-            source.is_healthy(),
-            "Source should be healthy after creation"
-        );
+        // build() waits for initial sync, but the supervisor may need one scheduler poll
+        // before is_healthy() reports runtime health.
+        wait_until_healthy(&source).await;
 
-        // If healthy, bundle_for_trust_domain() should succeed
-        if source.is_healthy() {
-            let bundle_result = source.bundle_for_trust_domain(&trust_domain());
-            assert!(
-                bundle_result.is_ok(),
-                "If is_healthy() returns true, bundle_for_trust_domain() should succeed"
-            );
-        }
+        let bundle_result = source.bundle_for_trust_domain(&trust_domain());
+        assert!(
+            bundle_result.is_ok(),
+            "If is_healthy() returns true, bundle_for_trust_domain() should succeed"
+        );
 
         // After shutdown, should be unhealthy
         source.shutdown().await;

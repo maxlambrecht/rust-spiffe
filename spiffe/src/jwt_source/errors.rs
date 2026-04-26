@@ -21,6 +21,14 @@ pub enum JwtSourceError {
     #[error("source is closed")]
     Closed,
 
+    /// Initial synchronization timeout exceeded.
+    ///
+    /// This error occurs when `JwtSourceBuilder::initial_sync_timeout()` is configured
+    /// and the initial synchronization performed during source construction does not
+    /// complete within the specified timeout.
+    #[error("initial synchronization timed out")]
+    InitialSyncTimeout,
+
     /// The workload API stream ended.
     ///
     /// This error occurs when the gRPC stream from the Workload API terminates

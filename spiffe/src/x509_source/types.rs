@@ -10,6 +10,8 @@ use std::sync::Arc;
 /// Implement this trait to customize SVID selection logic. The picker is called whenever
 /// a new X.509 context is received from the Workload API.
 /// Implementations must not panic.
+/// Implementations must be deterministic for a given slice of SVIDs, because the selected
+/// SVID expiry is cached per snapshot for health checks.
 ///
 /// # Example
 ///

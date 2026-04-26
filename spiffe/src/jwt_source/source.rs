@@ -10,6 +10,7 @@ use crate::workload_api::WorkloadApiClient;
 use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain};
 use arc_swap::ArcSwap;
 use std::fmt::Debug;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -104,9 +105,10 @@ impl JwtSourceUpdates {
 
     /// Waits for the sequence number to satisfy a predicate.
     ///
-    /// This method first checks the current sequence number; if the predicate
-    /// is already satisfied, it returns immediately without waiting. Otherwise,
-    /// it repeatedly calls `changed()` until the predicate returns `true`.
+    /// This method first checks whether the source is closed, then checks the
+    /// current sequence number; if the predicate is already satisfied, it returns
+    /// immediately without waiting. Otherwise, it repeatedly calls `changed()`
+    /// until the predicate returns `true`.
     ///
     /// # Errors
     ///
@@ -115,6 +117,10 @@ impl JwtSourceUpdates {
     where
         F: FnMut(&u64) -> bool,
     {
+        if self.shutdown.is_cancelled() {
+            return Err(JwtSourceError::Closed);
+        }
+
         let current = self.last();
         if f(&current) {
             return Ok(current);
@@ -357,6 +363,14 @@ impl JwtSource {
     /// `bundle_set()`, the source may be shut down or the bundle set may change. Use this
     /// for best-effort health checks (e.g., monitoring), not for synchronization.
     /// If you need a guaranteed check, call `bundle_set()` directly and handle the error.
+    /// `build()` / builder `build()` only indicates that initial sync completed successfully;
+    /// `is_healthy()` is a runtime health signal, not a construction-success signal. There
+    /// may be a brief scheduler-dependent window immediately after construction where this
+    /// method returns `false` until the background supervisor task is first polled.
+    ///
+    /// If a [`MetricsRecorder`] callback panics, the supervisor task terminates, update
+    /// handles close, and this method reports `false` afterward. Rebuild the source to
+    /// resume updates.
     ///
     /// # Examples
     ///
@@ -619,40 +633,36 @@ impl JwtSource {
     }
 }
 
+struct BuildParts {
+    make_client: ClientFactory,
+    reconnect: ReconnectConfig,
+    limits: ResourceLimits,
+    metrics: Option<Arc<dyn MetricsRecorder>>,
+    shutdown_timeout: Option<Duration>,
+    cancel: CancellationToken,
+    shutdown_guard: Arc<DropGuard>,
+    update_tx: watch::Sender<u64>,
+}
+
 impl JwtSource {
-    pub(super) async fn build_with(
-        make_client: ClientFactory,
-        reconnect: ReconnectConfig,
-        limits: ResourceLimits,
-        metrics: Option<Arc<dyn MetricsRecorder>>,
-        shutdown_timeout: Option<Duration>,
-    ) -> Result<Self, JwtSourceError> {
-        let reconnect = super::builder::normalize_reconnect(reconnect);
-
-        let (update_tx, _update_rx) = watch::channel(0u64);
-        let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
-
-        let initial_bundle_set =
-            initial_sync_with_retry(&make_client, &cancel, reconnect, limits, metrics.as_deref())
-                .await?;
-
-        // Create initial client for on-demand SVID fetching.
-        // Retry once after a short delay if the first attempt fails, because the
-        // initial sync (which also creates clients internally) already succeeded,
-        // so a failure here is likely transient.
-        let initial_client = match make_client().await {
-            Ok(c) => c,
-            Err(_first_err) => {
-                tokio::time::sleep(reconnect.min_backoff).await;
-                make_client().await.map_err(JwtSourceError::Source)?
-            }
-        };
-        let initial_client_arc = Arc::new(initial_client);
+    async fn build_from_synced_bundle_set(
+        parts: BuildParts,
+        initial_bundle_set: Arc<JwtBundleSet>,
+    ) -> Self {
+        let BuildParts {
+            make_client,
+            reconnect,
+            limits,
+            metrics,
+            shutdown_timeout,
+            cancel,
+            shutdown_guard,
+            update_tx,
+        } = parts;
 
         let inner = Arc::new(Inner {
             bundle_set: ArcSwap::from(initial_bundle_set),
-            cached_client: ArcSwap::from(Arc::new(Some(initial_client_arc))),
+            cached_client: ArcSwap::from(Arc::new(None)),
             client_creation_mutex: Mutex::new(()),
             reconnect,
             make_client,
@@ -669,19 +679,73 @@ impl JwtSource {
 
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
-        let terminate_guard =
-            SupervisorTerminationGuard::new(Arc::clone(&task_inner), token.clone());
+        let guard_inner = Arc::clone(&task_inner);
         let handle = tokio::spawn(async move {
-            let _terminate_on_drop = terminate_guard;
+            let _terminate_on_drop = SupervisorTerminationGuard::new(guard_inner);
             task_inner.run_update_supervisor(token).await;
         });
 
         *inner.supervisor.lock().await = Some(handle);
 
-        Ok(Self {
+        Self {
             inner,
             _shutdown_guard: shutdown_guard,
-        })
+        }
+    }
+
+    async fn build_with_initial_sync<F>(
+        parts: BuildParts,
+        initial_sync_timeout: Option<Duration>,
+        initial_sync: F,
+    ) -> Result<Self, JwtSourceError>
+    where
+        F: Future<Output = Result<Arc<JwtBundleSet>, JwtSourceError>>,
+    {
+        let initial_bundle_set =
+            initial_sync_with_timeout(initial_sync, &parts.cancel, initial_sync_timeout).await?;
+
+        Ok(Self::build_from_synced_bundle_set(parts, initial_bundle_set).await)
+    }
+
+    pub(super) async fn build_with(
+        make_client: ClientFactory,
+        reconnect: ReconnectConfig,
+        limits: ResourceLimits,
+        metrics: Option<Arc<dyn MetricsRecorder>>,
+        shutdown_timeout: Option<Duration>,
+        initial_sync_timeout: Option<Duration>,
+    ) -> Result<Self, JwtSourceError> {
+        let reconnect = super::builder::normalize_reconnect(reconnect);
+
+        let (update_tx, _update_rx) = watch::channel(0u64);
+        let cancel = CancellationToken::new();
+        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let initial_sync_make_client = Arc::clone(&make_client);
+        let initial_sync_cancel = cancel.clone();
+        let initial_sync_metrics = metrics.clone();
+        let initial_sync = async move {
+            initial_sync_with_retry(
+                &initial_sync_make_client,
+                &initial_sync_cancel,
+                reconnect,
+                limits,
+                initial_sync_metrics.as_deref(),
+            )
+            .await
+        };
+
+        let parts = BuildParts {
+            make_client,
+            reconnect,
+            limits,
+            metrics,
+            shutdown_timeout,
+            cancel,
+            shutdown_guard,
+            update_tx,
+        };
+
+        Self::build_with_initial_sync(parts, initial_sync_timeout, initial_sync).await
     }
 
     /// Test-only constructor that creates a `JwtSource` with a provided initial bundle set
@@ -738,13 +802,12 @@ impl JwtSource {
 
 struct SupervisorTerminationGuard {
     inner: Arc<Inner>,
-    token: CancellationToken,
 }
 
 impl SupervisorTerminationGuard {
-    fn new(inner: Arc<Inner>, token: CancellationToken) -> Self {
+    fn new(inner: Arc<Inner>) -> Self {
         inner.supervisor_running.store(true, Ordering::Release);
-        Self { inner, token }
+        Self { inner }
     }
 }
 
@@ -753,7 +816,7 @@ impl Drop for SupervisorTerminationGuard {
         self.inner
             .supervisor_running
             .store(false, Ordering::Release);
-        self.token.cancel();
+        self.inner.cancel.cancel();
     }
 }
 
@@ -802,6 +865,27 @@ impl Inner {
         bundle_set: &JwtBundleSet,
     ) -> Result<(), JwtSourceError> {
         validate_bundle_set(bundle_set, self.limits, self.metrics.as_deref())
+    }
+}
+
+async fn initial_sync_with_timeout<T, F>(
+    initial_sync: F,
+    cancel: &CancellationToken,
+    timeout: Option<Duration>,
+) -> Result<T, JwtSourceError>
+where
+    F: Future<Output = Result<T, JwtSourceError>>,
+{
+    let Some(timeout) = timeout else {
+        return initial_sync.await;
+    };
+
+    match tokio::time::timeout(timeout, initial_sync).await {
+        Ok(result) => result,
+        Err(_elapsed) => {
+            cancel.cancel();
+            Err(JwtSourceError::InitialSyncTimeout)
+        }
     }
 }
 
@@ -862,9 +946,7 @@ mod tests {
     }
 
     fn supervisor_running_guard_for_test(source: &JwtSource) -> SupervisorTerminationGuard {
-        let task_inner = Arc::clone(&source.inner);
-        let token = task_inner.cancel.clone();
-        SupervisorTerminationGuard::new(task_inner, token)
+        SupervisorTerminationGuard::new(Arc::clone(&source.inner))
     }
 
     async fn terminate_supervisor_for_test(terminate_guard: SupervisorTerminationGuard) {
@@ -873,6 +955,93 @@ mod tests {
         })
         .await
         .expect("supervisor termination task should not panic");
+    }
+
+    #[tokio::test]
+    async fn initial_sync_timeout_returns_timeout_and_cancels_token() {
+        let cancel = CancellationToken::new();
+
+        let result = initial_sync_with_timeout(
+            std::future::pending::<Result<(), JwtSourceError>>(),
+            &cancel,
+            Some(Duration::ZERO),
+        )
+        .await;
+
+        assert!(matches!(result, Err(JwtSourceError::InitialSyncTimeout)));
+        assert!(cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn initial_sync_timeout_allows_success_before_timeout() {
+        let cancel = CancellationToken::new();
+
+        let result = initial_sync_with_timeout(
+            async { Ok::<_, JwtSourceError>("synced") },
+            &cancel,
+            Some(Duration::from_secs(60)),
+        )
+        .await;
+
+        assert_eq!(result.unwrap(), "synced");
+        assert!(!cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn initial_sync_without_timeout_waits_for_future() {
+        let cancel = CancellationToken::new();
+
+        let result =
+            initial_sync_with_timeout(async { Ok::<_, JwtSourceError>("synced") }, &cancel, None)
+                .await;
+
+        assert_eq!(result.unwrap(), "synced");
+        assert!(!cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn build_with_initial_sync_timeout_does_not_eagerly_create_jwt_client() {
+        let (update_tx, _update_rx) = watch::channel(0u64);
+        let cancel = CancellationToken::new();
+        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let make_client: ClientFactory = Arc::new(|| {
+            Box::pin(async {
+                std::future::pending::<Result<WorkloadApiClient, WorkloadApiError>>().await
+            })
+        });
+
+        let source = tokio::time::timeout(
+            Duration::from_millis(100),
+            JwtSource::build_with_initial_sync(
+                BuildParts {
+                    make_client,
+                    reconnect: ReconnectConfig {
+                        min_backoff: Duration::from_millis(10),
+                        max_backoff: Duration::from_millis(10),
+                    },
+                    limits: ResourceLimits::default(),
+                    metrics: None,
+                    shutdown_timeout: Some(Duration::from_millis(10)),
+                    cancel,
+                    shutdown_guard,
+                    update_tx,
+                },
+                Some(Duration::from_millis(50)),
+                async { Ok::<_, JwtSourceError>(create_test_bundle_set()) },
+            ),
+        )
+        .await
+        .expect("build_with post-initial-sync path should not wait on on-demand client creation")
+        .expect("initial sync should succeed before timeout");
+
+        assert!(
+            source.inner.cached_client.load().is_none(),
+            "on-demand JWT client should start empty and be created lazily"
+        );
+
+        let _unused = source
+            .shutdown_with_timeout(Duration::from_millis(10))
+            .await;
     }
 
     #[tokio::test]
@@ -1023,6 +1192,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wait_for_returns_closed_after_shutdown_even_when_predicate_matches_current() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let mut updates = source.updated();
+        let current = updates.last();
+
+        source.shutdown().await;
+
+        let result = updates.wait_for(|seq| *seq == current).await;
+        assert!(matches!(result, Err(JwtSourceError::Closed)));
+    }
+
+    #[tokio::test]
     async fn test_updates_changed_delivers_pending_update_before_closed() {
         let source = JwtSource::new_for_test(
             create_test_bundle_set(),
@@ -1127,6 +1313,25 @@ mod tests {
         assert!(matches!(waited, Err(JwtSourceError::Closed)));
     }
 
+    #[tokio::test]
+    async fn wait_for_returns_closed_after_supervisor_termination_even_when_predicate_matches_current(
+    ) {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let running_guard = supervisor_running_guard_for_test(&source);
+        let mut updates = source.updated();
+        let current = updates.last();
+
+        terminate_supervisor_for_test(running_guard).await;
+
+        let result = updates.wait_for(|seq| *seq == current).await;
+        assert!(matches!(result, Err(JwtSourceError::Closed)));
+    }
+
     #[test]
     fn test_is_healthy_false_when_bundle_set_is_empty() {
         let source = JwtSource::new_for_test(
@@ -1164,6 +1369,36 @@ mod tests {
         );
         let _guard = supervisor_running_guard_for_test(&source);
         assert!(source.is_healthy());
+    }
+
+    #[tokio::test]
+    async fn is_healthy_false_after_shutdown() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let _guard = supervisor_running_guard_for_test(&source);
+
+        assert!(source.is_healthy());
+        source.shutdown().await;
+        assert!(!source.is_healthy());
+    }
+
+    #[test]
+    fn is_healthy_false_after_cancel() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        let _guard = supervisor_running_guard_for_test(&source);
+
+        assert!(source.is_healthy());
+        source.inner.cancel.cancel();
+        assert!(!source.is_healthy());
     }
 
     /// Test metrics recorder that counts error recordings by kind.
