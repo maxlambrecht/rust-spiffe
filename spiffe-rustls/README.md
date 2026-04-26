@@ -44,6 +44,9 @@ let client_cfg = mtls_client(source)
 The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
 [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio), `tokio-rustls`, `tonic-rustls`, or similar libraries.
 
+For non-federated deployments, also configure `TrustDomainPolicy::LocalOnly(...)`.
+See “Trust Domain Policy” below for details.
+
 ---
 
 ## Federation
@@ -80,6 +83,10 @@ using `TrustDomainPolicy`.
 This is a **defense-in-depth** mechanism. The primary trust model comes from the bundle set
 delivered by the Workload API.
 
+By default, `spiffe-rustls` uses `TrustDomainPolicy::AnyInBundleSet`. This accepts any
+trust domain present in the source bundle set. For non-federated deployments, configure
+`TrustDomainPolicy::LocalOnly(...)` to restrict verification to the local trust domain.
+
 ```rust
 use spiffe_rustls::TrustDomainPolicy;
 
@@ -107,6 +114,12 @@ Authorization is applied **after** cryptographic verification succeeds.
 
 The crate provides a strongly-typed `Authorizer` trait and constructors for
 common authorization strategies.
+
+The default authorizer is `authorizer::any()`. It accepts any authenticated SPIFFE ID
+from any trust domain accepted by the configured trust-domain policy. By default, this
+means every trust domain in the source bundle set. Production deployments should usually
+configure a more specific authorizer, such as an exact SPIFFE ID allow-list or a
+trust-domain allow-list.
 
 ### Common authorization patterns
 
@@ -234,7 +247,7 @@ Common protocols:
 
 For configuration not directly exposed by the builder, use `with_config_customizer`.
 The customizer runs **last**, after all other builder settings (including ALPN)
-have been applied, allowing you to override any configuration:
+have been applied, and gives direct access to the underlying rustls configuration:
 
 ```rust
 use spiffe_rustls::mtls_server;
@@ -249,9 +262,8 @@ let config = mtls_server(source)
     .build()?;
 ```
 
-**Warning:** Do not modify or replace the verifier or certificate resolver, as they
-are required for SPIFFE authentication and authorization. Safe to modify: ALPN, cipher
-suites, protocol versions, and other non-security-critical settings.
+**Warning:** Replacing the verifier or resolver disables SPIFFE authentication. Do not
+use this hook for that purpose; build a custom rustls configuration instead.
 
 ---
 
@@ -376,7 +388,8 @@ Authorization is applied **after** TLS verification succeeds, ensuring cryptogra
 
 * Certificates must contain **exactly one** SPIFFE ID URI SAN
 * Trust bundles are sourced exclusively from the Workload API
-* Trust domain selection is automatic and deterministic
+* The default trust-domain policy accepts any trust domain present in the source bundle set
+* The default authorizer accepts any authenticated SPIFFE ID from any trust domain accepted by the configured trust-domain policy. By default, this means every trust domain in the source bundle set.
 * Authorization runs **after** cryptographic verification
 * Material updates are atomic; new handshakes use fresh material
 

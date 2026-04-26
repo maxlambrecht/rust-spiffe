@@ -3,6 +3,11 @@
 //! Provides [`TrustDomainPolicy`], which allows you to restrict which
 //! trust domains from the bundle set are actually used during certificate verification.
 //!
+//! The default policy is [`TrustDomainPolicy::AnyInBundleSet`], which accepts any
+//! trust domain present in the source bundle set. For non-federated deployments,
+//! prefer [`TrustDomainPolicy::LocalOnly`] to restrict verification to the local
+//! trust domain.
+//!
 //! # Examples
 //!
 //! ```rust
@@ -39,6 +44,8 @@ use std::collections::BTreeSet;
 /// additional layer of control over which trust domains are accepted.
 ///
 /// **Default**: `AnyInBundleSet` - use all bundles provided by the Workload API.
+/// This accepts any trust domain present in the source bundle set. For non-federated
+/// deployments, prefer `LocalOnly(...)`.
 ///
 /// # Examples
 ///
@@ -66,6 +73,9 @@ pub enum TrustDomainPolicy {
     /// the verifier to automatically select the correct bundle based on the
     /// peer's SPIFFE ID. No additional configuration is needed for federation
     /// to work.
+    ///
+    /// For non-federated deployments, prefer [`TrustDomainPolicy::LocalOnly`] to
+    /// restrict verification to the local trust domain.
     #[default]
     AnyInBundleSet,
 
