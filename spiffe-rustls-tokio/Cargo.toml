@@ -1,6 +1,6 @@
 [package]
 name = "spiffe-rustls-tokio"
-version = "0.1.4"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
@@ -28,7 +28,7 @@ thiserror = "2"
 [dev-dependencies]
 anyhow = "1"
 env_logger = "0.11"
-spiffe-rustls = { version = "0.4.9", path = "../spiffe-rustls" }
+spiffe-rustls = { version = "0.5", path = "../spiffe-rustls" }
 tokio = { version = "1", default-features = false, features = [
     "rt-multi-thread",
     "signal",
