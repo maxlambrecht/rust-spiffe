@@ -55,3 +55,60 @@ impl tonic::service::Interceptor for MetadataAdder {
         Ok(request)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tonic::service::Interceptor as _;
+
+    #[test]
+    fn spiffe_header_always_inserted() {
+        let mut adder = MetadataAdder::new(None);
+        let request = tonic::Request::new(());
+        let result = adder.call(request);
+
+        let response = result.expect("interceptor should succeed");
+        let value = response
+            .metadata()
+            .get(SPIFFE_HEADER_KEY)
+            .expect("spiffe header should be present");
+        assert_eq!(value, SPIFFE_HEADER_VALUE);
+    }
+
+    #[test]
+    fn custom_interceptor_metadata_added() {
+        let interceptor: InterceptorFn = Arc::new(|req| {
+            req.metadata_mut().insert(
+                MetadataKey::from_static("authorization"),
+                MetadataValue::from_static("Bearer test-token"),
+            );
+            Ok(())
+        });
+        let mut adder = MetadataAdder::new(Some(interceptor));
+        let request = tonic::Request::new(());
+        let result = adder.call(request);
+
+        let response = result.expect("interceptor should succeed");
+        assert_eq!(
+            response.metadata().get(SPIFFE_HEADER_KEY).expect("present"),
+            SPIFFE_HEADER_VALUE,
+        );
+        assert_eq!(
+            response.metadata().get("authorization").expect("present"),
+            "Bearer test-token",
+        );
+    }
+
+    #[test]
+    fn custom_interceptor_error_propagates() {
+        let interceptor: InterceptorFn =
+            Arc::new(|_| Err(tonic::Status::internal("token expired")));
+        let mut adder = MetadataAdder::new(Some(interceptor));
+        let request = tonic::Request::new(());
+        let result = adder.call(request);
+
+        let err = result.expect_err("interceptor should fail");
+        assert_eq!(err.code(), tonic::Code::Internal);
+        assert_eq!(err.message(), "token expired");
+    }
+}
