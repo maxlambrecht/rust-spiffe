@@ -214,7 +214,7 @@ pub use crate::workload_api::X509Context;
     feature = "workload-api-jwt",
     feature = "workload-api-full"
 ))]
-pub use crate::workload_api::{WorkloadApiClient, WorkloadApiError};
+pub use crate::workload_api::{InterceptorFn, WorkloadApiClient, WorkloadApiError};
 
 // X.509 Source
 //

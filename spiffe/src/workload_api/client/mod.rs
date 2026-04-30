@@ -21,6 +21,8 @@ use crate::workload_api::client::header::MetadataAdder;
 use crate::workload_api::error::WorkloadApiError;
 use crate::workload_api::pb::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
 
+pub use header::InterceptorFn;
+
 /// Client for the SPIFFE Workload API.
 ///
 /// Provides one-shot calls and streaming updates for X.509 and JWT SVIDs and bundles.
@@ -50,7 +52,7 @@ impl WorkloadApiClient {
         let channel = connect(&endpoint).await?;
         Ok(Self {
             endpoint,
-            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder {}),
+            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder::new(None)),
         })
     }
 
@@ -105,7 +107,32 @@ impl WorkloadApiClient {
     pub fn new_with_channel(endpoint: Endpoint, channel: tonic::transport::Channel) -> Self {
         Self {
             endpoint,
-            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder {}),
+            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder::new(None)),
+        }
+    }
+
+    /// Creates a client from an existing gRPC channel with a custom
+    /// per-RPC metadata interceptor.
+    ///
+    /// The `interceptor` is called on every RPC to inject custom metadata
+    /// (e.g. K8s service account tokens for identity-server authentication).
+    /// The standard `workload.spiffe.io: true` header is always added
+    /// automatically.
+    ///
+    /// This is the primary constructor for identity-server, which requires
+    /// per-RPC authentication metadata over TLS+TCP (unlike standard SPIRE
+    /// which uses Unix domain sockets with implicit OS-level auth).
+    pub fn new_with_channel_and_interceptor(
+        endpoint: Endpoint,
+        channel: tonic::transport::Channel,
+        interceptor: InterceptorFn,
+    ) -> Self {
+        Self {
+            endpoint,
+            client: SpiffeWorkloadApiClient::with_interceptor(
+                channel,
+                MetadataAdder::new(Some(interceptor)),
+            ),
         }
     }
 }
