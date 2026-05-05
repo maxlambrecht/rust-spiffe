@@ -41,16 +41,15 @@ impl tonic::service::Interceptor for MetadataAdder {
         &mut self,
         mut request: tonic::Request<()>,
     ) -> Result<tonic::Request<()>, tonic::Status> {
-        // Cloning is required: tonic's metadata insert() takes owned values.
-        // The LazyLock ensures these are only parsed once at initialization.
-        request
-            .metadata_mut()
-            .insert(PARSED_HEADER_KEY.clone(), PARSED_HEADER_VALUE.clone());
-
-        // Apply custom per-RPC metadata if provided.
+        // Apply custom per-RPC metadata first, so the required SPIFFE header
+        // cannot be accidentally removed or overwritten by a custom interceptor.
         if let Some(extra) = &self.extra {
             extra(&mut request)?;
         }
+
+        request
+            .metadata_mut()
+            .insert(PARSED_HEADER_KEY.clone(), PARSED_HEADER_VALUE.clone());
 
         Ok(request)
     }
@@ -96,6 +95,28 @@ mod tests {
         assert_eq!(
             response.metadata().get("authorization").expect("present"),
             "Bearer test-token",
+        );
+    }
+
+    #[test]
+    fn spiffe_header_preserved_when_custom_interceptor_overwrites_it() {
+        let interceptor: InterceptorFn = Arc::new(|req| {
+            req.metadata_mut().remove(SPIFFE_HEADER_KEY);
+            req.metadata_mut().insert(
+                MetadataKey::from_static(SPIFFE_HEADER_KEY),
+                MetadataValue::from_static("false"),
+            );
+            Ok(())
+        });
+
+        let mut adder = MetadataAdder::new(Some(interceptor));
+        let response = adder
+            .call(tonic::Request::new(()))
+            .expect("interceptor should succeed");
+
+        assert_eq!(
+            response.metadata().get(SPIFFE_HEADER_KEY).expect("present"),
+            SPIFFE_HEADER_VALUE,
         );
     }
 
