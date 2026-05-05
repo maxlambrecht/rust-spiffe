@@ -29,6 +29,7 @@ pub mod error;
 #[cfg(feature = "x509")]
 pub mod x509_context;
 
+pub use client::InterceptorFn;
 pub use client::WorkloadApiClient;
 pub use error::WorkloadApiError;
 
