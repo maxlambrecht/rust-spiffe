@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0] – 2026-05-08
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.14` to `0.15`. `spiffe-rustls-tokio` exposes `spiffe::SpiffeId` through `PeerIdentity`, so downstream users must use compatible `spiffe` `0.15` types.
+- Updated examples and development dependency to `spiffe-rustls` `0.6`.
+
 ## [0.2.0] – 2026-04-25
 
 ### Breaking changes
