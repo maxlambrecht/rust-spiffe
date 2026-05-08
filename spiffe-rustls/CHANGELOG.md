@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0] – 2026-05-08
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.14` to `0.15`. Because `spiffe-rustls` exposes `spiffe` types in its public API, downstream users must use compatible `spiffe` `0.15` types.
+
+### Changed
+
+- Clarified documentation around the default SPIFFE verification posture and the risks of advanced rustls configuration customization.
+
 ## [0.5.0] – 2026-04-25
 
 ### Breaking changes

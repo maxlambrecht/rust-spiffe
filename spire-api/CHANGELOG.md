@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0] – 2026-05-08
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.14` to `0.15`. `spire-api` exposes `spiffe` types in its public API, so downstream users must use compatible `spiffe` `0.15` types.
+
 ## [0.6.0] – 2026-04-25
 
 ### Breaking changes
