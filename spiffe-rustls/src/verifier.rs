@@ -265,6 +265,8 @@ type VerifierCacheKey = (u64, spiffe::TrustDomain);
 #[derive(Clone)]
 struct ServerVerifierCacheValue {
     verifier: Arc<dyn rustls::client::danger::ServerCertVerifier>,
+    roots: Arc<rustls::RootCertStore>,
+    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
     schemes: Vec<SignatureScheme>,
 }
 
@@ -338,6 +340,21 @@ fn build_server_verifier(
     Ok(v)
 }
 
+fn build_server_cache_value(roots: Arc<rustls::RootCertStore>) -> Result<ServerVerifierCacheValue> {
+    let verifier = build_server_verifier(Arc::clone(&roots))?;
+    let schemes = verifier.supported_verify_schemes();
+    let supported_algs = rustls::crypto::CryptoProvider::get_default()
+        .ok_or_else(|| Error::VerifierBuilder("rustls crypto provider is not installed".into()))?
+        .signature_verification_algorithms;
+
+    Ok(ServerVerifierCacheValue {
+        verifier,
+        roots,
+        supported_algs,
+        schemes,
+    })
+}
+
 fn build_client_verifier(
     roots: Arc<rustls::RootCertStore>,
 ) -> Result<Arc<dyn rustls::server::danger::ClientCertVerifier>> {
@@ -352,14 +369,11 @@ fn build_client_verifier(
 
 /// Returns `true` if `err` is a TLS server-name mismatch from the webpki name check.
 ///
-/// When clearing these errors in `SpiffeServerCertVerifier::verify_server_cert`, we rely on the
-/// **current** rustls behavior of `WebPkiServerVerifier::verify_server_cert`:
-/// certificate path validation runs before server-name validation, so treating only name-mismatch
-/// errors as non-fatal does not bypass chain validation. That ordering is rustls’s, not a contract
-/// defined by this crate.
-///
-/// SPIFFE peer authentication uses the configured trust bundle and the SPIFFE ID (URI SAN), not
-/// DNS/IP SAN matching to the dial target.
+/// Kept for regression tests around the old fail-open risk: SPIFFE server verification must not
+/// decide whether chain validation succeeded by classifying the error from a combined
+/// chain-and-name verifier. SPIFFE peer authentication uses the configured trust bundle and the
+/// SPIFFE ID (URI SAN), not DNS/IP SAN matching to the dial target.
+#[cfg(test)]
 const fn webpki_tls_hostname_mismatch(err: &rustls::Error) -> bool {
     matches!(
         err,
@@ -402,7 +416,7 @@ impl SpiffeServerCertVerifier {
     fn get_or_build_inner(
         &self,
         trust_domain: &spiffe::TrustDomain,
-    ) -> Result<Arc<dyn rustls::client::danger::ServerCertVerifier>> {
+    ) -> Result<ServerVerifierCacheValue> {
         let snap = self.provider.current_material();
         let r#gen = snap.generation;
 
@@ -444,7 +458,7 @@ impl SpiffeServerCertVerifier {
                 .map_err(|()| Error::Internal("server verifier cache mutex poisoned".into()))?;
 
             match &*guard {
-                ServerBuildState::Ready(v) => return Ok(Arc::clone(&v.verifier)),
+                ServerBuildState::Ready(v) => return Ok(v.clone()),
 
                 ServerBuildState::Empty => {
                     // Become the single builder (no race window).
@@ -452,7 +466,7 @@ impl SpiffeServerCertVerifier {
                     drop(guard);
 
                     // Build without holding any locks.
-                    let verifier = match build_server_verifier(roots) {
+                    let value = match build_server_cache_value(Arc::clone(&roots)) {
                         Ok(v) => v,
                         Err(e) => {
                             // Reset + notify waiters; do not cache failure.
@@ -466,18 +480,15 @@ impl SpiffeServerCertVerifier {
                         }
                     };
 
-                    let schemes = verifier.supported_verify_schemes();
-                    let value = ServerVerifierCacheValue { verifier, schemes };
-
                     // Publish success and wake waiters.
                     let mut g = lock_mutex(&cell.state).map_err(|()| {
                         Error::Internal("server verifier cache mutex poisoned".into())
                     })?;
-                    let verifier = Arc::clone(&value.verifier);
+                    let cached = value.clone();
                     *g = ServerBuildState::Ready(value);
                     drop(g);
                     cell.cv.notify_all();
-                    return Ok(verifier);
+                    return Ok(cached);
                 }
 
                 ServerBuildState::Building => {
@@ -512,7 +523,7 @@ impl SpiffeServerCertVerifier {
         }
 
         match self.get_or_build_inner(trust_domain) {
-            Ok(v) => v.supported_verify_schemes(),
+            Ok(v) => v.schemes,
             Err(e) => {
                 debug!(
                 "failed to build server verifier for trust domain {trust_domain}: {e}; returning empty schemes (handshake will fail)");
@@ -520,6 +531,25 @@ impl SpiffeServerCertVerifier {
             }
         }
     }
+}
+
+fn verify_server_cert_chain(
+    verifier: &ServerVerifierCacheValue,
+    end_entity: &CertificateDer<'_>,
+    intermediates: &[CertificateDer<'_>],
+    now: UnixTime,
+) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+    let cert = rustls::server::ParsedCertificate::try_from(end_entity)?;
+
+    rustls::client::verify_server_cert_signed_by_trust_anchor(
+        &cert,
+        &verifier.roots,
+        intermediates,
+        now,
+        verifier.supported_algs.all,
+    )?;
+
+    Ok(rustls::client::danger::ServerCertVerified::assertion())
 }
 
 impl Debug for SpiffeServerCertVerifier {
@@ -533,8 +563,8 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         &self,
         end_entity: &CertificateDer<'_>,
         intermediates: &[CertificateDer<'_>],
-        server_name: &ServerName<'_>,
-        ocsp_response: &[u8],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
         now: UnixTime,
     ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
         // Step 1: Extract SPIFFE ID from certificate (using cache)
@@ -549,25 +579,14 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         let trust_domain = spiffe_id.trust_domain();
 
         // Step 3: Get or build verifier for this trust domain
-        let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
+        let verifier = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Verify certificate chain (via inner `WebPkiServerVerifier`), then SPIFFE policy.
+        // Step 4: Verify certificate chain, then SPIFFE policy.
         //
-        // For SPIFFE we ignore only `NotValidForName` and `NotValidForNameContext`, relying on
-        // rustls path validation having already succeeded before name checks run.
-        let ok = match inner.verify_server_cert(
-            end_entity,
-            intermediates,
-            server_name,
-            ocsp_response,
-            now,
-        ) {
-            Ok(ok) => ok,
-            Err(e) if webpki_tls_hostname_mismatch(&e) => {
-                rustls::client::danger::ServerCertVerified::assertion()
-            }
-            Err(e) => return Err(e),
-        };
+        // For SPIFFE server authentication, DNS/IP SAN matching is intentionally not part of the
+        // identity check. Use rustls's chain-only webpki helper so path validation is explicit and
+        // cannot be masked by any future change in rustls name-check error ordering.
+        let ok = verify_server_cert_chain(&verifier, end_entity, intermediates, now)?;
 
         // Step 5: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
@@ -588,7 +607,7 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
         let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
-        inner.verify_tls12_signature(message, cert, dss)
+        inner.verifier.verify_tls12_signature(message, cert, dss)
     }
 
     fn verify_tls13_signature(
@@ -602,7 +621,7 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
             extract_spiffe_id_with_cache(cert, Some(&self.parse_cache)).map_err(other_err)?;
         let trust_domain = spiffe_id.trust_domain();
         let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
-        inner.verify_tls13_signature(message, cert, dss)
+        inner.verifier.verify_tls13_signature(message, cert, dss)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
@@ -979,6 +998,7 @@ mod tests {
     use rustls::RootCertStore;
     use spiffe::TrustDomain;
     use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::OnceLock;
 
     fn ensure_provider() {
@@ -1233,6 +1253,27 @@ mod tests {
             .unwrap();
     }
 
+    #[test]
+    fn webpki_combined_verifier_reports_name_mismatch_for_valid_uri_only_svid() {
+        ensure_provider();
+
+        let verifier = build_server_verifier(roots_with_ca_uri_only()).unwrap();
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe_uri_only(),
+                &[],
+                &server_name_localhost(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(
+            webpki_tls_hostname_mismatch(&err),
+            "fixture must exercise rustls DNS/IP name mismatch handling: {err:?}"
+        );
+    }
+
     /// Wrong trust anchor: chain validation fails inside rustls before hostname checks. We must not
     /// treat that as a hostname-only case or accept the certificate.
     #[test]
@@ -1266,6 +1307,48 @@ mod tests {
                 rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
             ),
             "expected UnknownIssuer, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn server_verifier_does_not_authorize_when_chain_invalid_even_if_name_mismatch() {
+        ensure_provider();
+
+        // `cert_with_spiffe_uri_only` has no DNS/IP SAN for localhost and chains to
+        // `ca_uri_only.der`; provider supplies `ca.der` only. Even if a combined verifier ever
+        // reported the name mismatch first, SPIFFE authorization must not run for this chain.
+        let authorize_calls = Arc::new(AtomicUsize::new(0));
+        let calls = Arc::clone(&authorize_calls);
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_example_org(1),
+            move |_peer: &SpiffeId| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                true
+            },
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe_uri_only(),
+                &[],
+                &server_name_localhost(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+            ),
+            "expected UnknownIssuer, got {err:?}"
+        );
+        assert_eq!(
+            authorize_calls.load(Ordering::SeqCst),
+            0,
+            "authorization must run only after chain validation succeeds"
         );
     }
 
