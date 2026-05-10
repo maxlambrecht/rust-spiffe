@@ -10,6 +10,8 @@ use crate::svid::x509::validations::{validate_leaf_certificate, validate_signing
 use std::convert::TryFrom as _;
 use std::sync::Arc;
 
+use self::chain::CertificateChain;
+
 /// Represents a SPIFFE X.509-SVID.
 ///
 /// Contains a [`SpiffeId`], a certificate chain as DER-encoded X.509 certificates,
@@ -20,7 +22,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Svid {
     spiffe_id: SpiffeId,
-    cert_chain: Vec<Certificate>,
+    cert_chain: CertificateChain,
     private_key: PrivateKey,
     expiry_unix: i64,
     hint: Option<Arc<str>>,
@@ -122,14 +124,10 @@ impl X509Svid {
         private_key_der: &[u8],
         hint: Option<Arc<str>>,
     ) -> Result<Self, X509SvidError> {
-        let cert_chain = to_certificate_vec(cert_chain_der)?;
+        let cert_chain = CertificateChain::try_from_vec(to_certificate_vec(cert_chain_der)?)?;
 
-        let Some((leaf, rest)) = cert_chain.split_first() else {
-            return Err(X509SvidError::EmptyChain);
-        };
-
-        let (spiffe_id, expiry_unix) = validate_leaf_certificate(leaf)?;
-        validate_signing_certificates(rest)?;
+        let (spiffe_id, expiry_unix) = validate_leaf_certificate(cert_chain.leaf())?;
+        validate_signing_certificates(cert_chain.intermediates())?;
         let private_key = PrivateKey::try_from(private_key_der)?;
 
         Ok(Self {
@@ -148,21 +146,12 @@ impl X509Svid {
 
     /// Returns the certificate chain. The first certificate is the leaf certificate.
     pub fn cert_chain(&self) -> &[Certificate] {
-        &self.cert_chain
+        self.cert_chain.as_slice()
     }
 
     /// Returns the leaf certificate.
-    ///
-    /// # Panics
-    ///
-    /// This method will panic if the certificate chain is empty. This should never
-    /// happen with properly constructed `X509Svid` instances, as the constructor
-    /// validates that the chain is non-empty.
-    pub fn leaf(&self) -> &Certificate {
-        #[expect(clippy::panic, reason = "documented behavior")]
-        self.cert_chain
-            .first()
-            .unwrap_or_else(|| panic!("certificate chain is empty"))
+    pub const fn leaf(&self) -> &Certificate {
+        self.cert_chain.leaf()
     }
 
     /// Returns the private key.
@@ -178,5 +167,46 @@ impl X509Svid {
     /// Returns the optional hint provided by the Workload API.
     pub fn hint(&self) -> Option<&str> {
         self.hint.as_deref()
+    }
+}
+
+mod chain {
+    use crate::cert::Certificate;
+    use crate::svid::x509::X509SvidError;
+
+    /// An ordered X.509 certificate chain with a guaranteed leaf certificate.
+    ///
+    /// The first certificate is the leaf and any remaining certificates are
+    /// intermediates. Construction rejects empty chains, so callers can access
+    /// the leaf without a panic path.
+    #[derive(Debug, Clone, Eq, PartialEq)]
+    pub(super) struct CertificateChain {
+        leaf: Certificate,
+        certs: Vec<Certificate>,
+    }
+
+    impl CertificateChain {
+        pub(super) fn try_from_vec(certs: Vec<Certificate>) -> Result<Self, X509SvidError> {
+            let Some(leaf) = certs.first().cloned() else {
+                return Err(X509SvidError::EmptyChain);
+            };
+
+            Ok(Self { leaf, certs })
+        }
+
+        pub(super) const fn leaf(&self) -> &Certificate {
+            &self.leaf
+        }
+
+        pub(super) fn intermediates(&self) -> &[Certificate] {
+            match self.certs.split_first() {
+                Some((_, intermediates)) => intermediates,
+                None => &[],
+            }
+        }
+
+        pub(super) fn as_slice(&self) -> &[Certificate] {
+            &self.certs
+        }
     }
 }
