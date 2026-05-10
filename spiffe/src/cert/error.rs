@@ -31,6 +31,13 @@ pub enum CertificateError {
     #[error("certificate contains multiple URI SAN entries")]
     MultipleUriSanEntries,
 
+    /// A URI SAN exceeds the maximum length processed by this library.
+    #[error("URI SAN exceeds maximum length ({max} bytes)")]
+    OversizedUriSan {
+        /// Maximum URI SAN length in bytes (inclusive).
+        max: usize,
+    },
+
     /// The certificate contains more than one URI SAN that parses as a SPIFFE ID.
     ///
     /// Kept for compatibility with callers that match this variant specifically.
