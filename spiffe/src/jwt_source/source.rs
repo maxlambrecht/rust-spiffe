@@ -5,9 +5,10 @@ use super::metrics::MetricsRecorder;
 use super::supervisor::initial_sync_with_retry;
 use super::types::ClientFactory;
 use crate::bundle::BundleSource;
-use crate::prelude::warn;
+use crate::prelude::{debug, warn};
+use crate::transport::TransportError;
 use crate::workload_api::WorkloadApiClient;
-use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain};
+use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiError};
 use arc_swap::ArcSwap;
 use std::fmt::Debug;
 use std::future::Future;
@@ -17,9 +18,6 @@ use std::time::Duration;
 use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::{CancellationToken, DropGuard};
-
-#[cfg(test)]
-use crate::WorkloadApiError;
 
 /// Handle for receiving update notifications from a [`JwtSource`].
 ///
@@ -478,8 +476,8 @@ impl JwtSource {
 
     /// Fetches a JWT SVID for the given audience and optional SPIFFE ID.
     ///
-    /// This method automatically retries once if the initial request fails (e.g., due to
-    /// a closed connection). On retry, the cached client is recreated to handle transient
+    /// This method automatically retries once if the initial request fails with a transient
+    /// transport/status error. On retry, the cached client is recreated to handle transient
     /// connection issues.
     ///
     /// # Errors
@@ -519,12 +517,10 @@ impl JwtSource {
 
         let client = self.inner.get_or_recreate_client().await?;
 
-        // Try to fetch the SVID
         match client.fetch_jwt_svid(&audience_vec, spiffe_id).await {
             Ok(svid) => Ok(svid),
-            Err(_e) => {
-                // On failure, invalidate the cached client and try once more
-                // This handles transient connection issues (e.g., connection closed)
+            Err(e) if is_retryable_jwt_fetch_error(&e) => {
+                debug!("JWT-SVID fetch failed with retryable Workload API error; recreating client and retrying once: error={e}");
                 self.assert_open()?; // Check if closed before retry
                 let new_client = self.inner.recreate_client().await?;
                 new_client
@@ -532,6 +528,7 @@ impl JwtSource {
                     .await
                     .map_err(JwtSourceError::FetchJwtSvid)
             }
+            Err(e) => Err(JwtSourceError::FetchJwtSvid(e)),
         }
     }
 
@@ -630,6 +627,17 @@ impl JwtSource {
             self.shutdown().await;
             Ok(())
         }
+    }
+}
+
+fn is_retryable_jwt_fetch_error(error: &WorkloadApiError) -> bool {
+    match error {
+        WorkloadApiError::Transport(TransportError::Tonic(_)) => true,
+        WorkloadApiError::Transport(TransportError::Status(status)) => matches!(
+            status.code(),
+            tonic::Code::Cancelled | tonic::Code::DeadlineExceeded | tonic::Code::Unavailable
+        ),
+        _ => false,
     }
 }
 
@@ -759,15 +767,32 @@ impl JwtSource {
         limits: ResourceLimits,
         metrics: Option<Arc<dyn MetricsRecorder>>,
     ) -> Self {
+        let make_client: ClientFactory =
+            Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
+
+        Self::new_for_test_with_client_factory(
+            initial_bundle_set,
+            reconnect,
+            limits,
+            metrics,
+            make_client,
+        )
+    }
+
+    #[cfg(test)]
+    fn new_for_test_with_client_factory(
+        initial_bundle_set: Arc<JwtBundleSet>,
+        reconnect: ReconnectConfig,
+        limits: ResourceLimits,
+        metrics: Option<Arc<dyn MetricsRecorder>>,
+        make_client: ClientFactory,
+    ) -> Self {
         // Normalize reconnect config at the boundary (same as build_with)
         let reconnect = super::builder::normalize_reconnect(reconnect);
 
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
-
-        let make_client: ClientFactory =
-            Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
 
         let inner = Inner {
             bundle_set: ArcSwap::from(initial_bundle_set),
@@ -907,7 +932,11 @@ impl BundleSource for JwtSource {
 mod tests {
     use super::*;
     use crate::bundle::jwt::JwtAuthority;
-    use std::collections::HashMap;
+    use crate::transport::Endpoint;
+    use crate::workload_api::client::JwtFetchTestHook;
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Mutex;
 
     fn updates_for_test(rx: watch::Receiver<u64>) -> JwtSourceUpdates {
@@ -935,6 +964,197 @@ mod tests {
         let mut bundle_set = JwtBundleSet::new();
         bundle_set.add_bundle(bundle);
         Arc::new(bundle_set)
+    }
+
+    fn test_jwt_svid() -> JwtSvid {
+        let header = Base64UrlUnpadded::encode_string(br#"{"alg":"ES256","kid":"k1","typ":"JWT"}"#);
+        let claims = Base64UrlUnpadded::encode_string(
+            br#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295}"#,
+        );
+        JwtSvid::parse_insecure(&format!("{header}.{claims}.sig")).unwrap()
+    }
+
+    #[derive(Clone)]
+    enum FetchOutcome {
+        Ok,
+        PermissionDenied(&'static str),
+        NoIdentityIssued,
+        HintNotFound(&'static str),
+        InvalidJwt,
+        Unavailable,
+    }
+
+    impl FetchOutcome {
+        fn into_result(self) -> Result<JwtSvid, WorkloadApiError> {
+            match self {
+                Self::Ok => Ok(test_jwt_svid()),
+                Self::PermissionDenied(msg) => {
+                    Err(WorkloadApiError::PermissionDenied(msg.to_owned()))
+                }
+                Self::NoIdentityIssued => Err(WorkloadApiError::NoIdentityIssued),
+                Self::HintNotFound(hint) => Err(WorkloadApiError::HintNotFound(hint.to_owned())),
+                Self::InvalidJwt => Err(WorkloadApiError::JwtSvid(
+                    JwtSvid::parse_insecure("not-a-jwt").unwrap_err(),
+                )),
+                Self::Unavailable => Err(WorkloadApiError::Transport(TransportError::Status(
+                    tonic::Status::unavailable("agent unavailable"),
+                ))),
+            }
+        }
+    }
+
+    struct FetchTestSource {
+        source: JwtSource,
+        factory_calls: Arc<AtomicUsize>,
+        fetch_calls: Arc<AtomicUsize>,
+    }
+
+    fn source_with_fetch_outcomes(outcomes: Vec<FetchOutcome>) -> FetchTestSource {
+        let outcomes = Arc::new(Mutex::new(VecDeque::from(outcomes)));
+        let factory_calls = Arc::new(AtomicUsize::new(0));
+        let fetch_calls = Arc::new(AtomicUsize::new(0));
+
+        let make_client: ClientFactory = {
+            let outcomes = Arc::clone(&outcomes);
+            let factory_calls = Arc::clone(&factory_calls);
+            let fetch_calls = Arc::clone(&fetch_calls);
+
+            Arc::new(move || {
+                factory_calls.fetch_add(1, Ordering::SeqCst);
+
+                let hook: JwtFetchTestHook = {
+                    let outcomes = Arc::clone(&outcomes);
+                    let fetch_calls = Arc::clone(&fetch_calls);
+
+                    Arc::new(move |_audience, _spiffe_id| {
+                        fetch_calls.fetch_add(1, Ordering::SeqCst);
+                        let outcome = outcomes
+                            .lock()
+                            .unwrap()
+                            .pop_front()
+                            .expect("test fetch outcome must be available");
+                        Box::pin(async move { outcome.into_result() })
+                    })
+                };
+
+                Box::pin(async move {
+                    Ok(WorkloadApiClient::new_with_jwt_fetch_hook(
+                        Endpoint::parse("tcp://127.0.0.1:1").unwrap(),
+                        hook,
+                    ))
+                })
+            })
+        };
+
+        let source = JwtSource::new_for_test_with_client_factory(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            make_client,
+        );
+
+        FetchTestSource {
+            source,
+            factory_calls,
+            fetch_calls,
+        }
+    }
+
+    async fn fetch_test_result(
+        outcomes: Vec<FetchOutcome>,
+    ) -> (Result<JwtSvid, JwtSourceError>, FetchTestSource) {
+        let test_source = source_with_fetch_outcomes(outcomes);
+        let spiffe_id = SpiffeId::new("spiffe://example.org/service").unwrap();
+        let result = test_source
+            .source
+            .get_jwt_svid_with_id(["aud1"], Some(&spiffe_id))
+            .await;
+        (result, test_source)
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_does_not_retry_permission_denied() {
+        let (result, test_source) =
+            fetch_test_result(vec![FetchOutcome::PermissionDenied("not allowed")]).await;
+
+        assert!(matches!(
+            result,
+            Err(JwtSourceError::FetchJwtSvid(
+                WorkloadApiError::PermissionDenied(msg)
+            )) if msg == "not allowed"
+        ));
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_does_not_retry_no_identity_issued() {
+        let (result, test_source) = fetch_test_result(vec![FetchOutcome::NoIdentityIssued]).await;
+
+        assert!(matches!(
+            result,
+            Err(JwtSourceError::FetchJwtSvid(
+                WorkloadApiError::NoIdentityIssued
+            ))
+        ));
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_does_not_retry_hint_not_found() {
+        let (result, test_source) =
+            fetch_test_result(vec![FetchOutcome::HintNotFound("external")]).await;
+
+        assert!(matches!(
+            result,
+            Err(JwtSourceError::FetchJwtSvid(
+                WorkloadApiError::HintNotFound(hint)
+            )) if hint == "external"
+        ));
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_does_not_retry_jwt_parse_error() {
+        let (result, test_source) = fetch_test_result(vec![FetchOutcome::InvalidJwt]).await;
+
+        assert!(matches!(
+            result,
+            Err(JwtSourceError::FetchJwtSvid(WorkloadApiError::JwtSvid(_)))
+        ));
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_retries_once_on_unavailable() {
+        let (result, test_source) =
+            fetch_test_result(vec![FetchOutcome::Unavailable, FetchOutcome::Ok]).await;
+
+        result.expect("retry should return second successful JWT-SVID fetch");
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn get_jwt_svid_returns_second_failure_after_retry() {
+        let (result, test_source) = fetch_test_result(vec![
+            FetchOutcome::Unavailable,
+            FetchOutcome::PermissionDenied("still denied"),
+        ])
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(JwtSourceError::FetchJwtSvid(
+                WorkloadApiError::PermissionDenied(msg)
+            )) if msg == "still denied"
+        ));
+        assert_eq!(test_source.factory_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(test_source.fetch_calls.load(Ordering::SeqCst), 2);
     }
 
     /// Trust domain present but no JWT keys (e.g. empty JWKS) — not sufficient for `is_healthy`.

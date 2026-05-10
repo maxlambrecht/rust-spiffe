@@ -21,19 +21,48 @@ use crate::workload_api::client::header::MetadataAdder;
 use crate::workload_api::error::WorkloadApiError;
 use crate::workload_api::pb::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
 
+#[cfg(all(test, feature = "jwt"))]
+use crate::{JwtSvid, SpiffeId};
+#[cfg(all(test, feature = "jwt"))]
+use std::{future::Future, pin::Pin, sync::Arc};
+
 pub use header::InterceptorFn;
+
+#[cfg(all(test, feature = "jwt"))]
+pub(crate) type JwtFetchTestHook = Arc<
+    dyn Fn(
+            Vec<String>,
+            Option<SpiffeId>,
+        ) -> Pin<Box<dyn Future<Output = Result<JwtSvid, WorkloadApiError>> + Send>>
+        + Send
+        + Sync
+        + 'static,
+>;
 
 /// Client for the SPIFFE Workload API.
 ///
 /// Provides one-shot calls and streaming updates for X.509 and JWT SVIDs and bundles.
 /// For an always-up-to-date, shareable source of X.509 material with automatic reconnection,
 /// see [`crate::X509Source`].
-#[derive(Debug, Clone)]
+#[cfg_attr(not(all(test, feature = "jwt")), derive(Debug))]
+#[derive(Clone)]
 pub struct WorkloadApiClient {
     endpoint: Endpoint,
     client: SpiffeWorkloadApiClient<
         tonic::service::interceptor::InterceptedService<tonic::transport::Channel, MetadataAdder>,
     >,
+    #[cfg(all(test, feature = "jwt"))]
+    jwt_fetch_hook: Option<JwtFetchTestHook>,
+}
+
+#[cfg(all(test, feature = "jwt"))]
+impl std::fmt::Debug for WorkloadApiClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkloadApiClient")
+            .field("endpoint", &self.endpoint)
+            .field("client", &self.client)
+            .finish_non_exhaustive()
+    }
 }
 
 impl WorkloadApiClient {
@@ -53,6 +82,8 @@ impl WorkloadApiClient {
         Ok(Self {
             endpoint,
             client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder::new(None)),
+            #[cfg(all(test, feature = "jwt"))]
+            jwt_fetch_hook: None,
         })
     }
 
@@ -108,6 +139,8 @@ impl WorkloadApiClient {
         Self {
             endpoint,
             client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder::new(None)),
+            #[cfg(all(test, feature = "jwt"))]
+            jwt_fetch_hook: None,
         }
     }
 
@@ -133,6 +166,19 @@ impl WorkloadApiClient {
                 channel,
                 MetadataAdder::new(Some(interceptor)),
             ),
+            #[cfg(all(test, feature = "jwt"))]
+            jwt_fetch_hook: None,
+        }
+    }
+
+    #[cfg(all(test, feature = "jwt"))]
+    pub(crate) fn new_with_jwt_fetch_hook(endpoint: Endpoint, hook: JwtFetchTestHook) -> Self {
+        let channel = tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy();
+
+        Self {
+            endpoint,
+            client: SpiffeWorkloadApiClient::with_interceptor(channel, MetadataAdder::new(None)),
+            jwt_fetch_hook: Some(hook),
         }
     }
 }

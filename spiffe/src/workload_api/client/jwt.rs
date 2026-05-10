@@ -49,6 +49,15 @@ impl WorkloadApiClient {
         I: IntoIterator,
         I::Item: AsRef<str>,
     {
+        #[cfg(test)]
+        if let Some(fetch) = &self.jwt_fetch_hook {
+            let audience = audience
+                .into_iter()
+                .map(|a| a.as_ref().to_string())
+                .collect();
+            return fetch(audience, spiffe_id.cloned()).await;
+        }
+
         let response = self.fetch_jwt(audience, spiffe_id).await?;
         let r = response
             .svids
