@@ -634,10 +634,6 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
             &snap,
             &self.policy,
             |td| self.supported_schemes_cached(td),
-            |_td, roots| {
-                let verifier = build_server_verifier(roots)?;
-                Ok(verifier.supported_verify_schemes())
-            },
         )
     }
 }
@@ -873,10 +869,6 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
             &snap,
             &self.policy,
             |td| self.supported_schemes_cached(td),
-            |_td, roots| {
-                let verifier = build_client_verifier(roots)?;
-                Ok(verifier.supported_verify_schemes())
-            },
         )
     }
 }
@@ -888,14 +880,11 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 /// This ensures compatibility: only schemes supported by all allowed trust domains
 /// are advertised, reducing the risk of handshake failures.
 ///
-/// # Fallback case
-/// If policy excludes all trust domains in the snapshot, returns a union of schemes
-/// from all trust domains. This allows the handshake to proceed so that certificate
-/// verification can fail with a clear `TrustDomainNotAllowed` error instead of the
-/// cryptic `NoSignatureSchemes` error at the TLS layer.
-///
-/// The policy check is still enforced during certificate verification in
-/// `get_or_build_inner`, so this fallback does not weaken security.
+/// # Empty-policy case
+/// If policy excludes every trust domain in the snapshot, this returns an empty
+/// scheme list instead of advertising schemes from disallowed trust domains. This
+/// preserves fail-closed semantics, but it also means the TLS layer may fail
+/// before certificate verification can report `TrustDomainNotAllowed`.
 fn advertised_verify_schemes(
     label: &str,
     r#gen: u64,
@@ -903,19 +892,17 @@ fn advertised_verify_schemes(
     snap: &MaterialSnapshot,
     policy: &TrustDomainPolicy,
     mut per_td_schemes: impl FnMut(&spiffe::TrustDomain) -> Vec<SignatureScheme>,
-    mut build_union_schemes: impl FnMut(
-        &spiffe::TrustDomain,
-        Arc<rustls::RootCertStore>,
-    ) -> Result<Vec<SignatureScheme>>,
 ) -> Vec<SignatureScheme> {
     // Collect schemes for trust domains allowed by policy.
     let mut scheme_sets: Vec<Vec<SignatureScheme>> = Vec::new();
+    let mut allowed_count = 0usize;
 
     for td in snap.roots_by_td.keys() {
         if !policy.allows(td) {
             continue;
         }
 
+        allowed_count += 1;
         let schemes = per_td_schemes(td);
         if !schemes.is_empty() {
             scheme_sets.push(schemes);
@@ -931,10 +918,12 @@ fn advertised_verify_schemes(
             .collect();
     }
 
-    // Policy excluded all trust domains: avoid returning empty schemes (which causes
-    // "NoSignatureSchemes" and hides the actual policy error). Instead advertise
-    // a union computed without policy so we can fail later with TrustDomainNotAllowed
-    // during certificate verification.
+    if allowed_count > 0 {
+        return Vec::new();
+    }
+
+    // Policy excluded all trust domains: return empty schemes rather than exposing
+    // schemes from disallowed trust domains.
     let should_log = match lock_mutex(last_logged_gen) {
         Ok(mut guard) => {
             if guard.as_ref() == Some(&r#gen) {
@@ -951,38 +940,10 @@ fn advertised_verify_schemes(
         let snapshot_tds = join_trust_domains(snap.roots_by_td.keys());
         error!(
             "{label}: trust domain policy excludes all trust domains in current bundle set \
-            (snapshot trust domains: {snapshot_tds}); falling back to scheme union to surface policy error");
+            (snapshot trust domains: {snapshot_tds}); returning empty schemes (handshake will fail closed)");
     }
 
-    // Build union of schemes from all trust domains
-    // Note: Using Vec with contains() for deduplication since SignatureScheme doesn't implement Hash.
-    // The number of schemes is typically small (< 10), so O(n^2) is acceptable.
-    let mut union: Vec<SignatureScheme> = Vec::new();
-
-    for (td, roots) in &snap.roots_by_td {
-        let schemes = match build_union_schemes(td, Arc::clone(roots)) {
-            Ok(s) => s,
-            Err(e) => {
-                debug!(
-                    "{label}: failed to build verifier for trust domain {td} while computing scheme union: {e}");
-                continue;
-            }
-        };
-
-        for s in schemes {
-            if !union.contains(&s) {
-                union.push(s);
-            }
-        }
-    }
-
-    if union.is_empty() {
-        error!(
-            "{label}: failed to build verifiers for all trust domains; returning empty schemes (handshake will fail)"
-        );
-    }
-
-    union
+    Vec::new()
 }
 
 fn join_trust_domains<'a, I: Iterator<Item = &'a spiffe::TrustDomain>>(tds: I) -> String {
@@ -1539,7 +1500,54 @@ mod tests {
     }
 
     #[test]
-    fn supported_verify_schemes_policy_excludes_all_falls_back_to_union() {
+    fn advertised_verify_schemes_allow_list_uses_only_allowed_trust_domains() {
+        ensure_provider();
+
+        let td1 = TrustDomain::new("example.org").expect("valid trust domain");
+        let td2 = TrustDomain::new("other.org").expect("valid trust domain");
+
+        let mut roots_by_td = BTreeMap::new();
+        roots_by_td.insert(td1.clone(), roots_with_ca());
+        roots_by_td.insert(td2, roots_with_ca());
+
+        let snap = MaterialSnapshot {
+            generation: 1,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        };
+
+        let policy = TrustDomainPolicy::AllowList(BTreeSet::from([td1.clone()]));
+        let last_logged_gen = Mutex::new(None);
+
+        let schemes = advertised_verify_schemes(
+            "test verifier",
+            snap.generation,
+            &last_logged_gen,
+            &snap,
+            &policy,
+            |td| {
+                if td == &td1 {
+                    vec![
+                        SignatureScheme::ECDSA_NISTP256_SHA256,
+                        SignatureScheme::RSA_PSS_SHA256,
+                    ]
+                } else {
+                    vec![SignatureScheme::ED25519]
+                }
+            },
+        );
+
+        assert_eq!(
+            schemes,
+            vec![
+                SignatureScheme::ECDSA_NISTP256_SHA256,
+                SignatureScheme::RSA_PSS_SHA256
+            ]
+        );
+    }
+
+    #[test]
+    fn server_supported_verify_schemes_policy_excludes_all_returns_empty() {
         ensure_provider();
 
         let mut roots_by_td = BTreeMap::new();
@@ -1554,8 +1562,6 @@ mod tests {
             roots_by_td,
         })));
 
-        // Exclude all trust domains via an empty allow-list. This should trigger the
-        // fallback-union behavior in advertised_verify_schemes().
         let empty: BTreeSet<TrustDomain> = BTreeSet::new();
         let policy = TrustDomainPolicy::AllowList(empty);
 
@@ -1563,8 +1569,36 @@ mod tests {
 
         let schemes = verifier.supported_verify_schemes();
         assert!(
-            !schemes.is_empty(),
-            "fallback should advertise a union to avoid NoSignatureSchemes"
+            schemes.is_empty(),
+            "policy excluding all trust domains must not advertise schemes from disallowed bundles"
+        );
+    }
+
+    #[test]
+    fn client_supported_verify_schemes_policy_excludes_all_returns_empty() {
+        ensure_provider();
+
+        let mut roots_by_td = BTreeMap::new();
+        let td1 = TrustDomain::new("example.org").expect("valid trust domain");
+        let td2 = TrustDomain::new("other.org").expect("valid trust domain");
+        roots_by_td.insert(td1, roots_with_ca());
+        roots_by_td.insert(td2, roots_with_ca());
+
+        let provider = Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
+            generation: 1,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        })));
+
+        let empty: BTreeSet<TrustDomain> = BTreeSet::new();
+        let policy = TrustDomainPolicy::AllowList(empty);
+
+        let verifier = SpiffeClientCertVerifier::new(provider, |_peer: &SpiffeId| true, policy);
+
+        let schemes = verifier.supported_verify_schemes();
+        assert!(
+            schemes.is_empty(),
+            "policy excluding all trust domains must not advertise schemes from disallowed bundles"
         );
     }
 
