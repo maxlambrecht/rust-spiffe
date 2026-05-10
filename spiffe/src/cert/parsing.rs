@@ -164,9 +164,10 @@ pub(crate) fn extract_spiffe_ids_from_uri_san(
             return Err(CertificateError::MultipleUriSanEntries);
         }
 
-        // Skip large junk without allocating/parsing.
         if uri.len() > MAX_URI_LENGTH {
-            continue;
+            return Err(CertificateError::OversizedUriSan {
+                max: MAX_URI_LENGTH,
+            });
         }
 
         if !uri_has_spiffe_scheme(uri) {

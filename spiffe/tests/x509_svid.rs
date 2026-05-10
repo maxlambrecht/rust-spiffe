@@ -546,6 +546,17 @@ mod x509_svid_tests {
         generate_leaf_cert_with_uri_sans(&[uri])
     }
 
+    /// SPIFFE URI with total UTF-8 byte length `total_len` (must fit `spiffe://example.org/` + padding).
+    fn spiffe_uri_with_byte_length(total_len: usize) -> String {
+        const PREFIX: &str = "spiffe://example.org/";
+        assert!(
+            total_len >= PREFIX.len(),
+            "total_len must cover SPIFFE URI prefix"
+        );
+        let pad = total_len - PREFIX.len();
+        format!("{PREFIX}{}", "x".repeat(pad))
+    }
+
     #[test]
     fn test_leaf_spiffe_id_with_path_is_accepted() {
         let (cert_der, key_der) =
@@ -573,6 +584,42 @@ mod x509_svid_tests {
         let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&[
             "spiffe://example.org/workload",
             "https://example.org/not-allowed",
+        ]);
+
+        let result = X509Svid::parse_from_der(&cert_der, &key_der);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
+        );
+    }
+
+    #[test]
+    fn test_leaf_single_oversized_uri_san_is_rejected() {
+        // Matches `MAX_URI_LENGTH` in `spiffe::cert::parsing`.
+        const MAX_URI_LEN: usize = 2048;
+
+        let oversized_uri = spiffe_uri_with_byte_length(MAX_URI_LEN + 1);
+        assert_eq!(oversized_uri.len(), MAX_URI_LEN + 1);
+
+        let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&[&oversized_uri]);
+
+        let result = X509Svid::parse_from_der(&cert_der, &key_der);
+
+        assert_eq!(
+            result.unwrap_err(),
+            X509SvidError::Certificate(CertificateError::OversizedUriSan { max: MAX_URI_LEN })
+        );
+    }
+
+    #[test]
+    fn test_leaf_valid_spiffe_uri_then_oversized_second_uri_san_is_multiple_entries() {
+        const MAX_URI_LEN: usize = 2048;
+        let oversized_uri = spiffe_uri_with_byte_length(MAX_URI_LEN + 1);
+
+        let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&[
+            "spiffe://example.org/workload",
+            oversized_uri.as_str(),
         ]);
 
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
