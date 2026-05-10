@@ -30,6 +30,24 @@ mod x509_svid_tests {
     }
 
     #[test]
+    fn test_x509_svid_rejects_empty_der_chain() {
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+
+        let result = X509Svid::parse_from_der(&[], key_bytes);
+
+        assert_eq!(result.unwrap_err(), X509SvidError::EmptyChain);
+    }
+
+    #[test]
+    fn test_x509_svid_with_hint_rejects_empty_der_chain() {
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+
+        let result = X509Svid::parse_from_der_with_hint(&[], key_bytes, Some("test-hint".into()));
+
+        assert_eq!(result.unwrap_err(), X509SvidError::EmptyChain);
+    }
+
+    #[test]
     fn test_x509_svid_parse_from_single_der() {
         // the cert has a DNS, besides the URI SAN.
         let cert_bytes: &[u8] = include_bytes!("testdata/svid/x509/svid-with-dns.der");
@@ -45,6 +63,24 @@ mod x509_svid_tests {
         assert_eq!(x509_svid.cert_chain().len(), 1);
         assert_eq!(x509_svid.leaf().as_ref(), cert_bytes);
         assert_eq!(x509_svid.private_key().as_ref(), key_bytes);
+    }
+
+    #[test]
+    fn test_x509_svid_leaf_and_chain_preserve_ordering() {
+        let certs_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        let key_bytes: &[u8] = include_bytes!("testdata/svid/x509/1-key.der");
+        let expected_chain = split_der_chain(certs_bytes);
+
+        let x509_svid = X509Svid::parse_from_der(certs_bytes, key_bytes).unwrap();
+
+        assert_eq!(
+            x509_svid.leaf().as_ref(),
+            expected_chain.first().unwrap().as_slice()
+        );
+        assert_eq!(x509_svid.cert_chain().len(), expected_chain.len());
+        for (actual, expected) in x509_svid.cert_chain().iter().zip(expected_chain.iter()) {
+            assert_eq!(actual.as_ref(), expected.as_slice());
+        }
     }
 
     #[test]
