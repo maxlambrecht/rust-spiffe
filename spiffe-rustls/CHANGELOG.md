@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1] - 2026-05-11
+
+### Fixed
+
+- **Outbound TLS server certificate verification:** Removed handling that treated rustls `NotValidForName` and `NotValidForNameContext` errors from `WebPkiServerVerifier` as successful verification after combined chain-and-name validation. That behavior assumed path validation had already succeeded whenever rustls reported a TLS name mismatch, which is not a safe invariant. In some cases, this could allow a handshake to succeed without a validated trust path. Path validation is now performed explicitly with `verify_server_cert_signed_by_trust_anchor` before SPIFFE ID authorization (#346).
+
+
 ## [0.6.0] – 2026-05-08
 
 ### Breaking changes

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.15.1] - 2026-05-11
+
+### Fixed
+
+- **Trust bundles and federation:** Fail closed when trust-domain selection excludes all available bundles, instead of treating verification as successful (#350).
+- **Certificates:** Return an error when a URI SAN exceeds size limits, instead of silently skipping it (#348).
+- **X.509-SVID:** Avoid a panic when encoding a non-empty certificate chain whose leaf certificate was extracted separately (#349).
+- **JWT source and Workload API:** Retry JWT-SVID fetches only for transient errors (#347).
+
+
 ## [0.15.0] – 2026-05-08
 
 ### Added
