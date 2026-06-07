@@ -34,7 +34,13 @@
 //!
 //! Enabling more than one provider results in a compile-time error.
 
-#![expect(unused_crate_dependencies, reason = "used in the examples")]
+#![cfg_attr(
+    test,
+    expect(
+        unused_crate_dependencies,
+        reason = "dev-dependencies are used by integration tests and examples"
+    )
+)]
 #![expect(clippy::multiple_crate_versions, reason = "transitive")]
 
 #[cfg(all(feature = "ring", feature = "aws-lc-rs"))]
