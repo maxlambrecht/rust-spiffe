@@ -44,6 +44,13 @@ pub enum Error {
     #[error("peer certificate has multiple SPIFFE ID URI SANs")]
     MultipleSpiffeIds,
 
+    /// The peer certificate is not acceptable as an X509-SVID leaf.
+    ///
+    /// Signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`)
+    /// are validation material and must not be accepted as peer identities.
+    #[error("peer leaf certificate is not a valid X509-SVID leaf: {0}")]
+    InvalidLeaf(String),
+
     /// The peer SPIFFE ID was rejected by the authorization hook.
     #[error("peer SPIFFE ID is not authorized: {0}")]
     UnauthorizedSpiffeId(SpiffeId),
