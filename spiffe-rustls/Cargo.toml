@@ -1,6 +1,6 @@
 [package]
 name = "spiffe-rustls"
-version = "0.6.1"
+version = "0.6.2"
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
