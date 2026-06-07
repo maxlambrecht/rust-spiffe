@@ -17,9 +17,8 @@ use crate::resolve::MaterialWatcher;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
 use spiffe::SpiffeId;
-use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Debug};
-use std::hash::{Hash, Hasher as _};
 use std::sync::Arc;
 
 #[cfg(feature = "parking-lot")]
@@ -68,48 +67,28 @@ fn condvar_wait<'a, T>(
     cv.wait(guard).map_err(|std::sync::PoisonError { .. }| ())
 }
 
-const CERT_PREFIX_LEN: usize = 32;
-
-/// Non-cryptographic certificate fingerprint used only as a cache key.
+/// Cached result of parsing a peer certificate.
 ///
-///  (hash of full DER + length + DER prefix) minimizes collisions while remaining dependency-free.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
-struct CertFingerprint {
-    hash: u64,
-    len: usize,
-    prefix: [u8; CERT_PREFIX_LEN],
-}
-
-fn cert_fingerprint(cert: &CertificateDer<'_>) -> CertFingerprint {
-    let bytes = cert.as_ref();
-
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    let hash = hasher.finish();
-
-    let mut prefix = [0u8; CERT_PREFIX_LEN];
-    prefix.iter_mut().zip(bytes).for_each(|(d, &s)| *d = s);
-
-    CertFingerprint {
-        hash,
-        len: bytes.len(),
-        prefix,
-    }
-}
-
-/// Cached result of extracting SPIFFE ID from a certificate.
+/// Both fields are pure functions of the certificate bytes, so cache hits avoid
+/// re-parsing during the TLS handshake.
+///
+/// `leaf_check` is `Err(reason)` when the certificate is signing-capable and
+/// therefore cannot be accepted as a peer X509-SVID leaf.
 #[derive(Clone, Debug)]
-struct CachedSpiffeId {
+struct CachedLeaf {
     spiffe_id: SpiffeId,
+    leaf_check: std::result::Result<(), String>,
 }
 
 /// Bounded certificate parse cache with simple LRU eviction.
 ///
-/// Capacity is small (64), so we keep the implementation dependency-free.
+/// The cache is keyed by full certificate DER so cache matches are exact. Capacity
+/// is small (64), so storing the DER is bounded and keeps the implementation simple.
+///
 /// Touch operations are O(capacity) which is acceptable at this size.
 struct CertParseCache {
-    entries: HashMap<CertFingerprint, CachedSpiffeId>,
-    order: VecDeque<CertFingerprint>,
+    entries: HashMap<Box<[u8]>, CachedLeaf>,
+    order: VecDeque<Box<[u8]>>,
     capacity: usize,
 }
 
@@ -124,21 +103,22 @@ impl CertParseCache {
         }
     }
 
-    fn get(&mut self, key: CertFingerprint) -> Option<CachedSpiffeId> {
-        let value = self.entries.get(&key).cloned()?;
+    fn get(&mut self, key: &[u8]) -> Option<CachedLeaf> {
+        let value = self.entries.get(key).cloned()?;
 
         // (O(n) remove; acceptable for small capacity)
-        if let Some(pos) = self.order.iter().position(|k| *k == key) {
-            self.order.remove(pos);
+        if let Some(pos) = self.order.iter().position(|k| k.as_ref() == key) {
+            if let Some(k) = self.order.remove(pos) {
+                self.order.push_back(k);
+            }
         }
-        self.order.push_back(key);
 
         Some(value)
     }
 
-    fn insert(&mut self, key: CertFingerprint, value: CachedSpiffeId) {
-        if let std::collections::hash_map::Entry::Occupied(mut e) = self.entries.entry(key) {
-            e.insert(value);
+    fn insert(&mut self, key: &[u8], value: CachedLeaf) {
+        if let Some(existing) = self.entries.get_mut(key) {
+            *existing = value;
             self.touch(key);
             return;
         }
@@ -147,15 +127,17 @@ impl CertParseCache {
             self.evict_lru();
         }
 
-        self.entries.insert(key, value);
-        self.order.push_back(key);
+        let owned: Box<[u8]> = Box::from(key);
+        self.entries.insert(owned.clone(), value);
+        self.order.push_back(owned);
     }
 
-    fn touch(&mut self, key: CertFingerprint) {
-        if let Some(pos) = self.order.iter().position(|k| *k == key) {
-            self.order.remove(pos);
+    fn touch(&mut self, key: &[u8]) {
+        if let Some(pos) = self.order.iter().position(|k| k.as_ref() == key) {
+            if let Some(k) = self.order.remove(pos) {
+                self.order.push_back(k);
+            }
         }
-        self.order.push_back(key);
     }
 
     fn evict_lru(&mut self) {
@@ -188,16 +170,20 @@ pub(crate) fn extract_spiffe_id(leaf: &CertificateDer<'_>) -> Result<SpiffeId> {
     extract_spiffe_id_with_cache(leaf, None)
 }
 
-fn extract_spiffe_id_with_cache(
+/// Looks up, or parses and caches, the SPIFFE ID and leaf check for a certificate.
+///
+/// The cached result is keyed by full DER. On a cache hit, neither SPIFFE ID
+/// extraction nor the leaf check re-parses the certificate.
+fn lookup_or_parse_leaf(
     leaf: &CertificateDer<'_>,
     cache: Option<&Mutex<CertParseCache>>,
-) -> Result<SpiffeId> {
-    let key = cert_fingerprint(leaf);
+) -> Result<CachedLeaf> {
+    let key = leaf.as_ref();
 
     if let Some(cache) = cache {
         if let Ok(mut guard) = lock_mutex(cache) {
             if let Some(cached) = guard.get(key) {
-                return Ok(cached.spiffe_id);
+                return Ok(cached);
             }
         }
     }
@@ -214,18 +200,59 @@ fn extract_spiffe_id_with_cache(
         }
     })?;
 
+    let cached = CachedLeaf {
+        spiffe_id,
+        leaf_check: leaf_constraint_check(leaf),
+    };
+
     if let Some(cache) = cache {
         if let Ok(mut guard) = lock_mutex(cache) {
-            guard.insert(
-                key,
-                CachedSpiffeId {
-                    spiffe_id: spiffe_id.clone(),
-                },
-            );
+            guard.insert(key, cached.clone());
         }
     }
 
-    Ok(spiffe_id)
+    Ok(cached)
+}
+
+/// Extracts the SPIFFE ID from the leaf certificate, using the parse cache when provided.
+///
+/// This helper is for TLS signature-verification callbacks, which only need the
+/// trust domain and run after `verify_*_cert` has enforced the leaf check.
+fn extract_spiffe_id_with_cache(
+    leaf: &CertificateDer<'_>,
+    cache: Option<&Mutex<CertParseCache>>,
+) -> Result<SpiffeId> {
+    Ok(lookup_or_parse_leaf(leaf, cache)?.spiffe_id)
+}
+
+/// Rejects certificates that must not be used as X509-SVID leaf identities.
+///
+/// Per X509-SVID section 5.2, signing-capable certificates (`cA=true`,
+/// `keyCertSign`, or `cRLSign`) are validation material only and must not be
+/// accepted as peer identities.
+///
+/// Returns `Ok(())` for a valid leaf, or `Err(reason)` describing the violation
+/// (or a parse failure, which fails closed).
+fn leaf_constraint_check(leaf: &CertificateDer<'_>) -> std::result::Result<(), String> {
+    let (_, cert) =
+        x509_parser::parse_x509_certificate(leaf.as_ref()).map_err(|e| e.to_string())?;
+
+    if let Some(bc) = cert.basic_constraints().map_err(|e| e.to_string())? {
+        if bc.value.ca {
+            return Err("basic constraints CA is set to true (signing certificate)".into());
+        }
+    }
+
+    if let Some(ku) = cert.key_usage().map_err(|e| e.to_string())? {
+        if ku.value.key_cert_sign() {
+            return Err("keyCertSign key usage is set".into());
+        }
+        if ku.value.crl_sign() {
+            return Err("cRLSign key usage is set".into());
+        }
+    }
+
+    Ok(())
 }
 
 fn other_err<E>(e: E) -> rustls::Error
@@ -567,13 +594,15 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         _ocsp_response: &[u8],
         now: UnixTime,
     ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        // Step 1: Extract SPIFFE ID from certificate (using cache)
-        // This extraction is safe because it's only used to select the trust domain's root
+        // Step 1: Extract SPIFFE ID and leaf-constraint check from the certificate (using cache).
+        // Extraction is safe because the SPIFFE ID is only used to select the trust domain's root
         // certificate bundle. Cryptographic verification (signature, chain, expiration) is still
         // enforced by rustls using the selected roots. Policy can further restrict which trust
         // domains are allowed.
-        let spiffe_id =
-            extract_spiffe_id_with_cache(end_entity, Some(&self.parse_cache)).map_err(other_err)?;
+        let CachedLeaf {
+            spiffe_id,
+            leaf_check,
+        } = lookup_or_parse_leaf(end_entity, Some(&self.parse_cache)).map_err(other_err)?;
 
         // Step 2: Derive trust domain from SPIFFE ID
         let trust_domain = spiffe_id.trust_domain();
@@ -581,14 +610,19 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         // Step 3: Get or build verifier for this trust domain
         let verifier = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Verify certificate chain, then SPIFFE policy.
+        // Step 4: Reject signing-capable certificates as peer leaf identities.
+        if let Err(reason) = leaf_check {
+            return Err(other_err(Error::InvalidLeaf(reason)));
+        }
+
+        // Step 5: Verify certificate chain.
         //
         // For SPIFFE server authentication, DNS/IP SAN matching is intentionally not part of the
         // identity check. Use rustls's chain-only webpki helper so path validation is explicit and
         // cannot be masked by any future change in rustls name-check error ordering.
         let ok = verify_server_cert_chain(&verifier, end_entity, intermediates, now)?;
 
-        // Step 5: Apply authorization (only after cryptographic verification succeeds)
+        // Step 6: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
             return Err(other_err(Error::UnauthorizedSpiffeId(spiffe_id)));
         }
@@ -806,13 +840,15 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         intermediates: &[CertificateDer<'_>],
         now: UnixTime,
     ) -> std::result::Result<rustls::server::danger::ClientCertVerified, rustls::Error> {
-        // Step 1: Extract SPIFFE ID from certificate
-        // This extraction is safe because it's only used to select the trust domain's root
+        // Step 1: Extract SPIFFE ID and leaf-constraint check from the certificate (using cache).
+        // Extraction is safe because the SPIFFE ID is only used to select the trust domain's root
         // certificate bundle. Cryptographic verification (signature, chain, expiration) is still
         // enforced by rustls using the selected roots. Policy can further restrict which trust
         // domains are allowed.
-        let spiffe_id =
-            extract_spiffe_id_with_cache(end_entity, Some(&self.parse_cache)).map_err(other_err)?;
+        let CachedLeaf {
+            spiffe_id,
+            leaf_check,
+        } = lookup_or_parse_leaf(end_entity, Some(&self.parse_cache)).map_err(other_err)?;
 
         // Step 2: Derive trust domain from SPIFFE ID
         let trust_domain = spiffe_id.trust_domain();
@@ -820,10 +856,15 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         // Step 3: Get or build verifier for this trust domain
         let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Verify certificate chain cryptographically
+        // Step 4: Reject signing-capable certificates as peer leaf identities.
+        if let Err(reason) = leaf_check {
+            return Err(other_err(Error::InvalidLeaf(reason)));
+        }
+
+        // Step 5: Verify certificate chain cryptographically
         let ok = inner.verify_client_cert(end_entity, intermediates, now)?;
 
-        // Step 5: Apply authorization (only after cryptographic verification succeeds)
+        // Step 6: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
             return Err(other_err(Error::UnauthorizedSpiffeId(spiffe_id)));
         }
@@ -989,6 +1030,20 @@ mod tests {
         ))
     }
 
+    /// Self-signed signing (CA) certificate that carries a SPIFFE URI SAN
+    /// (`cA=true`, `keyCertSign`/`cRLSign` set). Such a certificate must never be
+    /// accepted as a peer leaf identity, per X509-SVID spec section 5.2.
+    fn fixture_ca_with_spiffe_signing_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/ca_with_spiffe_signing.der"
+        ))
+    }
+
+    fn cert_ca_with_spiffe_signing() -> CertificateDer<'static> {
+        CertificateDer::from(fixture_ca_with_spiffe_signing_der().to_vec())
+    }
+
     fn fixture_ca_der() -> &'static [u8] {
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1126,6 +1181,67 @@ mod tests {
     fn extract_spiffe_id_missing() {
         let err = extract_spiffe_id(&cert_without_spiffe()).unwrap_err();
         assert!(matches!(err, Error::MissingSpiffeId));
+    }
+
+    #[test]
+    fn leaf_constraint_check_accepts_leaf_certificate() {
+        leaf_constraint_check(&cert_with_spiffe()).unwrap();
+        leaf_constraint_check(&cert_with_spiffe_uri_only()).unwrap();
+    }
+
+    #[test]
+    fn leaf_constraint_check_rejects_ca_certificate() {
+        // ca.der has CA:TRUE and keyCertSign/cRLSign set.
+        leaf_constraint_check(&CertificateDer::from(fixture_ca_der().to_vec())).unwrap_err();
+    }
+
+    #[test]
+    fn leaf_constraint_check_rejects_signing_cert_with_spiffe_id() {
+        leaf_constraint_check(&cert_ca_with_spiffe_signing()).unwrap_err();
+    }
+
+    /// A signing-capable certificate that carries a SPIFFE ID must be rejected
+    /// before chain validation or authorization can accept it as a peer identity.
+    #[test]
+    fn server_verifier_rejects_signing_cert_presented_as_leaf() {
+        ensure_provider();
+
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_ca_with_spiffe_signing(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::InvalidLeaf(_)), "got {e:?}");
+    }
+
+    #[test]
+    fn client_verifier_rejects_signing_cert_presented_as_leaf() {
+        ensure_provider();
+
+        let verifier = SpiffeClientCertVerifier::new(
+            static_provider_example_org(1),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_client_cert(&cert_ca_with_spiffe_signing(), &[], UnixTime::now())
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert!(matches!(e, Error::InvalidLeaf(_)), "got {e:?}");
     }
 
     #[test]
@@ -1603,15 +1719,11 @@ mod tests {
     }
 
     #[test]
-    // #[expect(clippy::cast_possible_truncation)]
     fn cert_parse_cache_lru_eviction_sanity() {
         // This test exercises CertParseCache deterministically without depending on real cert parsing.
-        fn key(i: u8) -> CertFingerprint {
-            CertFingerprint {
-                hash: i.into(),
-                len: i.into(),
-                prefix: [i; CERT_PREFIX_LEN],
-            }
+        // Keys are distinct byte strings standing in for full DER encodings.
+        fn key(i: u8) -> Vec<u8> {
+            vec![i; 40]
         }
 
         let mut cache = CertParseCache::new();
@@ -1619,33 +1731,53 @@ mod tests {
         // Fill to capacity.
         for i in 0..CertParseCache::CAPACITY {
             cache.insert(
-                key(i),
-                CachedSpiffeId {
+                &key(i),
+                CachedLeaf {
                     spiffe_id: SpiffeId::new("spiffe://example.org/service").unwrap(),
+                    leaf_check: Ok(()),
                 },
             );
         }
 
         // Touch a middle key so it should not be evicted next.
         let touched = key(10);
-        assert!(cache.get(touched).is_some());
+        assert!(cache.get(&touched).is_some());
 
         // Insert one more -> evict LRU (which should be key(0), not key(10)).
         cache.insert(
-            key(u8::MAX),
-            CachedSpiffeId {
+            &key(u8::MAX),
+            CachedLeaf {
                 spiffe_id: SpiffeId::new("spiffe://example.org/service").unwrap(),
+                leaf_check: Ok(()),
             },
         );
 
         assert!(
-            !cache.entries.contains_key(&key(0)),
+            !cache.entries.contains_key(key(0).as_slice()),
             "expected LRU entry to be evicted"
         );
         assert!(
-            cache.entries.contains_key(&touched),
+            cache.entries.contains_key(touched.as_slice()),
             "expected touched entry to remain"
         );
+    }
+
+    #[test]
+    fn lookup_or_parse_leaf_caches_invalid_leaf_result() {
+        // A signing cert must be reported invalid on both the cache-miss (first) and
+        // cache-hit (second) paths, so caching never turns a rejection into acceptance.
+        let cache: Mutex<CertParseCache> = Mutex::new(CertParseCache::new());
+        let cert = cert_ca_with_spiffe_signing();
+
+        let first = lookup_or_parse_leaf(&cert, Some(&cache)).unwrap();
+        assert!(first.leaf_check.is_err(), "first (miss) must reject leaf");
+
+        let second = lookup_or_parse_leaf(&cert, Some(&cache)).unwrap();
+        assert!(
+            second.leaf_check.is_err(),
+            "second (hit) must still reject leaf"
+        );
+        assert_eq!(first.spiffe_id, second.spiffe_id);
     }
 
     #[test]
