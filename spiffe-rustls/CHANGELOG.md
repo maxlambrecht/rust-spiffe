@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Reject peer certificates that are signing-capable (`cA=true`, `keyCertSign`, or `cRLSign`) before accepting them as X509-SVID leaf identities. This aligns the client-side server verifier and server-side client verifier with X509-SVID leaf validation requirements; rejected peers fail with `Error::InvalidLeaf`. The verifier cache now keys entries by full certificate DER and caches the leaf check with the extracted SPIFFE ID, keeping cache hits exact without re-parsing certificates.
+
 ## [0.6.1] - 2026-05-11
 
 ### Fixed
