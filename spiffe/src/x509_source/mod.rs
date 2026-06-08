@@ -23,7 +23,7 @@
 //! # #[cfg(feature = "x509-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! use spiffe::{TrustDomain, X509Source};
-//! use spiffe::bundle::BundleSource;
+//! use spiffe::BundleSource;
 //!
 //! let source = X509Source::new().await?;
 //!
