@@ -204,8 +204,9 @@ pub use crate::workload_api::{InterceptorFn, WorkloadApiClient, WorkloadApiError
 // X.509 Source
 //
 // High-level watcher/caching abstraction. Available with `x509-source` feature.
-// Primary types are re-exported at the crate root.
-// For advanced configuration types, see the [`x509_source`] module.
+// Primary types are re-exported at the crate root. Configuration types are re-exported with
+// `X509`-prefixed names (mirroring the `Jwt`-prefixed JWT aliases) so the two sources do not
+// collide at the crate root; the unprefixed names remain available via the [`x509_source`] module.
 #[cfg(feature = "x509-source")]
 pub use crate::x509_source::{
     ReconnectConfig as X509ReconnectConfig, ResourceLimits as X509ResourceLimits, X509Source,
@@ -215,19 +216,11 @@ pub use crate::x509_source::{
 // JWT Source
 //
 // High-level watcher/caching abstraction for JWT bundles. Available with `jwt-source` feature.
-// Primary types are re-exported at the crate root.
-// For advanced configuration types, see the [`jwt_source`] module.
+// Primary types are re-exported at the crate root. Configuration types are re-exported with
+// `Jwt`-prefixed names (mirroring the `X509`-prefixed X.509 aliases) so the two sources do not
+// collide at the crate root; the unprefixed names remain available via the [`jwt_source`] module.
 #[cfg(feature = "jwt-source")]
 pub use crate::jwt_source::{
-    JwtSource,
-    JwtSourceBuilder,
-    JwtSourceError,
-    JwtSourceUpdates,
-    // Configuration types: both generic and JWT-specific aliases are available.
-    // Use the aliased names (`JwtReconnectConfig`, `JwtResourceLimits`) when
-    // both X.509 and JWT sources are enabled to avoid ambiguity.
-    ReconnectConfig,
-    ReconnectConfig as JwtReconnectConfig,
-    ResourceLimits,
-    ResourceLimits as JwtResourceLimits,
+    JwtSource, JwtSourceBuilder, JwtSourceError, JwtSourceUpdates,
+    ReconnectConfig as JwtReconnectConfig, ResourceLimits as JwtResourceLimits,
 };

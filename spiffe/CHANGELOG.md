@@ -6,6 +6,7 @@
 
 - **Features:** `x509-source` now enables only `workload-api-x509`, and `jwt-source` only `workload-api-jwt`, so each source no longer pulls in the other SVID type's parsing dependencies.
 - **Features:** Removed the redundant `workload-api-full` feature; use `workload-api` instead.
+- **Re-exports:** Dropped the unprefixed `ReconnectConfig` and `ResourceLimits` re-exports at the crate root; use the `X509`/`Jwt`-prefixed aliases (`X509ReconnectConfig`, `X509ResourceLimits`, `JwtReconnectConfig`, `JwtResourceLimits`) or the `x509_source`/`jwt_source` module paths.
 
 
 ## [0.15.1] - 2026-05-11
