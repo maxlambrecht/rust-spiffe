@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0] - 2026-06-08
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.15` to `0.16`. Because `spiffe-rustls` exposes `spiffe` types in its public API (`SpiffeId`, `TrustDomain`, and `X509Source`), downstream users must use compatible `spiffe` `0.16` types.
+
 ## [0.6.2] - 2026-06-07
 
 ### Security

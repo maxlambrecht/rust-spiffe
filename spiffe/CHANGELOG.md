@@ -1,13 +1,13 @@
 # Changelog
 
-## [Unreleased]
+## [0.16.0] - 2026-06-08
 
 ### Breaking changes
 
 - **Features:** `x509-source` now enables only `workload-api-x509`, and `jwt-source` only `workload-api-jwt`, so each source no longer pulls in the other SVID type's parsing dependencies.
 - **Features:** Removed the redundant `workload-api-full` feature; use `workload-api` instead.
 - **Re-exports:** Dropped the unprefixed `ReconnectConfig` and `ResourceLimits` re-exports at the crate root; use the `X509`/`Jwt`-prefixed aliases (`X509ReconnectConfig`, `X509ResourceLimits`, `JwtReconnectConfig`, `JwtResourceLimits`) or the `x509_source`/`jwt_source` module paths.
-- **Source limits:** Marked `X509ResourceLimits` and `JwtResourceLimits`; construct resource limits with `new`, `default`, `default_limits`, or `unlimited`.
+- **Source limits:** Marked `X509ResourceLimits` and `JwtResourceLimits` as non-exhaustive; construct resource limits with `new`, `default`, `default_limits`, or `unlimited`.
 - **JwtSource:** Renamed `get_jwt_svid` to `fetch_jwt_svid` and `get_jwt_svid_with_id` to `fetch_jwt_svid_with_id`.
 - **Source reconnect config:** Marked `X509ReconnectConfig` and `JwtReconnectConfig` as non-exhaustive; construct them with `ReconnectConfig::new(min_backoff, max_backoff)`, `default`, or the builder's `reconnect_backoff(...)`.
 
