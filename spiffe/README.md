@@ -389,7 +389,7 @@ Note: `nbf`, `iat`, and `iss` claims are not validated. See the
 [`JwtSvid::parse_and_validate`] documentation for complete details.
 
 ```rust
-use spiffe::{bundle::BundleSource, JwtBundle, JwtSvid};
+use spiffe::{BundleSource, JwtBundle, JwtSvid};
 
 fn validate_token<B: BundleSource<Item = JwtBundle>>(
     token: &str,

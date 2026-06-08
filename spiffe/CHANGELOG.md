@@ -10,6 +10,11 @@
 - **Source limits:** Marked `X509ResourceLimits` and `JwtResourceLimits`; construct resource limits with `new`, `default`, `default_limits`, or `unlimited`.
 - **JwtSource:** Renamed `get_jwt_svid` to `fetch_jwt_svid` and `get_jwt_svid_with_id` to `fetch_jwt_svid_with_id`.
 
+### Added
+
+- **Re-exports:** Re-exported `Certificate` and `PrivateKey` at the crate root (previously only available under `spiffe::cert`).
+- **Re-exports:** Re-exported the `BundleSource` and `SvidSource` traits at the crate root, so the trait no longer needs to be imported from `spiffe::bundle` / `spiffe::svid`.
+
 ## [0.15.1] - 2026-05-11
 
 ### Fixed

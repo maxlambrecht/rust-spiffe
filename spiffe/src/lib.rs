@@ -11,7 +11,7 @@
 //! ```no_run
 //! # #[cfg(feature = "x509-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{bundle::BundleSource, TrustDomain, X509Source};
+//! use spiffe::{BundleSource, TrustDomain, X509Source};
 //!
 //! let source = X509Source::new().await?;
 //! let _svid = source.svid()?;
@@ -28,7 +28,7 @@
 //! ```no_run
 //! # #[cfg(feature = "jwt-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
+//! use spiffe::{BundleSource, TrustDomain, JwtSource};
 //!
 //! let source = JwtSource::new().await?;
 //! let _jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
@@ -97,42 +97,6 @@
 //! - For direct Workload API usage, use `workload-api-x509` or `workload-api-jwt` when you only need one,
 //!   and `workload-api` when you need both.
 //!
-//! ## X.509
-//!
-//! ```no_run
-//! # #[cfg(feature = "x509-source")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{TrustDomain, X509Source};
-//! use spiffe::bundle::BundleSource;
-//!
-//! let source = X509Source::new().await?;
-//! let _svid = source.svid()?;
-//! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let _bundle = source
-//!     .bundle_for_trust_domain(&trust_domain)?
-//!     .ok_or("missing bundle")?;
-//!
-//! # Ok(())
-//! # }
-//! ```
-//!
-//! For JWT-based workloads, use [`JwtSource`] (requires the `jwt-source` feature):
-//!
-//! ```no_run
-//! # #[cfg(feature = "jwt-source")]
-//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-//! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
-//!
-//! let source = JwtSource::new().await?;
-//! let _jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
-//! let trust_domain = TrustDomain::try_from("example.org")?;
-//! let _bundle = source
-//!     .bundle_for_trust_domain(&trust_domain)?
-//!     .ok_or("missing bundle")?;
-//! # Ok(())
-//! # }
-//! ```
-//!
 //! For advanced configuration, see the [`x509_source`] and [`jwt_source`] modules.
 
 // "logging" and "tracing" can both be enabled, causing logging to be unused.
@@ -192,6 +156,14 @@ pub use crate::svid::x509::{X509Svid, X509SvidError};
 pub use crate::bundle::jwt::{JwtBundle, JwtBundleError, JwtBundleSet};
 #[cfg(feature = "x509")]
 pub use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
+
+// Certificate and private key types
+#[cfg(feature = "x509")]
+pub use crate::cert::{Certificate, PrivateKey};
+
+// Source traits
+pub use crate::bundle::BundleSource;
+pub use crate::svid::SvidSource;
 
 // Workload API - Common types
 //

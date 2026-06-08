@@ -25,12 +25,12 @@
     reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
 )]
 mod integration_tests_x509_source {
-    use spiffe::bundle::BundleSource as _;
     use spiffe::workload_api::error::WorkloadApiError;
     use spiffe::x509_source::X509SourceBuilder;
     use spiffe::x509_source::{
         MetricsErrorKind, MetricsRecorder, ResourceLimits, SvidPicker, X509Source,
     };
+    use spiffe::BundleSource as _;
     use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient, X509Bundle, X509Svid};
     use std::collections::HashMap;
     use std::future::Future;

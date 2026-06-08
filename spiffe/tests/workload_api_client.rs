@@ -6,7 +6,7 @@
 #[cfg(feature = "workload-api")]
 mod integration_tests_workload_api_client {
     use futures::StreamExt as _;
-    use spiffe::bundle::BundleSource as _;
+    use spiffe::BundleSource as _;
     use spiffe::{SpiffeId, TrustDomain, WorkloadApiClient};
     use std::sync::LazyLock;
 

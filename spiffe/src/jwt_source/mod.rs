@@ -23,7 +23,7 @@
 //! # #[cfg(feature = "jwt-source")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! use spiffe::{TrustDomain, JwtSource};
-//! use spiffe::bundle::BundleSource;
+//! use spiffe::BundleSource;
 //!
 //! let source = JwtSource::new().await?;
 //!

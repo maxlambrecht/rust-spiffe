@@ -26,10 +26,10 @@
     reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
 )]
 mod integration_tests_jwt_source {
-    use spiffe::bundle::BundleSource as _;
     use spiffe::jwt_source::JwtSourceBuilder;
     use spiffe::jwt_source::{JwtSource, MetricsErrorKind, MetricsRecorder, ResourceLimits};
     use spiffe::workload_api::error::WorkloadApiError;
+    use spiffe::BundleSource as _;
     use spiffe::{JwtBundle, SpiffeId, TrustDomain, WorkloadApiClient};
     use std::collections::HashMap;
 
