@@ -145,7 +145,7 @@ impl JwtSourceUpdates {
 /// - Validates resource limits before publishing updates
 ///
 /// Unlike X.509 SVIDs which are streamed continuously, JWT SVIDs are fetched on-demand
-/// with specific audiences. Use [`JwtSource::get_jwt_svid`] to fetch JWT SVIDs as needed.
+/// with specific audiences. Use [`JwtSource::fetch_jwt_svid`] to fetch JWT SVIDs as needed.
 ///
 /// Use [`JwtSource::shutdown`] or [`JwtSource::shutdown_configured`] to stop background tasks.
 ///
@@ -460,18 +460,18 @@ impl JwtSource {
     /// let source = JwtSource::new().await?;
     ///
     /// // Fetch a JWT SVID for specific audiences
-    /// let jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+    /// let jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
     /// println!("SPIFFE ID: {}", jwt_svid.spiffe_id());
     ///
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn get_jwt_svid<I>(&self, audience: I) -> Result<JwtSvid, JwtSourceError>
+    pub async fn fetch_jwt_svid<I>(&self, audience: I) -> Result<JwtSvid, JwtSourceError>
     where
         I: IntoIterator,
         I::Item: AsRef<str>,
     {
-        self.get_jwt_svid_with_id(audience, None).await
+        self.fetch_jwt_svid_with_id(audience, None).await
     }
 
     /// Fetches a JWT SVID for the given audience and optional SPIFFE ID.
@@ -495,10 +495,10 @@ impl JwtSource {
     ///
     /// // Fetch for a specific SPIFFE ID
     /// let spiffe_id = "spiffe://example.org/myservice".parse()?;
-    /// let jwt_svid = source.get_jwt_svid_with_id(&["service-a"], Some(&spiffe_id)).await?;
+    /// let jwt_svid = source.fetch_jwt_svid_with_id(&["service-a"], Some(&spiffe_id)).await?;
     /// # Ok(())
     /// # }
-    pub async fn get_jwt_svid_with_id<I>(
+    pub async fn fetch_jwt_svid_with_id<I>(
         &self,
         audience: I,
         spiffe_id: Option<&SpiffeId>,
@@ -1068,13 +1068,13 @@ mod tests {
         let spiffe_id = SpiffeId::new("spiffe://example.org/service").unwrap();
         let result = test_source
             .source
-            .get_jwt_svid_with_id(["aud1"], Some(&spiffe_id))
+            .fetch_jwt_svid_with_id(["aud1"], Some(&spiffe_id))
             .await;
         (result, test_source)
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_does_not_retry_permission_denied() {
+    async fn fetch_jwt_svid_does_not_retry_permission_denied() {
         let (result, test_source) =
             fetch_test_result(vec![FetchOutcome::PermissionDenied("not allowed")]).await;
 
@@ -1089,7 +1089,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_does_not_retry_no_identity_issued() {
+    async fn fetch_jwt_svid_does_not_retry_no_identity_issued() {
         let (result, test_source) = fetch_test_result(vec![FetchOutcome::NoIdentityIssued]).await;
 
         assert!(matches!(
@@ -1103,7 +1103,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_does_not_retry_hint_not_found() {
+    async fn fetch_jwt_svid_does_not_retry_hint_not_found() {
         let (result, test_source) =
             fetch_test_result(vec![FetchOutcome::HintNotFound("external")]).await;
 
@@ -1118,7 +1118,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_does_not_retry_jwt_parse_error() {
+    async fn fetch_jwt_svid_does_not_retry_jwt_parse_error() {
         let (result, test_source) = fetch_test_result(vec![FetchOutcome::InvalidJwt]).await;
 
         assert!(matches!(
@@ -1130,7 +1130,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_retries_once_on_unavailable() {
+    async fn fetch_jwt_svid_retries_once_on_unavailable() {
         let (result, test_source) =
             fetch_test_result(vec![FetchOutcome::Unavailable, FetchOutcome::Ok]).await;
 
@@ -1140,7 +1140,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn get_jwt_svid_returns_second_failure_after_retry() {
+    async fn fetch_jwt_svid_returns_second_failure_after_retry() {
         let (result, test_source) = fetch_test_result(vec![
             FetchOutcome::Unavailable,
             FetchOutcome::PermissionDenied("still denied"),

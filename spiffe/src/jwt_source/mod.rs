@@ -9,7 +9,7 @@
 //! Workload API for bundle rotations. Transient failures are handled by reconnecting with backoff.
 //!
 //! Unlike X.509 SVIDs which are streamed continuously, JWT SVIDs are fetched on-demand with
-//! specific audiences. Use [`JwtSource::get_jwt_svid`] to fetch JWT SVIDs as needed.
+//! specific audiences. Use [`JwtSource::fetch_jwt_svid`] to fetch JWT SVIDs as needed.
 //!
 //! Use [`JwtSource::updated`] to subscribe to bundle change notifications, and [`JwtSource::shutdown`]
 //! to stop background tasks.
@@ -28,7 +28,7 @@
 //! let source = JwtSource::new().await?;
 //!
 //! // Fetch a JWT SVID for a specific audience
-//! let jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//! let jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
 //!
 //! let td = TrustDomain::new("example.org")?;
 //! let bundle = source
