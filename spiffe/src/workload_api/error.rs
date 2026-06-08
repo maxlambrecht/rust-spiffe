@@ -9,12 +9,7 @@ use crate::{JwtBundleError, JwtSvidError};
 #[cfg(feature = "x509")]
 use crate::{X509BundleError, X509SvidError};
 
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-jwt",
-    feature = "workload-api-full"
-))]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 use crate::transport::TransportError;
 
 /// Errors produced by Workload API operations.
@@ -63,12 +58,7 @@ pub enum WorkloadApiError {
     HintNotFound(String),
 
     /// Errors returned by the underlying transport.
-    #[cfg(any(
-        feature = "workload-api",
-        feature = "workload-api-x509",
-        feature = "workload-api-jwt",
-        feature = "workload-api-full"
-    ))]
+    #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
     #[error(transparent)]
     Transport(#[from] TransportError),
 
@@ -97,12 +87,7 @@ pub enum WorkloadApiError {
     SpiffeId(#[from] SpiffeIdError),
 }
 
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-jwt",
-    feature = "workload-api-full"
-))]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 impl From<tonic::Status> for WorkloadApiError {
     fn from(status: tonic::Status) -> Self {
         use tonic::Code;

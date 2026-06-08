@@ -76,6 +76,8 @@ openssl = { version = "0.10", features = ["vendored"] }
 [features]
 default = []
 
+# --- Base capabilities (types, parsing, transport) ---
+
 # Endpoint parsing/normalization only (no async/runtime deps).
 transport = ["dep:url"]
 
@@ -84,6 +86,11 @@ transport-grpc = ["transport", "dep:tokio", "dep:tonic", "dep:tower", "dep:hyper
 
 # X.509 types + parsing.
 x509 = ["dep:x509-parser", "dep:pkcs8", "dep:zeroize"]
+
+# JWT types + token parsing (no signature verification).
+jwt = ["dep:serde", "dep:serde_json", "dep:time", "dep:base64ct", "dep:zeroize"]
+
+# --- Workload API client ---
 
 # Workload API core substrate: transport, runtime, and protobuf dependencies.
 # This feature provides the infrastructure for the Workload API client without
@@ -113,19 +120,22 @@ workload-api-full = ["workload-api-x509", "workload-api-jwt"]
 # This feature enables the full Workload API client with both X.509 and JWT support.
 workload-api = ["workload-api-full"]
 
+# --- High-level watcher/caching sources ---
+
 # X.509 watcher/caching API built on the Workload API.
-x509-source = ["workload-api"]
+# Depends on the X.509-only Workload API bundle to avoid pulling in JWT dependencies.
+x509-source = ["workload-api-x509"]
 
 # JWT watcher/caching API built on the Workload API.
-jwt-source = ["workload-api", "jwt"]
+# Depends on the JWT-only Workload API bundle to avoid pulling in X.509 dependencies.
+jwt-source = ["workload-api-jwt"]
 
-# JWT types + token parsing (no signature verification).
-jwt = ["dep:serde", "dep:serde_json", "dep:time", "dep:base64ct", "dep:zeroize"]
+# --- JWT signature verification backends (select exactly one) ---
 
-# JWT signature verification via `jsonwebtoken` (select exactly one backend).
 jwt-verify-rust-crypto = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/rust_crypto"]
 jwt-verify-aws-lc-rs = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/aws_lc_rs"]
 
-# Observability backends (optional).
+# --- Observability backends (optional) ---
+
 logging = ["dep:log"]
 tracing = ["dep:tracing", "logging"]

@@ -43,7 +43,7 @@
 //! For direct Workload API access, use [`WorkloadApiClient`] (requires a `workload-api-*` feature):
 //!
 //! ```no_run
-//! # #[cfg(feature = "workload-api")]
+//! # #[cfg(feature = "workload-api-jwt")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 //! use spiffe::WorkloadApiClient;
 //!
@@ -170,12 +170,7 @@ compile_error!(
      Choose exactly one: `jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`."
 );
 
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-jwt",
-    feature = "workload-api-full"
-))]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 pub mod workload_api;
 
 #[cfg(feature = "x509-source")]
@@ -202,18 +197,9 @@ pub use crate::bundle::x509::{X509Bundle, X509BundleError, X509BundleSet};
 // Workload API - Common types
 //
 // WorkloadApiClient and X509Context. Available with `workload-api` feature.
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-full"
-))]
+#[cfg(feature = "workload-api-x509")]
 pub use crate::workload_api::X509Context;
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-jwt",
-    feature = "workload-api-full"
-))]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 pub use crate::workload_api::{InterceptorFn, WorkloadApiClient, WorkloadApiError};
 
 // X.509 Source
