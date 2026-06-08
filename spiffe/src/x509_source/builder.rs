@@ -65,26 +65,23 @@ pub(super) fn normalize_reconnect(reconnect: ReconnectConfig) -> ReconnectConfig
 /// use spiffe::X509ResourceLimits;
 ///
 /// // Limited resources
-/// let limits = X509ResourceLimits {
-///     max_svids: Some(100),
-///     max_bundles: Some(200),
-///     max_bundle_der_bytes: Some(4 * 1024 * 1024), // 4MB
-/// };
+/// let limits = X509ResourceLimits::new(
+///     Some(100),
+///     Some(200),
+///     Some(4 * 1024 * 1024), // 4MB
+/// );
 ///
 /// // Unlimited (no limits enforced)
-/// let unlimited = X509ResourceLimits {
-///     max_svids: None,
-///     max_bundles: None,
-///     max_bundle_der_bytes: None,
-/// };
+/// let unlimited = X509ResourceLimits::unlimited();
 ///
 /// // Mixed (some limits, some unlimited)
-/// let mixed = X509ResourceLimits {
-///     max_svids: Some(50),
-///     max_bundles: None,  // Unlimited bundles
-///     max_bundle_der_bytes: Some(1024 * 1024), // 1MB
-/// };
+/// let mixed = X509ResourceLimits::new(
+///     Some(50),
+///     None, // Unlimited bundles
+///     Some(1024 * 1024), // 1MB
+/// );
 /// ```
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResourceLimits {
     /// Maximum number of SVIDs allowed in a context.
@@ -117,6 +114,23 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
+    /// Creates a `ResourceLimits` with explicit limits.
+    ///
+    /// Use `None` for unlimited (no limit enforced), or `Some(usize)` for a
+    /// specific limit.
+    #[must_use]
+    pub const fn new(
+        max_svids: Option<usize>,
+        max_bundles: Option<usize>,
+        max_bundle_der_bytes: Option<usize>,
+    ) -> Self {
+        Self {
+            max_svids,
+            max_bundles,
+            max_bundle_der_bytes,
+        }
+    }
+
     /// Creates a `ResourceLimits` with all limits set to unlimited (no limits enforced).
     ///
     /// # Examples
@@ -173,11 +187,11 @@ impl ResourceLimits {
 /// let source = X509Source::builder()
 ///     .endpoint("unix:/tmp/spire-agent/public/api.sock")
 ///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30))
-///     .resource_limits(X509ResourceLimits {
-///         max_svids: Some(100),
-///         max_bundles: Some(500),
-///         max_bundle_der_bytes: Some(5 * 1024 * 1024),
-///     })
+///     .resource_limits(X509ResourceLimits::new(
+///         Some(100),
+///         Some(500),
+///         Some(5 * 1024 * 1024),
+///     ))
 ///     .build()
 ///     .await?;
 /// # Ok(())
@@ -359,11 +373,11 @@ impl X509SourceBuilder {
     /// ```no_run
     /// use spiffe::{X509ResourceLimits, X509SourceBuilder};
     ///
-    /// let limits = X509ResourceLimits {
-    ///     max_svids: Some(50),
-    ///     max_bundles: Some(500),
-    ///     max_bundle_der_bytes: Some(5 * 1024 * 1024), // 5MB
-    /// };
+    /// let limits = X509ResourceLimits::new(
+    ///     Some(50),
+    ///     Some(500),
+    ///     Some(5 * 1024 * 1024), // 5MB
+    /// );
     /// let builder = X509SourceBuilder::new().resource_limits(limits);
     ///
     /// // Or disable limits:

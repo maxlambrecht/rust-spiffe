@@ -65,23 +65,21 @@ pub(super) fn normalize_reconnect(reconnect: ReconnectConfig) -> ReconnectConfig
 /// use spiffe::JwtResourceLimits;
 ///
 /// // Limited resources
-/// let limits = JwtResourceLimits {
-///     max_bundles: Some(200),
-///     max_bundle_jwks_bytes: Some(4 * 1024 * 1024), // 4MB
-/// };
+/// let limits = JwtResourceLimits::new(
+///     Some(200),
+///     Some(4 * 1024 * 1024), // 4MB
+/// );
 ///
 /// // Unlimited (no limits enforced)
-/// let unlimited = JwtResourceLimits {
-///     max_bundles: None,
-///     max_bundle_jwks_bytes: None,
-/// };
+/// let unlimited = JwtResourceLimits::unlimited();
 ///
 /// // Mixed (some limits, some unlimited)
-/// let mixed = JwtResourceLimits {
-///     max_bundles: Some(50),
-///     max_bundle_jwks_bytes: None,  // Unlimited JWKS bytes
-/// };
+/// let mixed = JwtResourceLimits::new(
+///     Some(50),
+///     None, // Unlimited JWKS bytes
+/// );
 /// ```
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResourceLimits {
     /// Maximum number of bundles allowed in a bundle set.
@@ -109,6 +107,18 @@ impl Default for ResourceLimits {
 }
 
 impl ResourceLimits {
+    /// Creates a `ResourceLimits` with explicit limits.
+    ///
+    /// Use `None` for unlimited (no limit enforced), or `Some(usize)` for a
+    /// specific limit.
+    #[must_use]
+    pub const fn new(max_bundles: Option<usize>, max_bundle_jwks_bytes: Option<usize>) -> Self {
+        Self {
+            max_bundles,
+            max_bundle_jwks_bytes,
+        }
+    }
+
     /// Creates a `ResourceLimits` with all limits set to unlimited (no limits enforced).
     ///
     /// # Examples
@@ -166,10 +176,10 @@ impl ResourceLimits {
 /// let source = JwtSource::builder()
 ///     .endpoint("unix:/tmp/spire-agent/public/api.sock")
 ///     .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(30))
-///     .resource_limits(JwtResourceLimits {
-///         max_bundles: Some(500),
-///         max_bundle_jwks_bytes: Some(5 * 1024 * 1024),
-///     })
+///     .resource_limits(JwtResourceLimits::new(
+///         Some(500),
+///         Some(5 * 1024 * 1024),
+///     ))
 ///     .build()
 ///     .await?;
 /// # Ok(())
@@ -304,10 +314,10 @@ impl JwtSourceBuilder {
     /// ```no_run
     /// use spiffe::{JwtResourceLimits, JwtSourceBuilder};
     ///
-    /// let limits = JwtResourceLimits {
-    ///     max_bundles: Some(500),
-    ///     max_bundle_jwks_bytes: Some(5 * 1024 * 1024), // 5MB
-    /// };
+    /// let limits = JwtResourceLimits::new(
+    ///     Some(500),
+    ///     Some(5 * 1024 * 1024), // 5MB
+    /// );
     /// let builder = JwtSourceBuilder::new().resource_limits(limits);
     ///
     /// // Or disable limits:

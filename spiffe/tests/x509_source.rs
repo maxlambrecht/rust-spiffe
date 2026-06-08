@@ -321,11 +321,7 @@ mod integration_tests_x509_source {
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_resource_limits() {
         // Test with very restrictive limits (should still work if actual values are below limits)
-        let limits = ResourceLimits {
-            max_svids: Some(10),
-            max_bundles: Some(10),
-            max_bundle_der_bytes: Some(1024 * 1024), // 1MB
-        };
+        let limits = ResourceLimits::new(Some(10), Some(10), Some(1024 * 1024));
 
         let source = X509SourceBuilder::new()
             .resource_limits(limits)
@@ -345,11 +341,7 @@ mod integration_tests_x509_source {
     #[ignore = "requires running SPIFFE Workload API"]
     async fn test_unlimited_resource_limits() {
         // Test with unlimited limits
-        let limits = ResourceLimits {
-            max_svids: None,
-            max_bundles: None,
-            max_bundle_der_bytes: None,
-        };
+        let limits = ResourceLimits::unlimited();
 
         let source = X509SourceBuilder::new()
             .resource_limits(limits)
