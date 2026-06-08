@@ -171,7 +171,7 @@ impl WorkloadApiClient {
         }
     }
 
-    #[cfg(all(test, feature = "jwt"))]
+    #[cfg(all(test, feature = "jwt-source"))]
     pub(crate) fn new_with_jwt_fetch_hook(endpoint: Endpoint, hook: JwtFetchTestHook) -> Self {
         let channel = tonic::transport::Endpoint::from_static("http://127.0.0.1:1").connect_lazy();
 
