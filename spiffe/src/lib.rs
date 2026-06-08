@@ -31,7 +31,7 @@
 //! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
 //!
 //! let source = JwtSource::new().await?;
-//! let _jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//! let _jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
 //! let trust_domain = TrustDomain::try_from("example.org")?;
 //! let _bundle = source
 //!     .bundle_for_trust_domain(&trust_domain)?
@@ -124,7 +124,7 @@
 //! use spiffe::{bundle::BundleSource, TrustDomain, JwtSource};
 //!
 //! let source = JwtSource::new().await?;
-//! let _jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+//! let _jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
 //! let trust_domain = TrustDomain::try_from("example.org")?;
 //! let _bundle = source
 //!     .bundle_for_trust_domain(&trust_domain)?

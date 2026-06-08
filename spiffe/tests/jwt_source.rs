@@ -166,11 +166,11 @@ mod integration_tests_jwt_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_get_jwt_svid() {
+    async fn test_fetch_jwt_svid() {
         let source = get_source().await;
         let audience = vec!["test-audience".to_string()];
         let svid = source
-            .get_jwt_svid(&audience)
+            .fetch_jwt_svid(&audience)
             .await
             .expect("Failed to get JWT SVID");
 
@@ -185,11 +185,11 @@ mod integration_tests_jwt_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_get_jwt_svid_with_id() {
+    async fn test_fetch_jwt_svid_with_id() {
         let source = get_source().await;
         let audience = vec!["test-audience".to_string()];
         let svid = source
-            .get_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
+            .fetch_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
             .await
             .expect("Failed to get JWT SVID with ID");
 
@@ -596,32 +596,35 @@ mod integration_tests_jwt_source {
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_get_jwt_svid_after_shutdown() {
+    async fn test_fetch_jwt_svid_after_shutdown() {
         let source = get_source().await;
         source.shutdown().await;
 
         let audience = vec!["test-audience".to_string()];
-        let result = source.get_jwt_svid(&audience).await;
+        let result = source.fetch_jwt_svid(&audience).await;
 
         // Should fail after shutdown
-        assert!(result.is_err(), "get_jwt_svid() should fail after shutdown");
+        assert!(
+            result.is_err(),
+            "fetch_jwt_svid() should fail after shutdown"
+        );
     }
 
     #[tokio::test]
     #[ignore = "requires running SPIFFE Workload API"]
-    async fn test_get_jwt_svid_with_id_after_shutdown() {
+    async fn test_fetch_jwt_svid_with_id_after_shutdown() {
         let source = get_source().await;
         source.shutdown().await;
 
         let audience = vec!["test-audience".to_string()];
         let result = source
-            .get_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
+            .fetch_jwt_svid_with_id(&audience, Some(&spiffe_id_1()))
             .await;
 
         // Should fail after shutdown
         assert!(
             result.is_err(),
-            "get_jwt_svid_with_id() should fail after shutdown"
+            "fetch_jwt_svid_with_id() should fail after shutdown"
         );
     }
 }

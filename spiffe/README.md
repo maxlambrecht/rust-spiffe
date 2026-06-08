@@ -132,11 +132,11 @@ use spiffe::{TrustDomain, JwtSource};
 let source = JwtSource::new().await?;
 
 // Fetch JWT SVID for specific audiences
-let jwt_svid = source.get_jwt_svid(&["service-a", "service-b"]).await?;
+let jwt_svid = source.fetch_jwt_svid(&["service-a", "service-b"]).await?;
 
 // Fetch JWT SVID for a specific SPIFFE ID
 let spiffe_id = "spiffe://example.org/my-service".parse()?;
-let jwt_svid = source.get_jwt_svid_with_id(&["audience"], Some(&spiffe_id)).await?;
+let jwt_svid = source.fetch_jwt_svid_with_id(&["audience"], Some(&spiffe_id)).await?;
 
 // Bundle for a trust domain
 let trust_domain = TrustDomain::new("example.org")?;
@@ -177,7 +177,7 @@ use spiffe::JwtSource;
 let source = JwtSource::new().await?;
 
 // Fetch JWT SVID
-let jwt_svid = source.get_jwt_svid(&["audience1", "audience2"]).await?;
+let jwt_svid = source.fetch_jwt_svid(&["audience1", "audience2"]).await?;
 ```
 
 See the [`JwtSource`](#jwtsource-recommended) section above for more details.

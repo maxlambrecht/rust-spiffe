@@ -415,8 +415,8 @@ impl JwtSourceBuilder {
     /// The initial bundle set may contain no JWT signing authorities; in that case,
     /// [`JwtSource::is_healthy`] may report `false` until usable authorities arrive.
     /// The on-demand JWT SVID client is created lazily on the first
-    /// [`JwtSource::get_jwt_svid`] call, so client-creation failures for on-demand
-    /// JWT SVID fetching are reported by `get_jwt_svid` rather than `build`.
+    /// [`JwtSource::fetch_jwt_svid`] call, so client-creation failures for on-demand
+    /// JWT SVID fetching are reported by `fetch_jwt_svid` rather than `build`.
     ///
     /// # Errors
     ///
