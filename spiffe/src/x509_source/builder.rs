@@ -14,6 +14,7 @@ use std::time::Duration;
 /// to prevent synchronized reconnect storms in high-concurrency scenarios.
 ///
 /// If `min_backoff > max_backoff`, they will be swapped to ensure valid configuration.
+#[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
 pub struct ReconnectConfig {
     /// Initial delay before retrying.
@@ -32,6 +33,18 @@ impl Default for ReconnectConfig {
 }
 
 impl ReconnectConfig {
+    /// Creates a `ReconnectConfig` with explicit backoff bounds.
+    ///
+    /// `min_backoff` is the initial retry delay and `max_backoff` is the cap. If
+    /// `min_backoff > max_backoff`, the values are swapped when the source is built.
+    #[must_use]
+    pub const fn new(min_backoff: Duration, max_backoff: Duration) -> Self {
+        Self {
+            min_backoff,
+            max_backoff,
+        }
+    }
+
     /// Normalizes the configuration to ensure `min_backoff <= max_backoff`.
     ///
     /// If `min_backoff > max_backoff`, they are swapped. This ensures valid
@@ -356,10 +369,7 @@ impl X509SourceBuilder {
     pub const fn reconnect_backoff(mut self, min_backoff: Duration, max_backoff: Duration) -> Self {
         // Normalization happens at the authoritative boundary in X509Source::new_with().
         // This setter stores the raw values; normalization ensures min <= max.
-        self.reconnect = ReconnectConfig {
-            min_backoff,
-            max_backoff,
-        };
+        self.reconnect = ReconnectConfig::new(min_backoff, max_backoff);
         self
     }
 
