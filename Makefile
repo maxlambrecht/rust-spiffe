@@ -131,7 +131,7 @@ SPIFFE_ALL_FEATURES := \
   workload-api-core \
   workload-api-x509 \
   workload-api-jwt \
-  workload-api-full \
+  workload-api \
   x509-source \
   jwt-source \
   jwt \
@@ -139,10 +139,10 @@ SPIFFE_ALL_FEATURES := \
   jwt-verify-aws-lc-rs \
   logging \
   tracing \
-  workload-api-full,logging \
-  workload-api-full,tracing \
-  workload-api-full,tracing,jwt-verify-rust-crypto \
-  workload-api-full,tracing,jwt-verify-aws-lc-rs \
+  workload-api,logging \
+  workload-api,tracing \
+  workload-api,tracing,jwt-verify-rust-crypto \
+  workload-api,tracing,jwt-verify-aws-lc-rs \
   x509-source,logging \
   x509-source,tracing \
   jwt-source,logging \

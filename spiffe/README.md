@@ -463,7 +463,7 @@ features are enabled, events are emitted via `tracing`.
 ### Workload API core (advanced)
 
 In addition to the higher-level bundles (`workload-api-x509`, `workload-api-jwt`,
-`workload-api`, `workload-api-full`), the crate exposes a lower-level
+`workload-api`), the crate exposes a lower-level
 `workload-api-core` feature:
 
 ```toml

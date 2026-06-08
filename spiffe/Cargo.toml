@@ -113,12 +113,8 @@ workload-api-x509 = ["workload-api-core", "x509"]
 # Workload API with JWT capability.
 workload-api-jwt = ["workload-api-core", "jwt"]
 
-# Workload API with both X.509 and JWT capabilities (full bundle).
-workload-api-full = ["workload-api-x509", "workload-api-jwt"]
-
-# Async Workload API client (backward compatibility alias for `workload-api-full`).
-# This feature enables the full Workload API client with both X.509 and JWT support.
-workload-api = ["workload-api-full"]
+# Workload API client with both X.509 and JWT capabilities.
+workload-api = ["workload-api-x509", "workload-api-jwt"]
 
 # --- High-level watcher/caching sources ---
 

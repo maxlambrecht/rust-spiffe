@@ -3,7 +3,7 @@
 #![expect(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(test)]
-#[cfg(feature = "workload-api-full")]
+#[cfg(feature = "workload-api")]
 mod integration_tests_workload_api_client {
     use futures::StreamExt as _;
     use spiffe::bundle::BundleSource as _;

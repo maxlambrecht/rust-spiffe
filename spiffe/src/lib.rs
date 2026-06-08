@@ -82,7 +82,6 @@
 //! | `workload-api-x509` | Workload API client + X.509 support (no JWT) |
 //! | `workload-api-jwt` | Workload API client + JWT support (no X.509) |
 //! | `workload-api` | Workload API client with both X.509 + JWT support |
-//! | `workload-api-full` | Alias/bundle for both X.509 + JWT support (same capability as `workload-api`) |
 //!
 //! ### Advanced / compositional
 //!
@@ -96,7 +95,7 @@
 //!
 //! - The `x509` feature gates heavy X.509 parsing dependencies.
 //! - For direct Workload API usage, use `workload-api-x509` or `workload-api-jwt` when you only need one,
-//!   and `workload-api` (or `workload-api-full`) when you need both.
+//!   and `workload-api` when you need both.
 //!
 //! ## X.509
 //!
