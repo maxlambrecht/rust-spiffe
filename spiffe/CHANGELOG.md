@@ -2,9 +2,10 @@
 
 ## [Unreleased]
 
-### Changed
+### Breaking changes
 
-- **Features:** `x509-source` now enables only `workload-api-x509` and `jwt-source` now enables only `workload-api-jwt`, instead of both enabling the full `workload-api` (X.509 + JWT). Enabling a single source feature no longer compiles the other SVID type's parsing stack, shrinking the dependency tree and build time for workloads that use only X.509 or only JWT.
+- **Features:** `x509-source` now enables only `workload-api-x509`, and `jwt-source` only `workload-api-jwt`, so each source no longer pulls in the other SVID type's parsing dependencies.
+- **Features:** Removed the redundant `workload-api-full` feature; use `workload-api` instead.
 
 
 ## [0.15.1] - 2026-05-11

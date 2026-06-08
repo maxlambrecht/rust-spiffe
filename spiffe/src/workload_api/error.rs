@@ -106,12 +106,7 @@ impl From<tonic::Status> for WorkloadApiError {
     }
 }
 
-#[cfg(any(
-    feature = "workload-api",
-    feature = "workload-api-x509",
-    feature = "workload-api-jwt",
-    feature = "workload-api-full"
-))]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 impl From<tonic::transport::Error> for WorkloadApiError {
     fn from(e: tonic::transport::Error) -> Self {
         Self::Transport(TransportError::Tonic(e))
