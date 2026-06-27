@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- Re-exported `AuthorizerConfigError` at the crate root. It is the source error behind `Error::AuthorizerConfig` and was previously unnameable by downstream callers.
+
+### Changed
+
+- Hardened rustls peer leaf validation: peer leaf certificates whose `KeyUsage` extension is missing or does not include `digitalSignature` are now rejected with `Error::InvalidLeaf`. This may affect deployments using non-conformant X.509-SVID leaf certificates.
+
+
 ## [0.7.0] - 2026-06-08
 
 ### Breaking changes

@@ -227,9 +227,17 @@ fn extract_spiffe_id_with_cache(
 
 /// Rejects certificates that must not be used as X509-SVID leaf identities.
 ///
-/// Per X509-SVID section 5.2, signing-capable certificates (`cA=true`,
-/// `keyCertSign`, or `cRLSign`) are validation material only and must not be
-/// accepted as peer identities.
+/// **Specification:** X509-SVID section 5.2 requires leaf validation to reject
+/// signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`).
+/// Section 4.3 requires leaf SVIDs to carry a key usage extension with
+/// `digitalSignature` set (and marked critical at issuance); section 5.2 does
+/// not restate that requirement as a validation MUST.
+///
+/// **Enforced here:** signing-capable certificates are rejected per section 5.2.
+/// The key usage extension must be present and must set `digitalSignature`; this
+/// aligns peer acceptance with section 4.3 certificate constraints even though
+/// section 5.2 does not explicitly require checking them at validation time. The
+/// critical bit on the extension is not checked here.
 ///
 /// Returns `Ok(())` for a valid leaf, or `Err(reason)` describing the violation
 /// (or a parse failure, which fails closed).
@@ -243,13 +251,19 @@ fn leaf_constraint_check(leaf: &CertificateDer<'_>) -> std::result::Result<(), S
         }
     }
 
-    if let Some(ku) = cert.key_usage().map_err(|e| e.to_string())? {
-        if ku.value.key_cert_sign() {
-            return Err("keyCertSign key usage is set".into());
+    match cert.key_usage().map_err(|e| e.to_string())? {
+        Some(ku) => {
+            if ku.value.key_cert_sign() {
+                return Err("keyCertSign key usage is set".into());
+            }
+            if ku.value.crl_sign() {
+                return Err("cRLSign key usage is set".into());
+            }
+            if !ku.value.digital_signature() {
+                return Err("digitalSignature key usage is not set".into());
+            }
         }
-        if ku.value.crl_sign() {
-            return Err("cRLSign key usage is set".into());
-        }
+        None => return Err("key usage extension is missing".into()),
     }
 
     Ok(())
@@ -1070,6 +1084,31 @@ mod tests {
         CertificateDer::from(fixture_no_spiffe_leaf_der().to_vec())
     }
 
+    /// Leaf with a SPIFFE URI SAN but no key usage extension at all.
+    fn fixture_spiffe_leaf_no_key_usage_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/spiffe_leaf_no_key_usage.der"
+        ))
+    }
+
+    /// Leaf with a SPIFFE URI SAN and a key usage extension that does not set
+    /// `digitalSignature` (only `keyEncipherment`).
+    fn fixture_spiffe_leaf_no_digital_signature_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/spiffe_leaf_no_digital_signature.der"
+        ))
+    }
+
+    fn cert_with_spiffe_no_key_usage() -> CertificateDer<'static> {
+        CertificateDer::from(fixture_spiffe_leaf_no_key_usage_der().to_vec())
+    }
+
+    fn cert_with_spiffe_no_digital_signature() -> CertificateDer<'static> {
+        CertificateDer::from(fixture_spiffe_leaf_no_digital_signature_der().to_vec())
+    }
+
     fn roots_with_ca() -> Arc<RootCertStore> {
         let mut roots = RootCertStore::empty();
         roots
@@ -1198,6 +1237,19 @@ mod tests {
     #[test]
     fn leaf_constraint_check_rejects_signing_cert_with_spiffe_id() {
         leaf_constraint_check(&cert_ca_with_spiffe_signing()).unwrap_err();
+    }
+
+    #[test]
+    fn leaf_constraint_check_rejects_leaf_without_key_usage() {
+        // A leaf SVID must carry a key usage extension with digitalSignature set;
+        // a leaf with no key usage extension must be rejected.
+        leaf_constraint_check(&cert_with_spiffe_no_key_usage()).unwrap_err();
+    }
+
+    #[test]
+    fn leaf_constraint_check_rejects_leaf_without_digital_signature() {
+        // A leaf with key usage present but digitalSignature unset must be rejected.
+        leaf_constraint_check(&cert_with_spiffe_no_digital_signature()).unwrap_err();
     }
 
     /// A signing-capable certificate that carries a SPIFFE ID must be rejected
@@ -1384,6 +1436,63 @@ mod tests {
                 rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
             ),
             "expected UnknownIssuer, got {err:?}"
+        );
+    }
+
+    /// Trust-domain confusion: a peer leaf whose SPIFFE ID claims trust domain A
+    /// must be verified against trust domain A's roots, not against any root that
+    /// happens to be present in the bundle set.
+    ///
+    /// Here `cert_with_spiffe` claims `spiffe://example.org/service` and is signed
+    /// by `ca.der`. The bundle set maps `example.org` to an unrelated CA
+    /// (`ca_uri_only.der`) and maps a second trust domain (`other.org`) to the real
+    /// signer (`ca.der`). If the verifier selected roots by trust domain, chain
+    /// validation must fail with `UnknownIssuer`; if it instead tried every trusted
+    /// root, it would wrongly succeed.
+    #[test]
+    fn server_verifier_rejects_trust_domain_confusion_across_bundle_set() {
+        ensure_provider();
+
+        // example.org -> wrong CA (did not sign the leaf); other.org -> real signer.
+        let mut roots_by_td = BTreeMap::new();
+        roots_by_td.insert(
+            TrustDomain::new("example.org").unwrap(),
+            roots_with_ca_uri_only(),
+        );
+        roots_by_td.insert(TrustDomain::new("other.org").unwrap(), roots_with_ca());
+
+        let provider: Arc<dyn MaterialProvider> =
+            Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
+                generation: 1,
+                certified_key: certified_key_from_fixtures(),
+                roots_by_td,
+            })));
+
+        // Authorizer accepts the claimed ID so the only possible rejection comes
+        // from trust-domain-scoped root selection / chain validation.
+        let verifier = SpiffeServerCertVerifier::new(
+            provider,
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_spiffe(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                rustls::Error::InvalidCertificate(rustls::CertificateError::UnknownIssuer)
+            ),
+            "leaf signed by other.org's CA must not validate against example.org's roots, \
+             even though that CA is present in the bundle set; got {err:?}"
         );
     }
 

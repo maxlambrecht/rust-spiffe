@@ -50,6 +50,21 @@ impl PeerIdentity {
     pub const fn spiffe_id(&self) -> Option<&SpiffeId> {
         self.spiffe_id.as_ref()
     }
+
+    /// Returns the peer's SPIFFE ID, or [`Error::MissingSpiffeId`] if absent.
+    ///
+    /// Use this for a fail-closed alternative to [`spiffe_id`](Self::spiffe_id)
+    /// when the caller requires an authenticated SPIFFE ID. A `None` identity is
+    /// unexpected in SPIFFE-compliant configurations (see the type-level docs),
+    /// so this turns that case into an explicit error rather than a silent `None`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::MissingSpiffeId`] when no SPIFFE ID was extracted from the
+    /// peer certificate.
+    pub fn require_spiffe_id(&self) -> Result<&SpiffeId, Error> {
+        self.spiffe_id.as_ref().ok_or(Error::MissingSpiffeId)
+    }
 }
 
 /// Extracts the SPIFFE ID from a server connection's peer certificates.
@@ -154,5 +169,21 @@ mod tests {
         let spiffe_id = spiffe::SpiffeId::try_from("spiffe://example.org/test").unwrap();
         let identity = PeerIdentity::new(Some(spiffe_id.clone()));
         assert_eq!(identity.spiffe_id(), Some(&spiffe_id));
+    }
+
+    #[test]
+    fn test_require_spiffe_id_ok_when_present() {
+        let spiffe_id = spiffe::SpiffeId::try_from("spiffe://example.org/test").unwrap();
+        let identity = PeerIdentity::new(Some(spiffe_id.clone()));
+        assert_eq!(identity.require_spiffe_id().unwrap(), &spiffe_id);
+    }
+
+    #[test]
+    fn test_require_spiffe_id_err_when_absent() {
+        let identity = PeerIdentity::new(None);
+        assert!(matches!(
+            identity.require_spiffe_id(),
+            Err(crate::error::Error::MissingSpiffeId)
+        ));
     }
 }

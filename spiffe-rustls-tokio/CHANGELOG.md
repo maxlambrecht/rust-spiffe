@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `PeerIdentity::require_spiffe_id()`, a fail-closed accessor that returns the peer's SPIFFE ID or `Error::MissingSpiffeId` when absent.
+
+
 ## [0.4.0] – 2026-06-08
 
 ### Breaking changes

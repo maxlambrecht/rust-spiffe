@@ -43,8 +43,21 @@ type ClientConfigCustomizer = Box<dyn FnOnce(&mut ClientConfig) + Send>;
 ///
 /// The default authorizer is [`crate::authorizer::any`]. It accepts any authenticated
 /// SPIFFE ID from any trust domain accepted by the configured trust-domain policy.
-/// By default, this means every trust domain in the source bundle set. Production
-/// deployments should usually configure a more specific authorizer.
+/// By default, this means every trust domain in the source bundle set.
+///
+/// <div class="warning">
+///
+/// **Security:** with the default configuration, authentication validates the
+/// server certificate against the trust bundle for the peer's SPIFFE ID trust
+/// domain. Authorization uses [`crate::authorizer::any`] together with
+/// [`TrustDomainPolicy::AnyInBundleSet`], so any server whose certificate
+/// validates and whose SPIFFE ID is accepted by that policy is allowed.
+/// Production deployments should normally configure a specific [`Authorizer`]
+/// (via [`Self::authorize`]) and an appropriate [`TrustDomainPolicy`] (via
+/// [`Self::trust_domain_policy`]); [`TrustDomainPolicy::LocalOnly`] is suitable
+/// when federation is not required.
+///
+/// </div>
 ///
 /// # Examples
 ///
@@ -102,8 +115,13 @@ impl ClientConfigBuilder {
     ///   trust domain present in the source bundle set
     /// - ALPN protocols: empty (no ALPN)
     ///
-    /// Production deployments should usually configure a more specific authorizer.
-    /// Non-federated deployments should usually configure [`TrustDomainPolicy::LocalOnly`].
+    /// With the default configuration, authentication validates the peer
+    /// certificate against the configured trust bundle, and authorization uses
+    /// [`crate::authorizer::any`] with [`TrustDomainPolicy::AnyInBundleSet`].
+    /// Production deployments should normally configure a specific authorizer via
+    /// [`Self::authorize`] and an appropriate trust domain policy via
+    /// [`Self::trust_domain_policy`]; [`TrustDomainPolicy::LocalOnly`] is suitable
+    /// when federation is not required.
     pub fn new(source: X509Source) -> Self {
         Self {
             source: Arc::new(source),
