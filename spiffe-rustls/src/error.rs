@@ -93,7 +93,6 @@ pub enum Error {
 }
 
 /// Errors that occur when constructing an authorizer with invalid configuration.
-#[expect(unnameable_types, reason = "exposed as a source error")]
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum AuthorizerConfigError {

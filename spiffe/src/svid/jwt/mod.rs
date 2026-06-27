@@ -1121,4 +1121,114 @@ mod test {
             "large expected_audience array should be accepted when audiences match"
         );
     }
+
+    fn bundle_source_with(authority: JwtAuthority) -> JwtBundleSet {
+        let mut bundle = JwtBundle::new(TrustDomain::new("example.org").unwrap());
+        bundle.add_jwt_authority(authority);
+        let mut bundle_source = JwtBundleSet::default();
+        bundle_source.add_bundle(bundle);
+        bundle_source
+    }
+
+    /// Algorithm-confusion: a symmetric `HS256` token must never be accepted
+    /// against an asymmetric (EC) bundle key, even when the attacker uses the
+    /// public key bytes as the HMAC secret (the classic JWT alg-confusion attack).
+    ///
+    /// `HS256` is not part of the SPIFFE JWT-SVID profile, so it is rejected
+    /// outright before any bundle lookup or signature verification.
+    #[test]
+    fn parse_and_validate_rejects_hs256_token_against_asymmetric_bundle() {
+        let kid = "k1";
+        let (authority, _ec_key) = new_es256_authority_and_encoding_key(kid);
+
+        // Forge an HS256 token whose HMAC secret is the bundle's public JWK bytes.
+        let hs_token = generate_token(
+            vec!["audience".to_owned()],
+            "spiffe://example.org/service".to_string(),
+            Some("JWT".to_string()),
+            Some(kid.to_string()),
+            0xFFFF_FFFF,
+            Algorithm::HS256,
+            &EncodingKey::from_secret(authority.jwk_json()),
+        );
+
+        let bundle_source = bundle_source_with(authority);
+
+        let err =
+            JwtSvid::parse_and_validate(&hs_token, &bundle_source, &["audience"]).unwrap_err();
+        assert!(
+            matches!(err, JwtSvidError::UnsupportedAlgorithm),
+            "HS256 must be rejected outright, never verified against an asymmetric key; got {err:?}"
+        );
+    }
+
+    /// Key-family mismatch: an `ES256` token referencing a `kid` whose bundle
+    /// authority is an RSA key must fail. The declared algorithm comes from the
+    /// token header; verification must not silently succeed across key families.
+    #[test]
+    fn parse_and_validate_rejects_ec_token_against_rsa_bundle_key() {
+        let kid = "rsa-mismatch-kid";
+
+        // Genuine ES256 token (header alg = ES256).
+        let (_ec_authority, encoding_key) = new_es256_authority_and_encoding_key(kid);
+        let token = generate_token(
+            vec!["audience".to_owned()],
+            "spiffe://example.org/service".to_string(),
+            Some("JWT".to_string()),
+            Some(kid.to_string()),
+            0xFFFF_FFFF,
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        // Bundle authority under the same kid is an RSA public key (RFC 7517 A.1).
+        let rsa_jwk = format!(
+            r#"{{"kty":"RSA","kid":"{kid}","use":"jwt-svid","alg":"RS256","e":"AQAB","n":"0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw"}}"#
+        );
+        let authority =
+            JwtAuthority::from_jwk_json(rsa_jwk.as_bytes()).expect("valid RSA JWK JSON");
+
+        let bundle_source = bundle_source_with(authority);
+
+        let err = JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap_err();
+        assert!(
+            matches!(err, JwtSvidError::InvalidToken(_)),
+            "ES256 token must not verify against an RSA bundle key; got {err:?}"
+        );
+    }
+
+    /// A symmetric `oct` JWK present in the bundle must not create an acceptance
+    /// path for an asymmetric (`ES256`) token. Even if such a key is configured
+    /// under the token's `kid`, verification must fail.
+    #[test]
+    fn parse_and_validate_rejects_asymmetric_token_against_symmetric_oct_bundle_key() {
+        let kid = "oct-kid";
+
+        // Genuine ES256 token.
+        let (_ec_authority, encoding_key) = new_es256_authority_and_encoding_key(kid);
+        let token = generate_token(
+            vec!["audience".to_owned()],
+            "spiffe://example.org/service".to_string(),
+            Some("JWT".to_string()),
+            Some(kid.to_string()),
+            0xFFFF_FFFF,
+            Algorithm::ES256,
+            &encoding_key,
+        );
+
+        // Bundle authority under the same kid is a symmetric `oct` key.
+        let oct_jwk = format!(
+            r#"{{"kty":"oct","kid":"{kid}","k":"AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"}}"#
+        );
+        let authority =
+            JwtAuthority::from_jwk_json(oct_jwk.as_bytes()).expect("valid oct JWK JSON");
+
+        let bundle_source = bundle_source_with(authority);
+
+        let result = JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]);
+        assert!(
+            result.is_err(),
+            "symmetric oct key must not validate an asymmetric ES256 token"
+        );
+    }
 }

@@ -67,7 +67,7 @@ mod verifier;
 // Public re-exports
 pub use authorizer::{any, exact, trust_domains, Authorizer};
 pub use client::ClientConfigBuilder;
-pub use error::{Error, Result};
+pub use error::{AuthorizerConfigError, Error, Result};
 pub use policy::TrustDomainPolicy;
 pub use policy::TrustDomainPolicy::{AllowList, AnyInBundleSet, LocalOnly};
 pub use server::ServerConfigBuilder;
