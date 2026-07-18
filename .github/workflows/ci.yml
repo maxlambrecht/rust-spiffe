@@ -78,7 +78,7 @@ jobs:
           fetch-depth: 1
 
       - name: Install Rust (MSRV)
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: ${{ env.MSRV }}
 
@@ -176,7 +176,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Rust (minimal)
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: stable
           components: cargo
@@ -200,7 +200,7 @@ jobs:
           fetch-depth: 1
 
       - name: Setup Rust (minimal)
-        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88
+        uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c
         with:
           toolchain: stable
           components: cargo
