@@ -240,6 +240,17 @@ impl ServerConfigBuilder {
 
     /// Builds the `rustls::ServerConfig`.
     ///
+    /// TLS session resumption (stateful session caching and TLS 1.3 session
+    /// tickets) is **disabled by default**. rustls does not re-invoke the
+    /// client certificate verifier on a resumed handshake, so resumption would
+    /// let a session outlive its SVID's (deliberately short) expiry, and
+    /// bypass a bundle or authorizer change (e.g. defederation, a tightened
+    /// allow list) until the cached session/ticket ages out. SPIRE's own TLS
+    /// server endpoint disables session tickets for the same reason. If you
+    /// understand this trade-off and want resumption for its performance
+    /// benefit, re-enable it via [`Self::with_config_customizer`] by setting
+    /// `cfg.session_storage` and `cfg.send_tls13_tickets`.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -268,6 +279,16 @@ impl ServerConfigBuilder {
             .with_cert_resolver(resolver);
 
         cfg.alpn_protocols = self.alpn_protocols;
+
+        // Disable session resumption by default: rustls does not re-run the
+        // client cert verifier on a resumed handshake, so a resumed session
+        // would silently bypass SVID expiry and bundle/authorizer changes.
+        // See the `build` doc for rationale and how to opt back in.
+        // `session_storage` covers TLS 1.2 and stateful TLS 1.3 resumption;
+        // `send_tls13_tickets = 0` stops issuing TLS 1.3 tickets so clients
+        // cannot resume statelessly either.
+        cfg.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
+        cfg.send_tls13_tickets = 0;
 
         // Apply customizer last
         if let Some(customizer) = self.config_customizer {

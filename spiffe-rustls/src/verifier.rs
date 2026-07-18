@@ -331,6 +331,46 @@ impl ServerBuildCell {
     }
 }
 
+/// RAII guard held by the single builder for a [`ServerBuildCell`] while it
+/// runs the (lock-free) build.
+///
+/// Unless [`disarm`](Self::disarm) is called after publishing `Ready`,
+/// dropping this guard reverts the cell to `Empty` and wakes any waiters.
+/// This covers both an early `Err` return *and* a panic unwinding out of the
+/// build call, so a single failed or panicking build can never leave the
+/// cell wedged in `Building` with other threads blocked on the condvar
+/// forever.
+struct ServerBuildGuard<'a> {
+    cell: &'a ServerBuildCell,
+    armed: bool,
+}
+
+impl<'a> ServerBuildGuard<'a> {
+    const fn new(cell: &'a ServerBuildCell) -> Self {
+        Self { cell, armed: true }
+    }
+
+    /// Call after successfully publishing `Ready`, so drop does not revert it.
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ServerBuildGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        // Best-effort: if the state mutex is poisoned we can't safely reset
+        // it, but still notify so waiters re-check and observe the poison
+        // (fail fast) instead of blocking on the condvar forever.
+        if let Ok(mut g) = lock_mutex(&self.cell.state) {
+            *g = ServerBuildState::Empty;
+        }
+        self.cell.cv.notify_all();
+    }
+}
+
 #[derive(Clone)]
 struct ServerVerifierCache {
     key: VerifierCacheKey,
@@ -360,6 +400,36 @@ impl ClientBuildCell {
             state: Mutex::new(ClientBuildState::Empty),
             cv: Condvar::new(),
         }
+    }
+}
+
+/// RAII guard held by the single builder for a [`ClientBuildCell`]; see
+/// [`ServerBuildGuard`] for the rationale (panic/early-return safety).
+struct ClientBuildGuard<'a> {
+    cell: &'a ClientBuildCell,
+    armed: bool,
+}
+
+impl<'a> ClientBuildGuard<'a> {
+    const fn new(cell: &'a ClientBuildCell) -> Self {
+        Self { cell, armed: true }
+    }
+
+    /// Call after successfully publishing `Ready`, so drop does not revert it.
+    const fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for ClientBuildGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Ok(mut g) = lock_mutex(&self.cell.state) {
+            *g = ClientBuildState::Empty;
+        }
+        self.cell.cv.notify_all();
     }
 }
 
@@ -506,20 +576,13 @@ impl SpiffeServerCertVerifier {
                     *guard = ServerBuildState::Building;
                     drop(guard);
 
+                    // Reverts the cell to `Empty` and wakes waiters unless disarmed
+                    // below; covers both `?` below and an unexpected panic from the
+                    // (lock-free) build call.
+                    let mut build_guard = ServerBuildGuard::new(&cell);
+
                     // Build without holding any locks.
-                    let value = match build_server_cache_value(Arc::clone(&roots)) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // Reset + notify waiters; do not cache failure.
-                            let mut g = lock_mutex(&cell.state).map_err(|()| {
-                                Error::Internal("server verifier cache mutex poisoned".into())
-                            })?;
-                            *g = ServerBuildState::Empty;
-                            drop(g);
-                            cell.cv.notify_all();
-                            return Err(e);
-                        }
-                    };
+                    let value = build_server_cache_value(Arc::clone(&roots))?;
 
                     // Publish success and wake waiters.
                     let mut g = lock_mutex(&cell.state).map_err(|()| {
@@ -528,6 +591,7 @@ impl SpiffeServerCertVerifier {
                     let cached = value.clone();
                     *g = ServerBuildState::Ready(value);
                     drop(g);
+                    build_guard.disarm();
                     cell.cv.notify_all();
                     return Ok(cached);
                 }
@@ -766,19 +830,12 @@ impl SpiffeClientCertVerifier {
                     *guard = ClientBuildState::Building;
                     drop(guard);
 
-                    let verifier = match build_client_verifier(roots) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // Reset + notify waiters; do not cache failure.
-                            let mut g = lock_mutex(&cell.state).map_err(|()| {
-                                Error::Internal("client verifier cache mutex poisoned".into())
-                            })?;
-                            *g = ClientBuildState::Empty;
-                            drop(g);
-                            cell.cv.notify_all();
-                            return Err(e);
-                        }
-                    };
+                    // Reverts the cell to `Empty` and wakes waiters unless disarmed
+                    // below; covers both `?` below and an unexpected panic from the
+                    // (lock-free) build call.
+                    let mut build_guard = ClientBuildGuard::new(&cell);
+
+                    let verifier = build_client_verifier(roots)?;
 
                     let schemes = verifier.supported_verify_schemes();
                     let value = ClientVerifierCacheValue { verifier, schemes };
@@ -789,6 +846,7 @@ impl SpiffeClientCertVerifier {
                     let verifier = Arc::clone(&value.verifier);
                     *g = ClientBuildState::Ready(value);
                     drop(g);
+                    build_guard.disarm();
                     cell.cv.notify_all();
                     return Ok(verifier);
                 }
@@ -1953,5 +2011,119 @@ mod tests {
 
         let s2 = verifier.supported_verify_schemes();
         assert!(!s2.is_empty());
+    }
+
+    /// [`MaterialProvider`] whose snapshot can be swapped after construction,
+    /// used to simulate a build failure (empty root store) followed by a
+    /// recovery (valid root store) for the *same* cache key.
+    #[derive(Clone)]
+    struct MutableMaterial(Arc<Mutex<Arc<MaterialSnapshot>>>);
+
+    impl MaterialProvider for MutableMaterial {
+        fn current_material(&self) -> Arc<MaterialSnapshot> {
+            lock_mutex(&self.0).unwrap().clone()
+        }
+    }
+
+    fn snapshot_with_roots(
+        generation: u64,
+        td: &TrustDomain,
+        roots: Arc<RootCertStore>,
+    ) -> Arc<MaterialSnapshot> {
+        let mut roots_by_td = BTreeMap::new();
+        roots_by_td.insert(td.clone(), roots);
+        Arc::new(MaterialSnapshot {
+            generation,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        })
+    }
+
+    #[test]
+    fn server_build_cell_recovers_after_build_failure() {
+        // Regression test for the single-flight build cell: a failed build
+        // (here, an empty root store rejected by rustls at `build()` time)
+        // must leave the cell able to build again for the same cache key
+        // (same generation + trust domain), not wedged in `Building`.
+        ensure_provider();
+
+        let td = TrustDomain::new("example.org").unwrap();
+        let provider = Arc::new(MutableMaterial(Arc::new(Mutex::new(snapshot_with_roots(
+            1,
+            &td,
+            Arc::new(RootCertStore::empty()),
+        )))));
+
+        let verifier = SpiffeServerCertVerifier::new(
+            Arc::<MutableMaterial>::clone(&provider),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        match verifier.get_or_build_inner(&td) {
+            Ok(_) => panic!("expected build to fail with an empty root store"),
+            Err(Error::VerifierBuilder(_)) => {}
+            Err(other) => panic!("expected Error::VerifierBuilder, got {other:?}"),
+        }
+
+        // Same generation and trust domain (same cache key), but now with a
+        // usable root store: the cell must have reverted to `Empty` and allow
+        // a fresh build attempt to succeed.
+        *lock_mutex(&provider.0).unwrap() = snapshot_with_roots(1, &td, roots_with_ca());
+
+        let value = verifier
+            .get_or_build_inner(&td)
+            .expect("build must succeed once the root store is valid");
+        assert!(!value.schemes.is_empty());
+    }
+
+    #[test]
+    fn server_build_cell_concurrent_waiters_recover_after_build_failure() {
+        // Several threads race to build for the same key while the build
+        // fails; all must observe the failure (none may hang on the condvar),
+        // and a subsequent build with valid roots must still succeed. Bounded
+        // by `thread::Builder` join with no external timeout: if the fix
+        // regresses, this test hangs rather than silently passing.
+        ensure_provider();
+
+        let td = TrustDomain::new("example.org").unwrap();
+        let provider = Arc::new(MutableMaterial(Arc::new(Mutex::new(snapshot_with_roots(
+            1,
+            &td,
+            Arc::new(RootCertStore::empty()),
+        )))));
+
+        let verifier = Arc::new(SpiffeServerCertVerifier::new(
+            Arc::<MutableMaterial>::clone(&provider),
+            |_peer: &SpiffeId| true,
+            TrustDomainPolicy::AnyInBundleSet,
+        ));
+
+        let handles: Vec<_> = std::iter::repeat_with(|| {
+            let verifier = Arc::clone(&verifier);
+            let td = td.clone();
+            std::thread::spawn(move || {
+                matches!(
+                    verifier.get_or_build_inner(&td),
+                    Err(Error::VerifierBuilder(_))
+                )
+            })
+        })
+        .take(8)
+        .collect();
+
+        for h in handles {
+            assert!(
+                h.join().expect("waiter thread must not panic"),
+                "every waiter must observe Error::VerifierBuilder, not hang or panic"
+            );
+        }
+
+        *lock_mutex(&provider.0).unwrap() = snapshot_with_roots(1, &td, roots_with_ca());
+
+        let value = verifier
+            .get_or_build_inner(&td)
+            .expect("build must succeed once the root store is valid");
+        assert!(!value.schemes.is_empty());
     }
 }

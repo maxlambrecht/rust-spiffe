@@ -2,13 +2,24 @@
 
 ## [Unreleased]
 
+### Security
+
+- Hardened rustls peer leaf validation: peer leaf certificates whose `KeyUsage` extension is missing or does not include `digitalSignature` are now rejected with `Error::InvalidLeaf`. This may affect deployments using non-conformant X.509-SVID leaf certificates.
+- TLS session resumption is now disabled by default in both `mtls_server` and `mtls_client` configurations. rustls skips certificate re-verification on a resumed handshake, so a resumed session could outlive the peer SVID's expiry or bypass a bundle/authorizer change (e.g. defederation) until the cached session or ticket aged out — matching SPIRE's own mitigation ([spiffe/spire#6715](https://github.com/spiffe/spire/pull/6715)). No interop impact: peers requesting resumption simply fall back to a full handshake. Re-enable via `with_config_customizer` (client: `cfg.resumption`; server: `cfg.session_storage` and `cfg.send_tls13_tickets`).
+
 ### Added
 
 - Re-exported `AuthorizerConfigError` at the crate root. It is the source error behind `Error::AuthorizerConfig` and was previously unnameable by downstream callers.
 
 ### Changed
 
-- Hardened rustls peer leaf validation: peer leaf certificates whose `KeyUsage` extension is missing or does not include `digitalSignature` are now rejected with `Error::InvalidLeaf`. This may affect deployments using non-conformant X.509-SVID leaf certificates.
+- `certified_key_from_chain_and_key` now verifies the private key matches the leaf certificate's public key, failing at material-build time (`Error::CertifiedKey`) instead of later at TLS signing time. Mismatched SVID material that previously built "successfully" is now rejected.
+
+### Fixed
+
+- `MaterialWatcher` now subscribes to `X509Source` rotation updates before building its initial snapshot, closing a window where a rotation landing between the two could be missed until the next one.
+- If the underlying `X509Source` is closed, `MaterialWatcher` now logs at `error` (previously `info`) when it freezes on its last known-good snapshot, including trust roots, until process restart.
+- The per-trust-domain verifier build cache no longer risks wedging in a "building" state forever if a build panics or otherwise fails to reach its error-handling path; other handshakes waiting on that cache entry now reliably observe an error instead of hanging.
 
 
 ## [0.7.0] - 2026-06-08

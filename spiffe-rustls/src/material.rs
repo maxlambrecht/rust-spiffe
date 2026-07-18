@@ -43,10 +43,14 @@ pub(crate) fn roots_from_certs(certs: &[CertificateDer<'static>]) -> Result<Arc<
 
 /// Build a rustls `CertifiedKey` from a cert chain and a PKCS#8 private key.
 ///
+/// This verifies that the private key matches the leaf certificate's SPKI
+/// (via `CertifiedKey::from_der`'s `keys_match` check), so mismatched material
+/// fails here at build time instead of later, opaquely, at handshake/signing time.
+///
 /// ## Errors
 ///
-/// Returns [`Error::CertifiedKey`] if the crypto provider is not installed
-/// or the key can't be loaded.
+/// Returns [`Error::CertifiedKey`] if the crypto provider is not installed,
+/// the key can't be loaded, or the key does not match the leaf certificate.
 pub(crate) fn certified_key_from_chain_and_key(
     cert_chain: Vec<CertificateDer<'static>>,
     private_key_pkcs8_der: &[u8],
@@ -56,27 +60,33 @@ pub(crate) fn certified_key_from_chain_and_key(
     let provider = rustls::crypto::CryptoProvider::get_default()
         .ok_or_else(|| Error::CertifiedKey("rustls crypto provider is not installed".into()))?;
 
-    let signing_key = provider
-        .key_provider
-        .load_private_key(key_der)
+    let certified_key = rustls::sign::CertifiedKey::from_der(cert_chain, key_der, provider)
         .map_err(|e| Error::CertifiedKey(format!("{e:?}")))?;
 
-    Ok(Arc::new(rustls::sign::CertifiedKey::new(
-        cert_chain,
-        signing_key,
-    )))
+    Ok(Arc::new(certified_key))
 }
 
-/// Helper: build an owned cert chain from an iterator of DER bytes.
+/// Helper: build owned DER certificates from an iterator of DER bytes.
 ///
 /// This prevents higher layers from passing around `Vec<Vec<u8>>`.
-pub(crate) fn cert_chain_from_der_bytes<'a, I>(ders: I) -> Vec<CertificateDer<'static>>
+fn owned_certs_from_der_bytes<'a, I>(ders: I) -> Vec<CertificateDer<'static>>
 where
     I: IntoIterator<Item = &'a [u8]>,
 {
     ders.into_iter()
         .map(|b| CertificateDer::from(b.to_vec()))
         .collect()
+}
+
+/// Helper: build an owned cert chain from an iterator of DER bytes.
+///
+/// Alias of [`certs_from_der_bytes`] kept for readability at call sites
+/// that build a leaf-to-root chain rather than a root store.
+pub(crate) fn cert_chain_from_der_bytes<'a, I>(ders: I) -> Vec<CertificateDer<'static>>
+where
+    I: IntoIterator<Item = &'a [u8]>,
+{
+    owned_certs_from_der_bytes(ders)
 }
 
 /// Helper: build owned root certs from an iterator of DER bytes.
@@ -84,7 +94,5 @@ pub(crate) fn certs_from_der_bytes<'a, I>(ders: I) -> Vec<CertificateDer<'static
 where
     I: IntoIterator<Item = &'a [u8]>,
 {
-    ders.into_iter()
-        .map(|b| CertificateDer::from(b.to_vec()))
-        .collect()
+    owned_certs_from_der_bytes(ders)
 }

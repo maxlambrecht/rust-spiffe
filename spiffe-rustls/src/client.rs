@@ -259,6 +259,16 @@ impl ClientConfigBuilder {
     /// SVID or trust bundle is rotated by the SPIRE agent, **new TLS handshakes
     /// automatically use the updated material**.
     ///
+    /// TLS session resumption is **disabled by default**. rustls does not
+    /// re-invoke the server certificate verifier on a resumed handshake, so
+    /// resumption would let a session outlive its peer's (deliberately short)
+    /// SVID expiry, and bypass a bundle or authorizer change (e.g.
+    /// defederation, a tightened allow list) until the cached session ages
+    /// out. SPIRE's own TLS server endpoint disables session tickets for the
+    /// same reason. If you understand this trade-off and want resumption for
+    /// its performance benefit, re-enable it via [`Self::with_config_customizer`]
+    /// by setting `cfg.resumption`.
+    ///
     /// # Errors
     ///
     /// Returns an error if:
@@ -288,6 +298,12 @@ impl ClientConfigBuilder {
             .with_client_cert_resolver(resolver);
 
         cfg.alpn_protocols = self.alpn_protocols;
+
+        // Disable session resumption by default: rustls does not re-run the
+        // server cert verifier on a resumed handshake, so a resumed session
+        // would silently bypass SVID expiry and bundle/authorizer changes.
+        // See the `build` doc for rationale and how to opt back in.
+        cfg.resumption = rustls::client::Resumption::disabled();
 
         // Apply customizer last
         if let Some(customizer) = self.config_customizer {
