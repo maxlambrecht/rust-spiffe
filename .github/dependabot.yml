@@ -9,6 +9,9 @@ updates:
     labels: [dependencies, ci]
     commit-message:
       prefix: "chore(ci)"
+    ignore:
+      - dependency-name: "taiki-e/install-action"
+        update-types: ["version-update:semver-patch"]
     groups:
       github-actions:
         patterns: ["*"]
