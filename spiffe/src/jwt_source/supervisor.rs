@@ -2,7 +2,7 @@ use super::builder::{ReconnectConfig, ResourceLimits};
 use super::errors::{JwtSourceError, MetricsErrorKind};
 use super::limits::validate_bundle_set;
 use super::metrics::MetricsRecorder;
-use super::source::Inner;
+use super::source::{ApplyUpdateResult, Inner};
 use super::types::ClientFactory;
 use crate::bundle::jwt::JwtBundleSet;
 use crate::prelude::{debug, info, warn};
@@ -183,6 +183,22 @@ pub(super) async fn initial_sync_with_retry(
                 if let Some(m) = metrics {
                     m.record_error(MetricsErrorKind::InitialSyncFailed);
                 }
+                // INVALID_ARGUMENT means the Workload API rejected the request itself
+                // (non-conforming server, a proxy mangling gRPC metadata, protocol
+                // mismatch, etc.). Retrying with backoff would just repeat the same
+                // rejection forever, hanging construction indefinitely unless the caller
+                // opted into `initial_sync_timeout`. Fail fast instead. Steady-state
+                // reconnects (after a successful initial sync) are intentionally left
+                // retrying as before, since we already hold valid material at that point.
+                if let JwtSourceError::Source(inner) = &e {
+                    if inner.is_invalid_argument() {
+                        warn!(
+                            "Initial sync: Workload API rejected the request as invalid \
+                             (INVALID_ARGUMENT); not retrying: error={e}"
+                        );
+                        return Err(e);
+                    }
+                }
                 if sleep_or_cancel(cancel, backoff).await {
                     return Err(JwtSourceError::Closed);
                 }
@@ -272,8 +288,8 @@ pub(super) use supervisor_common::{next_backoff, next_backoff_for_no_identity, s
 struct StreamResult {
     /// Whether the cancellation token was triggered.
     cancelled: bool,
-    /// Whether at least one update was successfully applied.
-    had_successful_update: bool,
+    /// Whether at least one valid item was received from the stream.
+    had_valid_item: bool,
 }
 
 impl Inner {
@@ -327,9 +343,8 @@ impl Inner {
                         return;
                     }
 
-                    // Reset backoff only if we successfully processed at least one update,
-                    // meaning the stream actually delivered useful data before failing.
-                    if result.had_successful_update {
+                    // Reset backoff only if the stream delivered valid data before failing.
+                    if result.had_valid_item {
                         backoff = self.reconnect().min_backoff;
                     }
 
@@ -340,7 +355,7 @@ impl Inner {
                     {
                         return;
                     }
-                    if !result.had_successful_update {
+                    if !result.had_valid_item {
                         backoff = next_backoff(backoff, self.reconnect().max_backoff);
                     }
                 }
@@ -391,13 +406,13 @@ impl Inner {
         supervisor_id: u64,
     ) -> StreamResult {
         let mut update_rejection_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
-        let mut had_successful_update = false;
+        let mut had_valid_item = false;
 
         loop {
             let item = tokio::select! {
                 () = cancellation_token.cancelled() => {
                     debug!("Cancellation signal received; stopping update loop");
-                    return StreamResult { cancelled: true, had_successful_update };
+                    return StreamResult { cancelled: true, had_valid_item };
                 }
                 v = stream.next() => v,
             };
@@ -405,8 +420,8 @@ impl Inner {
             match item {
                 Some(Ok(bundle_set)) => {
                     match self.apply_update(Arc::new(bundle_set)) {
-                        Ok(()) => {
-                            had_successful_update = true;
+                        Ok(ApplyUpdateResult::Applied) => {
+                            had_valid_item = true;
                             if update_rejection_tracker.consecutive_count() > 0 {
                                 info!(
                                     "Update validation recovered after {} consecutive failures",
@@ -415,6 +430,17 @@ impl Inner {
                                 update_rejection_tracker.reset();
                             }
                             info!("JWT bundle set updated");
+                        }
+                        Ok(ApplyUpdateResult::Unchanged) => {
+                            had_valid_item = true;
+                            if update_rejection_tracker.consecutive_count() > 0 {
+                                debug!(
+                                    "Update validation recovered with unchanged JWT bundle set after {} consecutive failures",
+                                    update_rejection_tracker.consecutive_count(),
+                                );
+                                update_rejection_tracker.reset();
+                            }
+                            debug!("JWT bundle set unchanged; skipping update notification");
                         }
                         Err(e) => {
                             let should_warn =
@@ -438,7 +464,7 @@ impl Inner {
                     self.record_error(MetricsErrorKind::StreamError);
                     return StreamResult {
                         cancelled: false,
-                        had_successful_update,
+                        had_valid_item,
                     };
                 }
                 None => {
@@ -446,10 +472,69 @@ impl Inner {
                     self.record_error(MetricsErrorKind::StreamEnded);
                     return StreamResult {
                         cancelled: false,
-                        had_successful_update,
+                        had_valid_item,
                     };
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::TransportError;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn invalid_argument_error() -> WorkloadApiError {
+        WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
+            "bad request",
+        )))
+    }
+
+    #[tokio::test]
+    async fn initial_sync_fails_fast_on_invalid_argument() {
+        // A gRPC INVALID_ARGUMENT response indicates the Workload API rejected the
+        // request itself (non-conforming server, metadata-mangling proxy, etc.), so
+        // retrying with backoff would just repeat the same rejection. Initial sync must
+        // return promptly instead of retrying indefinitely.
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let make_client: ClientFactory = Arc::new(move || {
+            attempts_clone.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(invalid_argument_error()) })
+        });
+
+        let cancel = CancellationToken::new();
+        // Deliberately large backoff: if the fast-fail path regresses and the retry loop
+        // sleeps before giving up, the outer timeout below will catch it rather than
+        // hanging the test suite.
+        let reconnect = ReconnectConfig::new(Duration::from_secs(30), Duration::from_secs(60));
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            initial_sync_with_retry(
+                &make_client,
+                &cancel,
+                reconnect,
+                ResourceLimits::default(),
+                None,
+            ),
+        )
+        .await
+        .expect("initial sync should fail fast instead of retrying on INVALID_ARGUMENT");
+
+        assert!(
+            matches!(
+                &result,
+                Err(JwtSourceError::Source(e)) if e.is_invalid_argument()
+            ),
+            "expected an invalid-argument Source error, got: {result:?}"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "must not retry client creation after an INVALID_ARGUMENT response"
+        );
     }
 }

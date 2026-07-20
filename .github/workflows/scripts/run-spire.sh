@@ -368,7 +368,6 @@ for service in "myservice" "myservice2"; do
     -hint "${service}" \
     -dns example.org \
     -selector "unix:uid:${uid}" \
-    -x509SVIDTTL 5 \
     -jwtSVIDTTL 5 \
     -federatesWith spiffe://example-federated.org
 done
@@ -393,7 +392,6 @@ for service in "myservice" "myservice2"; do
     -hint "${service}" \
     -dns example.org \
     -selector "unix:uid:${uid}" \
-    -x509SVIDTTL 5 \
     -jwtSVIDTTL 5 \
     -federatesWith spiffe://example.org
 done

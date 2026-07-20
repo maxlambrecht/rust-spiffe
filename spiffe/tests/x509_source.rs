@@ -270,22 +270,21 @@ mod integration_tests_x509_source {
         let source = get_source().await;
         let mut updates = source.updated();
 
-        // Wait for initial update (sequence number > 0)
-        let initial_seq = updates.last();
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            updates.wait_for(|&seq| seq > initial_seq),
-        )
-        .await
-        .expect("Should receive initial update within 10 seconds")
-        .expect("Update channel should not be closed");
-
-        // Verify we got an update
-        let new_seq = updates.last();
-        assert!(
-            new_seq > initial_seq,
-            "Sequence number should have increased"
+        // Construction completes after initial sync, which does not notify. The supervisor
+        // then reconnects and may re-deliver the same X.509 material (possibly with SVIDs
+        // reshuffled); that must also not notify.
+        assert_eq!(
+            updates.last(),
+            0,
+            "sequence should remain 0 after initial sync"
         );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), updates.changed())
+                .await
+                .is_err(),
+            "unchanged material re-delivered on reconnect must not bump the sequence"
+        );
+        assert_eq!(updates.last(), 0);
     }
 
     #[tokio::test]
@@ -372,21 +371,24 @@ mod integration_tests_x509_source {
                 .unwrap()
         };
 
-        // Trigger an update by getting the SVID
+        // Verify the source is working and the metrics recorder is wired.
         let _svid = source.svid().unwrap();
 
-        // Wait for an update to be recorded (initial sync should record an update)
-        // Use timeout to prevent hanging if no update occurs
-        let update_recorded =
+        // Initial sync does not record an update. The post-construction reconnect may
+        // re-deliver identical material; that must also not record an update.
+        // (Genuine rotations are covered by unit tests around apply_update.)
+        assert_eq!(
+            metrics.update_count(),
+            0,
+            "initial sync must not record an update"
+        );
+        assert!(
             tokio::time::timeout(Duration::from_secs(2), update_notify.notified())
                 .await
-                .is_ok();
-
-        // Should have recorded at least one update (initial sync)
-        assert!(
-            update_recorded && metrics.update_count() > 0,
-            "Should have recorded at least one update"
+                .is_err(),
+            "unchanged material re-delivered on reconnect must not record an update"
         );
+        assert_eq!(metrics.update_count(), 0);
     }
 
     #[tokio::test]
@@ -511,27 +513,17 @@ mod integration_tests_x509_source {
         let source = get_source().await;
         let mut updates = source.updated();
 
-        // Get initial sequence number
-        let initial_seq = updates.last();
-
-        // Wait for at least one update
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            updates.wait_for(|&seq| seq > initial_seq),
-        )
-        .await
-        .expect("Should receive update within 30 seconds")
-        .expect("Update channel should not be closed");
-
-        // Sequence should have increased
-        let new_seq = updates.last();
-        assert!(new_seq > initial_seq, "Sequence number should increase");
-
-        // Sequence numbers should be monotonic
+        // Sequence starts at 0 and stays there until a genuine rotation.
+        // A live SPIRE agent typically re-delivers equivalent material after the
+        // post-construction reconnect; that must not advance the sequence.
+        assert_eq!(updates.last(), 0);
         assert!(
-            new_seq >= initial_seq,
-            "Sequence numbers should be monotonic"
+            tokio::time::timeout(Duration::from_secs(2), updates.changed())
+                .await
+                .is_err(),
+            "sequence must not advance without a genuine rotation"
         );
+        assert_eq!(updates.last(), 0);
     }
 
     #[tokio::test]
@@ -549,17 +541,15 @@ mod integration_tests_x509_source {
             initial_seq1, initial_seq2,
             "Receivers should start with same sequence"
         );
+        assert_eq!(initial_seq1, 0);
 
-        // Wait for update on one receiver
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            updates1.wait_for(|&seq| seq > initial_seq1),
-        )
-        .await
-        .expect("Should receive update")
-        .expect("Update channel should not be closed");
-
-        // Both receivers should see the update
+        // No spurious reconnect notification should desynchronize them.
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), updates1.changed())
+                .await
+                .is_err(),
+            "unchanged material must not notify either receiver"
+        );
         assert_eq!(
             updates1.last(),
             updates2.last(),

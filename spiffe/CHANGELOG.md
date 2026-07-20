@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **X509Source / JwtSource:** `updated()` no longer notifies for unchanged material re-delivered after reconnect, matching the documented rotation-only contract. For X.509, SVID list order and bundle authority order are ignored, while certificate chain changes still notify. Unchanged re-deliveries are no longer logged as updates, and reconnect backoff still treats them as healthy stream data.
+- **X509Source / JwtSource:** Initial sync now fails fast on Workload API gRPC `INVALID_ARGUMENT` instead of retrying forever. Steady-state reconnect behavior is unchanged.
+
+### Added
+
+- **WorkloadApiError:** Added `WorkloadApiError::is_invalid_argument()`.
+
+### Documentation
+
+- **X509Source:** Documented the pre-existing expired-SVID update rejection behavior, including snapshot retention, clock-skew implications, and the dedicated `WARN` log for this case.
+- **WorkloadApiClient:** Documented ignored X.509 response CRLs, default-only `stream_x509_svids`, SPIRE-specific `NoIdentityIssued` message matching, and federated-bundle overwrite precedence.
+
 ## [0.16.0] - 2026-06-08
 
 ### Breaking changes

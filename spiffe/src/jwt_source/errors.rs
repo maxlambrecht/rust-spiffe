@@ -7,6 +7,15 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum JwtSourceError {
     /// Failed to retrieve or refresh JWT material from the source.
+    ///
+    /// During the initial synchronization performed by [`JwtSource::new`](crate::JwtSource::new)/
+    /// [`JwtSourceBuilder::build`](crate::JwtSourceBuilder::build), most underlying
+    /// [`WorkloadApiError`]s (e.g. transient connectivity failures, `NoIdentityIssued`)
+    /// are retried with backoff rather than surfaced immediately. The one exception is a
+    /// gRPC `INVALID_ARGUMENT` response (see [`WorkloadApiError::is_invalid_argument`]):
+    /// since retrying would just repeat the same rejection, initial sync fails fast and
+    /// returns this error instead of retrying indefinitely. Steady-state reconnects after
+    /// a successful initial sync are unaffected and continue retrying as before.
     #[error("jwt source error: {0}")]
     Source(#[from] WorkloadApiError),
 
