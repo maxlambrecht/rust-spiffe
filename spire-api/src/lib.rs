@@ -40,6 +40,10 @@
     test,
     expect(unused_crate_dependencies, reason = "used in the integration tests")
 )]
+#![allow(
+    clippy::multiple_crate_versions,
+    reason = "transitive dependencies may temporarily pull multiple proc-macro support crate versions"
+)]
 
 /// Generated protobuf bindings for SPIRE APIs.
 ///

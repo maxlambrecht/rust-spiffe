@@ -109,6 +109,10 @@
     unused_crate_dependencies,
     reason = "optional dependencies and features are not well factored"
 )]
+#![allow(
+    clippy::multiple_crate_versions,
+    reason = "transitive dependencies may temporarily pull multiple proc-macro support crate versions"
+)]
 
 pub mod bundle;
 #[cfg(feature = "x509")]

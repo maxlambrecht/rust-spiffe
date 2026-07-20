@@ -7,6 +7,15 @@ use thiserror::Error;
 #[non_exhaustive]
 pub enum X509SourceError {
     /// Failed to retrieve or refresh X.509 material from the source.
+    ///
+    /// During the initial synchronization performed by [`X509Source::new`](crate::X509Source::new)/
+    /// [`X509SourceBuilder::build`](crate::X509SourceBuilder::build), most underlying
+    /// [`WorkloadApiError`]s (e.g. transient connectivity failures, `NoIdentityIssued`)
+    /// are retried with backoff rather than surfaced immediately. The one exception is a
+    /// gRPC `INVALID_ARGUMENT` response (see [`WorkloadApiError::is_invalid_argument`]):
+    /// since retrying would just repeat the same rejection, initial sync fails fast and
+    /// returns this error instead of retrying indefinitely. Steady-state reconnects after
+    /// a successful initial sync are unaffected and continue retrying as before.
     #[error("x509 source error: {0}")]
     Source(#[from] WorkloadApiError),
 
@@ -15,6 +24,15 @@ pub enum X509SourceError {
     /// This can occur when:
     /// - The picker rejects all available SVIDs
     /// - No default SVID is available and no picker is configured
+    /// - The selected SVID already appears expired according to the local wall clock,
+    ///   even though the Workload API delivered it as the current update. This is a
+    ///   deliberate, conservative check: the update (SVID and any trust bundles it
+    ///   carries) is rejected wholesale, and the previously accepted SVID and bundles
+    ///   keep being served/verified against. Because this check is driven by the local
+    ///   clock, a host whose clock is meaningfully ahead of the Workload API's agent can
+    ///   reject every subsequent rotation this way, indefinitely — if this is suspected,
+    ///   check for clock skew on this host. A `WARN`-level log is emitted specifically
+    ///   for this expiry case (see the crate's `tracing`/`logging` features).
     #[error("no suitable svid found")]
     NoSuitableSvid,
 

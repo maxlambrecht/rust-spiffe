@@ -226,22 +226,20 @@ mod integration_tests_jwt_source {
         let source = get_source().await;
         let mut updates = source.updated();
 
-        // Wait for initial update (sequence number > 0)
-        let initial_seq = updates.last();
-        tokio::time::timeout(
-            Duration::from_secs(10),
-            updates.wait_for(|&seq| seq > initial_seq),
-        )
-        .await
-        .expect("Should receive initial update within 10 seconds")
-        .expect("Update channel should not be closed");
-
-        // Verify we got an update
-        let new_seq = updates.last();
-        assert!(
-            new_seq > initial_seq,
-            "Sequence number should have increased"
+        // Construction completes after initial sync, which does not notify. The supervisor
+        // then reconnects and may re-deliver the same bundle set; that must also not notify.
+        assert_eq!(
+            updates.last(),
+            0,
+            "sequence should remain 0 after initial sync"
         );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), updates.changed())
+                .await
+                .is_err(),
+            "unchanged material re-delivered on reconnect must not bump the sequence"
+        );
+        assert_eq!(updates.last(), 0);
     }
 
     #[tokio::test]
@@ -322,42 +320,24 @@ mod integration_tests_jwt_source {
                 .unwrap()
         };
 
-        // Verify the source is working
+        // Verify the source is working and the metrics recorder is wired.
         let _bundle = source.bundle_for_trust_domain(&trust_domain()).unwrap();
 
-        // Wait for an actual bundle rotation (updates are only recorded on rotations, not initial sync)
-        let mut updates = source.updated();
-        let initial_seq = updates.last();
-
-        // Wait for at least one update (bundle rotation) - use both the update sequence
-        // and the metrics notify to ensure we catch the update
-        let update_result = tokio::time::timeout(Duration::from_secs(30), async {
-            tokio::select! {
-                seq_result = updates.wait_for(|&seq| seq > initial_seq) => seq_result,
-                () = update_notify.notified() => {
-                    // If we got notified of an update, check the sequence
-                    if updates.last() > initial_seq {
-                        Ok(updates.last())
-                    } else {
-                        // Wait a bit more for the sequence to update
-                        updates.wait_for(|&seq| seq > initial_seq).await
-                    }
-                }
-            }
-        })
-        .await;
-
-        // If we got an update, metrics should have been recorded
-        // Note: Initial sync doesn't record an update; only bundle rotations do.
-        // If no update occurred within 30 seconds, that's acceptable (the source
-        // might not have rotated bundles yet). The test verifies that the metrics
-        // recorder is set up correctly and will record updates when they occur.
-        if let Ok(Ok(_seq)) = update_result {
-            assert!(
-                metrics.update_count() > 0,
-                "Should have recorded at least one update after bundle rotation"
-            );
-        }
+        // Initial sync does not record an update. The post-construction reconnect may
+        // re-deliver identical material; that must also not record an update.
+        // (Genuine rotations are covered by unit tests around apply_update.)
+        assert_eq!(
+            metrics.update_count(),
+            0,
+            "initial sync must not record an update"
+        );
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), update_notify.notified())
+                .await
+                .is_err(),
+            "unchanged material re-delivered on reconnect must not record an update"
+        );
+        assert_eq!(metrics.update_count(), 0);
     }
 
     #[tokio::test]
@@ -463,27 +443,17 @@ mod integration_tests_jwt_source {
         let source = get_source().await;
         let mut updates = source.updated();
 
-        // Get initial sequence number
-        let initial_seq = updates.last();
-
-        // Wait for at least one update
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            updates.wait_for(|&seq| seq > initial_seq),
-        )
-        .await
-        .expect("Should receive update within 30 seconds")
-        .expect("Update channel should not be closed");
-
-        // Sequence should have increased
-        let new_seq = updates.last();
-        assert!(new_seq > initial_seq, "Sequence number should increase");
-
-        // Sequence numbers should be monotonic
+        // Sequence starts at 0 and stays there until a genuine bundle rotation.
+        // A live SPIRE agent typically re-delivers identical material after the
+        // post-construction reconnect; that must not advance the sequence.
+        assert_eq!(updates.last(), 0);
         assert!(
-            new_seq >= initial_seq,
-            "Sequence numbers should be monotonic"
+            tokio::time::timeout(Duration::from_secs(2), updates.changed())
+                .await
+                .is_err(),
+            "sequence must not advance without a genuine rotation"
         );
+        assert_eq!(updates.last(), 0);
     }
 
     #[tokio::test]
@@ -501,17 +471,15 @@ mod integration_tests_jwt_source {
             initial_seq1, initial_seq2,
             "Receivers should start with same sequence"
         );
+        assert_eq!(initial_seq1, 0);
 
-        // Wait for update on one receiver
-        tokio::time::timeout(
-            Duration::from_secs(30),
-            updates1.wait_for(|&seq| seq > initial_seq1),
-        )
-        .await
-        .expect("Should receive update")
-        .expect("Update channel should not be closed");
-
-        // Both receivers should see the update
+        // No spurious reconnect notification should desynchronize them.
+        assert!(
+            tokio::time::timeout(Duration::from_secs(2), updates1.changed())
+                .await
+                .is_err(),
+            "unchanged material must not notify either receiver"
+        );
         assert_eq!(
             updates1.last(),
             updates2.last(),

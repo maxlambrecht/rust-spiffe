@@ -88,6 +88,28 @@ pub enum WorkloadApiError {
 }
 
 #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
+impl WorkloadApiError {
+    /// Returns `true` if this error indicates the Workload API rejected the request as
+    /// invalid (gRPC `INVALID_ARGUMENT`), rather than a transient connectivity or
+    /// availability problem.
+    ///
+    /// This typically indicates a non-conforming Workload API implementation, a proxy that
+    /// strips or mangles required gRPC metadata, or a protocol mismatch. Unlike transient
+    /// errors (e.g. `UNAVAILABLE`, connection refused, `NoIdentityIssued`), retrying with
+    /// backoff will not help: the same malformed/rejected request will keep failing the
+    /// same way. Callers that retry indefinitely (such as `X509Source`/`JwtSource` initial
+    /// synchronization) should treat this as a fast-fail condition instead.
+    #[must_use]
+    pub fn is_invalid_argument(&self) -> bool {
+        matches!(
+            self,
+            Self::Transport(TransportError::Status(status))
+                if status.code() == tonic::Code::InvalidArgument
+        )
+    }
+}
+
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 impl From<tonic::Status> for WorkloadApiError {
     fn from(status: tonic::Status) -> Self {
         use tonic::Code;
@@ -95,6 +117,10 @@ impl From<tonic::Status> for WorkloadApiError {
         if status.code() == Code::PermissionDenied {
             let msg = status.message();
 
+            // SPIFFE only specifies PermissionDenied for this condition; this string is
+            // SPIRE-specific. Other conforming implementations may use different wording and
+            // will fall through to PermissionDenied, preserving correctness with less specific
+            // logs/backoff.
             if msg.contains("no identity issued") {
                 return Self::NoIdentityIssued;
             }
@@ -110,5 +136,37 @@ impl From<tonic::Status> for WorkloadApiError {
 impl From<tonic::transport::Error> for WorkloadApiError {
     fn from(e: tonic::transport::Error) -> Self {
         Self::Transport(TransportError::Tonic(e))
+    }
+}
+
+#[cfg(test)]
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_invalid_argument_true_for_invalid_argument_status() {
+        let err = WorkloadApiError::from(tonic::Status::invalid_argument("bad request"));
+        assert!(err.is_invalid_argument());
+    }
+
+    #[test]
+    fn is_invalid_argument_false_for_other_transport_statuses() {
+        let err = WorkloadApiError::from(tonic::Status::unavailable("try again"));
+        assert!(!err.is_invalid_argument());
+    }
+
+    #[test]
+    fn is_invalid_argument_false_for_permission_denied() {
+        // PermissionDenied is mapped away from Transport(Status) entirely, but confirm
+        // the classification still correctly says "not invalid_argument".
+        let err = WorkloadApiError::from(tonic::Status::permission_denied("nope"));
+        assert!(!err.is_invalid_argument());
+    }
+
+    #[test]
+    fn is_invalid_argument_false_for_non_transport_variants() {
+        assert!(!WorkloadApiError::NoIdentityIssued.is_invalid_argument());
+        assert!(!WorkloadApiError::EmptyResponse.is_invalid_argument());
     }
 }

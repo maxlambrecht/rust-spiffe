@@ -321,8 +321,10 @@ impl JwtSource {
     /// the bundle set has changed without polling.
     ///
     /// **Note:** The initial sequence number is 0. Notifications are only sent
-    /// for rotations that occur after initial synchronization completes. The initial
-    /// sync does not trigger a notification.
+    /// when the received JWT bundle set actually differs from the currently held one.
+    /// The initial sync does not trigger a notification, and neither do re-deliveries
+    /// of an unchanged bundle set (e.g. on reconnect after a dropped stream or agent
+    /// restart) — only genuine rotations advance the sequence.
     ///
     /// # Examples
     ///
@@ -845,6 +847,15 @@ impl Drop for SupervisorTerminationGuard {
     }
 }
 
+/// Outcome of a successfully validated update.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ApplyUpdateResult {
+    /// The incoming bundle set differed and was stored, notified, and recorded.
+    Applied,
+    /// The incoming bundle set matched the held material; nothing was stored or notified.
+    Unchanged,
+}
+
 impl Inner {
     pub(super) fn record_error(&self, kind: MetricsErrorKind) {
         if let Some(metrics) = self.metrics.as_deref() {
@@ -861,16 +872,25 @@ impl Inner {
     pub(super) fn apply_update(
         &self,
         new_bundle_set: Arc<JwtBundleSet>,
-    ) -> Result<(), JwtSourceError> {
+    ) -> Result<ApplyUpdateResult, JwtSourceError> {
         // validate_bundle_set() already records limit-specific metrics.
         // We only record UpdateRejected here if validation fails, and the supervisor loop
         // should NOT record it again to avoid double-counting.
         match self.validate_bundle_set(&new_bundle_set) {
             Ok(()) => {
+                // The Workload API re-delivers the current bundle set as the first item on
+                // every new stream (initial sync, reconnect after agent restart, dropped
+                // stream, etc.). Skip the store/notify/record when the incoming bundle set is
+                // identical to what we already hold, so `updated()` only fires for actual
+                // rotations, matching its docs. This also avoids spurious cache invalidation
+                // for consumers who flush JWKS-derived caches on bundle change.
+                if self.bundle_set.load().as_ref() == new_bundle_set.as_ref() {
+                    return Ok(ApplyUpdateResult::Unchanged);
+                }
                 self.bundle_set.store(new_bundle_set);
                 self.notify_update();
                 self.record_update();
-                Ok(())
+                Ok(ApplyUpdateResult::Applied)
             }
             Err(e) => {
                 // Record UpdateRejected for any validation failure (limit metrics already recorded in validate_bundle_set).
@@ -1730,10 +1750,64 @@ mod tests {
 
         let result = source.inner.apply_update(create_test_bundle_set());
 
-        result.expect("valid JWT bundle set update should be accepted");
+        assert_eq!(
+            result.expect("valid JWT bundle set update should be accepted"),
+            ApplyUpdateResult::Applied
+        );
         assert_eq!(metrics.update_sequences(), vec![Some(1)]);
         assert_eq!(source.updated().last(), 1);
         assert_eq!(source.bundle_set().unwrap().iter().count(), 1);
+    }
+
+    #[test]
+    fn test_apply_update_skips_notify_for_unchanged_bundle_set() {
+        // The Workload API re-delivers the current bundle set as the first item on every
+        // new stream (initial sync, reconnect after a dropped stream, agent restart, etc.).
+        // apply_update must not treat re-delivery of an identical bundle set as a rotation.
+        let metrics = Arc::new(OrderingMetricsRecorder::new());
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<OrderingMetricsRecorder>::clone(&metrics)),
+        );
+        metrics.set_updates(source.updated());
+
+        // Same bundle set (by value) delivered again, e.g. on reconnect.
+        let result = source.inner.apply_update(create_test_bundle_set());
+
+        assert_eq!(
+            result.expect("re-delivery of an unchanged bundle set should be accepted"),
+            ApplyUpdateResult::Unchanged
+        );
+        assert_eq!(
+            source.updated().last(),
+            0,
+            "no notification should be sent for an unchanged bundle set"
+        );
+        assert!(
+            metrics.update_sequences().is_empty(),
+            "record_update should not be called for an unchanged bundle set"
+        );
+
+        // A genuine rotation (different bundle set) must still notify.
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let mut rotated_bundle = JwtBundle::new(trust_domain);
+        rotated_bundle.add_jwt_authority(jwk_with_kid("kid-2"));
+        let mut rotated_bundle_set = JwtBundleSet::new();
+        rotated_bundle_set.add_bundle(rotated_bundle);
+
+        let result = source
+            .inner
+            .apply_update(Arc::new(rotated_bundle_set))
+            .expect("valid rotation should be accepted");
+        assert_eq!(result, ApplyUpdateResult::Applied);
+        assert_eq!(
+            source.updated().last(),
+            1,
+            "a genuine rotation should still notify"
+        );
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
     }
 
     #[test]
