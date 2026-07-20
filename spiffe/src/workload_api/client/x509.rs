@@ -52,6 +52,8 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the gRPC request fails, the response stream
     /// ends unexpectedly, or the received data is invalid.
+    ///
+    /// CRLs included in the Workload API response are currently ignored.
     pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, WorkloadApiError> {
         let request = X509BundlesRequest::default();
 
@@ -71,6 +73,8 @@ impl WorkloadApiClient {
     ///
     /// Returns a [`WorkloadApiError`] if the Workload API request fails, the response
     /// stream terminates unexpectedly, or the received data cannot be parsed.
+    ///
+    /// CRLs included in the Workload API response are currently ignored.
     #[cfg(feature = "x509")]
     pub async fn fetch_x509_context(&self) -> Result<X509Context, WorkloadApiError> {
         let request = X509svidRequest::default();
@@ -88,7 +92,7 @@ impl WorkloadApiClient {
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
-    /// use [`X509Source`].
+    /// use [`crate::X509Source`].
     ///
     /// # Errors
     ///
@@ -114,11 +118,11 @@ impl WorkloadApiClient {
         Ok(Box::pin(stream))
     }
 
-    /// Streams X.509 SVID updates from the Workload API.
+    /// Streams default X.509 SVID updates from the Workload API.
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
-    /// use [`X509Source`].
+    /// use [`crate::X509Source`].
     ///
     /// # Errors
     ///
@@ -146,7 +150,7 @@ impl WorkloadApiClient {
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
-    /// use [`X509Source`].
+    /// use [`crate::X509Source`].
     ///
     /// # Errors
     ///
@@ -257,6 +261,9 @@ impl WorkloadApiClient {
             let trust_domain = TrustDomain::try_from(trust_domain)?;
             let x509_bundle = X509Bundle::parse_from_der(trust_domain, bundle.as_ref())
                 .map_err(WorkloadApiError::from)?;
+            // Federated bundles are applied after per-SVID bundles. If a non-conforming
+            // server repeats the workload's own trust domain here, this intentionally follows
+            // X509BundleSet::add_bundle replacement semantics and the federated entry wins.
             bundle_set.add_bundle(x509_bundle);
         }
 

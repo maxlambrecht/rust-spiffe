@@ -183,6 +183,22 @@ pub(super) async fn initial_sync_with_retry(
                 if let Some(m) = metrics {
                     m.record_error(MetricsErrorKind::InitialSyncFailed);
                 }
+                // INVALID_ARGUMENT means the Workload API rejected the request itself
+                // (non-conforming server, a proxy mangling gRPC metadata, protocol
+                // mismatch, etc.). Retrying with backoff would just repeat the same
+                // rejection forever, hanging construction indefinitely unless the caller
+                // opted into `initial_sync_timeout`. Fail fast instead. Steady-state
+                // reconnects (after a successful initial sync) are intentionally left
+                // retrying as before, since we already hold valid material at that point.
+                if let JwtSourceError::Source(inner) = &e {
+                    if inner.is_invalid_argument() {
+                        warn!(
+                            "Initial sync: Workload API rejected the request as invalid \
+                             (INVALID_ARGUMENT); not retrying: error={e}"
+                        );
+                        return Err(e);
+                    }
+                }
                 if sleep_or_cancel(cancel, backoff).await {
                     return Err(JwtSourceError::Closed);
                 }
@@ -451,5 +467,64 @@ impl Inner {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::transport::TransportError;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn invalid_argument_error() -> WorkloadApiError {
+        WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
+            "bad request",
+        )))
+    }
+
+    #[tokio::test]
+    async fn initial_sync_fails_fast_on_invalid_argument() {
+        // A gRPC INVALID_ARGUMENT response indicates the Workload API rejected the
+        // request itself (non-conforming server, metadata-mangling proxy, etc.), so
+        // retrying with backoff would just repeat the same rejection. Initial sync must
+        // return promptly instead of retrying indefinitely.
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let make_client: ClientFactory = Arc::new(move || {
+            attempts_clone.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(invalid_argument_error()) })
+        });
+
+        let cancel = CancellationToken::new();
+        // Deliberately large backoff: if the fast-fail path regresses and the retry loop
+        // sleeps before giving up, the outer timeout below will catch it rather than
+        // hanging the test suite.
+        let reconnect = ReconnectConfig::new(Duration::from_secs(30), Duration::from_secs(60));
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            initial_sync_with_retry(
+                &make_client,
+                &cancel,
+                reconnect,
+                ResourceLimits::default(),
+                None,
+            ),
+        )
+        .await
+        .expect("initial sync should fail fast instead of retrying on INVALID_ARGUMENT");
+
+        assert!(
+            matches!(
+                &result,
+                Err(JwtSourceError::Source(e)) if e.is_invalid_argument()
+            ),
+            "expected an invalid-argument Source error, got: {result:?}"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "must not retry client creation after an INVALID_ARGUMENT response"
+        );
     }
 }
