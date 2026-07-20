@@ -4,12 +4,14 @@ use super::limits::{select_svid, validate_context};
 use super::metrics::MetricsRecorder;
 use super::supervisor::initial_sync_with_retry;
 use crate::bundle::BundleSource;
+use crate::cert::Certificate;
 use crate::prelude::warn;
 use crate::svid::SvidSource;
 use crate::workload_api::x509_context::X509Context;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
 use crate::{TrustDomain, X509Bundle, X509BundleSet, X509SourceBuilder, X509Svid};
 use arc_swap::ArcSwap;
+use std::cmp::Ordering as CmpOrdering;
 use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -146,6 +148,9 @@ impl X509SourceUpdates {
 /// - Handles SVID and bundle rotation transparently
 /// - Reconnects with exponential backoff on transient failures
 /// - Validates resource limits before publishing updates
+/// - Rejects updates whose selected SVID already appears expired by the local wall
+///   clock, retaining the previously accepted SVID and trust bundles instead
+///   (see [`X509SourceError::NoSuitableSvid`] for the clock-skew implications of this)
 ///
 /// Use [`X509Source::shutdown`] or [`X509Source::shutdown_configured`] to stop background tasks.
 ///
@@ -278,8 +283,10 @@ impl X509Source {
     /// the context has changed without polling.
     ///
     /// **Note:** The initial sequence number is 0. Notifications are only sent
-    /// for rotations that occur after initial synchronization completes. The initial
-    /// sync does not trigger a notification.
+    /// when the received X.509 context actually differs from the currently held one.
+    /// The initial sync does not trigger a notification, and neither do re-deliveries
+    /// of an unchanged context (e.g. on reconnect after a dropped stream or agent
+    /// restart) — only genuine rotations advance the sequence.
     ///
     /// # Examples
     ///
@@ -711,6 +718,18 @@ impl Inner {
         // should NOT record it again to avoid double-counting.
         match self.validate_and_select(&new_ctx) {
             Ok(svid) => {
+                // The Workload API re-delivers the current context as the first item on every
+                // new stream (initial sync, reconnect after agent restart, dropped stream, etc.).
+                // Skip the store/notify/record when the incoming material matches what we already
+                // hold, so `updated()` only fires for actual rotations, matching its docs.
+                // Comparison is order-insensitive for the SVID list and for bundle authorities;
+                // reconnect may reshuffle either without a genuine rotation. Intermediate chain
+                // differences still count as a change because TLS presentation uses the full
+                // chain. Public `X509Context` equality stays order-sensitive because
+                // `default_svid()` is defined as the first list entry.
+                if same_material_for_update(self.snapshot.load().ctx.as_ref(), new_ctx.as_ref()) {
+                    return Ok(());
+                }
                 self.snapshot.store(Arc::new(Snapshot {
                     ctx: new_ctx,
                     expiry_unix: svid.expiry_unix(),
@@ -743,6 +762,65 @@ impl Inner {
             self.metrics.as_deref(),
         )
     }
+}
+
+/// Returns true when two contexts carry the same SVID multiset and the same bundle set.
+///
+/// Used by `apply_update` so reconnect re-delivery that only reshuffles SVID list order or
+/// bundle authority order does not bump `updated()`. Public [`X509Context`] equality remains
+/// order-sensitive because the Workload API defines the default SVID as the first list entry.
+///
+/// SVID equality includes the full certificate chain: intermediate differences are treated as
+/// material changes because TLS presentation uses the complete chain.
+fn same_material_for_update(current: &X509Context, incoming: &X509Context) -> bool {
+    if !bundle_set_equal_for_update(current.bundle_set(), incoming.bundle_set()) {
+        return false;
+    }
+    if current.svids().len() != incoming.svids().len() {
+        return false;
+    }
+
+    let mut left: Vec<&X509Svid> = current.svids().iter().map(AsRef::as_ref).collect();
+    let mut right: Vec<&X509Svid> = incoming.svids().iter().map(AsRef::as_ref).collect();
+    left.sort_unstable_by(|a, b| cmp_svid_for_update_dedupe(a, b));
+    right.sort_unstable_by(|a, b| cmp_svid_for_update_dedupe(a, b));
+    left == right
+}
+
+fn bundle_set_equal_for_update(a: &X509BundleSet, b: &X509BundleSet) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+
+    a.iter().all(|(trust_domain, bundle)| {
+        b.get(trust_domain)
+            .is_some_and(|other| bundle_equal_for_update(bundle.as_ref(), other.as_ref()))
+    })
+}
+
+fn bundle_equal_for_update(a: &X509Bundle, b: &X509Bundle) -> bool {
+    a.trust_domain() == b.trust_domain()
+        && authority_set_equal_for_update(a.authorities(), b.authorities())
+}
+
+fn authority_set_equal_for_update(a: &[Certificate], b: &[Certificate]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+
+    let mut left: Vec<&[u8]> = a.iter().map(Certificate::as_bytes).collect();
+    let mut right: Vec<&[u8]> = b.iter().map(Certificate::as_bytes).collect();
+    left.sort_unstable();
+    right.sort_unstable();
+    left == right
+}
+
+fn cmp_svid_for_update_dedupe(a: &X509Svid, b: &X509Svid) -> CmpOrdering {
+    a.spiffe_id()
+        .cmp(b.spiffe_id())
+        .then_with(|| a.hint().cmp(&b.hint()))
+        .then_with(|| a.leaf().as_bytes().cmp(b.leaf().as_bytes()))
+        .then_with(|| a.private_key().as_ref().cmp(b.private_key().as_ref()))
 }
 
 async fn initial_sync_with_timeout<T, F>(
@@ -1342,6 +1420,230 @@ mod tests {
     }
 
     #[test]
+    fn test_apply_update_skips_notify_for_unchanged_context() {
+        // The Workload API re-delivers the current context as the first item on every
+        // new stream (initial sync, reconnect after a dropped stream, agent restart, etc.).
+        // apply_update must not treat re-delivery of an identical context as a rotation.
+        let metrics = Arc::new(OrderingMetricsRecorder::new());
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<OrderingMetricsRecorder>::clone(&metrics)),
+            None,
+        );
+        metrics.set_updates(source.updated());
+
+        // Same context (by value) delivered again, e.g. on reconnect.
+        let result = source.inner.apply_update(test_x509_context());
+
+        result.expect("re-delivery of an unchanged context should be accepted");
+        assert_eq!(
+            source.updated().last(),
+            0,
+            "no notification should be sent for an unchanged context"
+        );
+        assert!(
+            metrics.update_sequences().is_empty(),
+            "record_update should not be called for an unchanged context"
+        );
+
+        // A genuine rotation must still notify, even if it only changes the bundle set
+        // (e.g. a new federated trust bundle) while keeping the same SVID.
+        let mut rotated_bundle_set = X509BundleSet::new();
+        rotated_bundle_set.add_bundle(X509Bundle::new(TrustDomain::new("example.org").unwrap()));
+        let rotated_ctx = Arc::new(X509Context::new(
+            test_x509_context().svids().to_vec(),
+            Arc::new(rotated_bundle_set),
+        ));
+
+        source
+            .inner
+            .apply_update(rotated_ctx)
+            .expect("valid rotation should be accepted");
+        assert_eq!(
+            source.updated().last(),
+            1,
+            "a genuine rotation should still notify"
+        );
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
+    }
+
+    #[test]
+    fn same_material_for_update_ignores_svid_order() {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid_a = Arc::new(
+            X509Svid::parse_from_der_with_hint(cert, key, Some("internal".into())).unwrap(),
+        );
+        let svid_b = Arc::new(
+            X509Svid::parse_from_der_with_hint(cert, key, Some("external".into())).unwrap(),
+        );
+        assert_ne!(
+            svid_a.as_ref(),
+            svid_b.as_ref(),
+            "fixture SVIDs must differ so order-sensitive equality would fail"
+        );
+
+        let mut bundle_set = X509BundleSet::new();
+        bundle_set.add_bundle(X509Bundle::new(TrustDomain::new("example.org").unwrap()));
+        let bundle_set = Arc::new(bundle_set);
+
+        let ordered = X509Context::new(
+            [Arc::clone(&svid_a), Arc::clone(&svid_b)],
+            Arc::clone(&bundle_set),
+        );
+        let reversed = X509Context::new([svid_b, svid_a], bundle_set);
+
+        assert_ne!(
+            ordered, reversed,
+            "public X509Context equality remains order-sensitive"
+        );
+        assert!(same_material_for_update(&ordered, &reversed));
+    }
+
+    #[test]
+    fn test_apply_update_notifies_for_intermediate_chain_change() {
+        use crate::cert::parsing::to_certificate_vec;
+
+        let chain = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let certs = to_certificate_vec(chain).unwrap();
+        let first_cert = certs
+            .first()
+            .expect("fixture must include leaf certificate");
+        assert!(
+            certs.len() > 1,
+            "fixture must include intermediates to exercise chain-length differences"
+        );
+
+        let full = Arc::new(X509Svid::parse_from_der(chain, key).unwrap());
+        let leaf_only = Arc::new(X509Svid::parse_from_der(first_cert.as_bytes(), key).unwrap());
+        assert_ne!(
+            full.as_ref(),
+            leaf_only.as_ref(),
+            "full-chain and leaf-only SVIDs must differ under structural equality"
+        );
+
+        let mut bundle_set = X509BundleSet::new();
+        bundle_set.add_bundle(X509Bundle::new(TrustDomain::new("example.org").unwrap()));
+        let bundle_set = Arc::new(bundle_set);
+
+        let leaf_only_ctx = Arc::new(X509Context::new(
+            [Arc::clone(&leaf_only)],
+            Arc::clone(&bundle_set),
+        ));
+        let with_chain = Arc::new(X509Context::new([full], bundle_set));
+
+        assert!(!same_material_for_update(
+            leaf_only_ctx.as_ref(),
+            with_chain.as_ref()
+        ));
+
+        let metrics = Arc::new(OrderingMetricsRecorder::new());
+        let source = X509Source::new_for_test(
+            leaf_only_ctx,
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<OrderingMetricsRecorder>::clone(&metrics)),
+            None,
+        );
+        metrics.set_updates(source.updated());
+
+        source
+            .inner
+            .apply_update(with_chain)
+            .expect("intermediate chain change should be accepted");
+        assert_eq!(
+            source.updated().last(),
+            1,
+            "intermediate chain changes must notify because TLS uses the full chain"
+        );
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
+        assert_eq!(source.svid().unwrap().cert_chain().len(), certs.len());
+    }
+
+    #[test]
+    fn same_material_for_update_ignores_bundle_authority_order() {
+        use crate::cert::parsing::to_certificate_vec;
+
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid = Arc::new(X509Svid::parse_from_der(cert, key).unwrap());
+        let certs = to_certificate_vec(cert).unwrap();
+        let [first, second, ..] = certs.as_slice() else {
+            panic!("fixture must include multiple certificates to exercise authority order");
+        };
+
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let mut bundle_a = X509Bundle::new(trust_domain.clone());
+        bundle_a
+            .add_authority(first.as_bytes())
+            .expect("authority should parse");
+        bundle_a
+            .add_authority(second.as_bytes())
+            .expect("second authority should parse");
+
+        let mut bundle_b = X509Bundle::new(trust_domain);
+        bundle_b
+            .add_authority(second.as_bytes())
+            .expect("authority should parse");
+        bundle_b
+            .add_authority(first.as_bytes())
+            .expect("second authority should parse");
+        assert_ne!(bundle_a, bundle_b);
+
+        let mut bundle_set_a = X509BundleSet::new();
+        bundle_set_a.add_bundle(bundle_a);
+        let mut bundle_set_b = X509BundleSet::new();
+        bundle_set_b.add_bundle(bundle_b);
+
+        let ctx_a = X509Context::new([Arc::clone(&svid)], Arc::new(bundle_set_a));
+        let ctx_b = X509Context::new([svid], Arc::new(bundle_set_b));
+
+        assert!(same_material_for_update(&ctx_a, &ctx_b));
+    }
+
+    #[test]
+    fn test_apply_update_skips_notify_for_reordered_svids() {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid_a = Arc::new(
+            X509Svid::parse_from_der_with_hint(cert, key, Some("internal".into())).unwrap(),
+        );
+        let svid_b = Arc::new(
+            X509Svid::parse_from_der_with_hint(cert, key, Some("external".into())).unwrap(),
+        );
+
+        let mut bundle_set = X509BundleSet::new();
+        bundle_set.add_bundle(X509Bundle::new(TrustDomain::new("example.org").unwrap()));
+        let bundle_set = Arc::new(bundle_set);
+
+        let initial = Arc::new(X509Context::new(
+            [Arc::clone(&svid_a), Arc::clone(&svid_b)],
+            Arc::clone(&bundle_set),
+        ));
+        let reordered = Arc::new(X509Context::new([svid_b, svid_a], bundle_set));
+
+        let metrics = Arc::new(OrderingMetricsRecorder::new());
+        let source = X509Source::new_for_test(
+            initial,
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            Some(Arc::<OrderingMetricsRecorder>::clone(&metrics)),
+            None,
+        );
+        metrics.set_updates(source.updated());
+
+        source
+            .inner
+            .apply_update(reordered)
+            .expect("reordered but equivalent material should be accepted");
+        assert_eq!(source.updated().last(), 0);
+        assert!(metrics.update_sequences().is_empty());
+    }
+
+    #[test]
     fn test_apply_update_publishes_and_notifies_before_panicking_success_metrics() {
         let metrics = Arc::new(PanickingOrderingMetricsRecorder::new());
         let source = X509Source::new_for_test(
@@ -1422,6 +1724,65 @@ mod tests {
         // Verify no other limit metrics were recorded
         assert_eq!(metrics.count(MetricsErrorKind::LimitMaxSvids), 0);
         assert_eq!(metrics.count(MetricsErrorKind::LimitMaxBundleDerBytes), 0);
+    }
+
+    #[test]
+    fn test_apply_update_rejects_expired_svid_and_retains_previous_bundles() {
+        // The expiry gate rejects the whole update - including any bundles it carries -
+        // when the selected SVID already appears expired. Retention of the previous
+        // SVID and bundles is the load-bearing safety property here: subscribers must
+        // keep seeing the last-known-good material rather than losing their trust
+        // bundles just because a later, unusable update arrived.
+        use super::super::builder::{ReconnectConfig, ResourceLimits};
+        use crate::workload_api::x509_context::X509Context;
+        use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Svid};
+        use std::sync::Arc;
+
+        let good_trust_domain = TrustDomain::new("good.example.org").unwrap();
+        let mut good_bundle_set = X509BundleSet::new();
+        good_bundle_set.add_bundle(X509Bundle::new(good_trust_domain.clone()));
+        let initial_ctx = Arc::new(X509Context::new(
+            test_x509_context().svids().to_vec(),
+            Arc::new(good_bundle_set),
+        ));
+
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial_ctx),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+
+        // A rotated update carrying a fresh (different) bundle, but whose selected SVID
+        // is already expired.
+        let expired_cert_bytes =
+            include_bytes!("../../tests/testdata/svid/x509/expired-svid-chain.der");
+        let expired_key_bytes = include_bytes!("../../tests/testdata/svid/x509/expired-key.der");
+        let expired_svid = Arc::new(
+            X509Svid::parse_from_der(expired_cert_bytes, expired_key_bytes)
+                .expect("expired fixture should parse as an X509-SVID"),
+        );
+        let new_trust_domain = TrustDomain::new("new.example.org").unwrap();
+        let mut new_bundle_set = X509BundleSet::new();
+        new_bundle_set.add_bundle(X509Bundle::new(new_trust_domain.clone()));
+        let expired_ctx = Arc::new(X509Context::new([expired_svid], Arc::new(new_bundle_set)));
+
+        let result = source.inner.apply_update(expired_ctx);
+        assert!(matches!(result, Err(X509SourceError::NoSuitableSvid)));
+
+        // The previous SVID is still being served.
+        let retained_ctx = source.x509_context().unwrap();
+        assert_eq!(retained_ctx.svids(), initial_ctx.svids());
+
+        // The previous trust bundle is retained; the fresh bundle from the rejected
+        // update was never applied.
+        let retained_bundles = source.bundle_set().unwrap();
+        assert!(retained_bundles.get(&good_trust_domain).is_some());
+        assert!(retained_bundles.get(&new_trust_domain).is_none());
+
+        // No notification was sent for the rejected update.
+        assert_eq!(source.updated().last(), 0);
     }
 
     #[test]
