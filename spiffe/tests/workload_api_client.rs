@@ -282,56 +282,47 @@ mod integration_tests_workload_api_client {
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
+        // SPIRE CI harness uses a long X.509 SVID TTL, so wait for the initial
+        // stream update rather than requiring rotations.
         let result = tokio::time::timeout(test_duration, async {
-            let mut update_count = 0;
             let mut stream = client
                 .stream_x509_contexts()
                 .await
                 .expect("Failed to get stream");
 
-            while let Some(update) = stream.next().await {
-                match update {
-                    Ok(x509_context) => {
-                        let svid = x509_context.default_svid().unwrap();
-                        assert!(
-                            expected_ids.contains(&svid.spiffe_id()),
-                            "Unexpected SPIFFE ID"
-                        );
-                        assert_eq!(svid.cert_chain().len(), 1);
+            let update = stream
+                .next()
+                .await
+                .expect("Expected an X509 context stream update")
+                .expect("X509 context stream returned an error");
 
-                        let bundle = x509_context
-                            .bundle_set()
-                            .bundle_for_trust_domain(&TRUST_DOMAIN);
-                        let bundle = bundle
-                            .expect("Bundle was None")
-                            .expect("Failed to unwrap bundle");
+            let svid = update.default_svid().unwrap();
+            assert!(
+                expected_ids.contains(&svid.spiffe_id()),
+                "Unexpected SPIFFE ID"
+            );
+            assert_eq!(svid.cert_chain().len(), 1);
 
-                        assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
-                        assert_eq!(bundle.authorities().len(), 1);
+            let bundle = update
+                .bundle_set()
+                .bundle_for_trust_domain(&TRUST_DOMAIN)
+                .expect("Bundle was None")
+                .expect("Failed to unwrap bundle");
 
-                        let federated_bundle = x509_context
-                            .bundle_set()
-                            .bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN);
-                        let federated_bundle = federated_bundle
-                            .expect("Federated bundle was None")
-                            .expect("Failed to unwrap federated bundle");
+            assert_eq!(bundle.trust_domain().as_ref(), TRUST_DOMAIN.as_ref());
+            assert_eq!(bundle.authorities().len(), 1);
 
-                        assert_eq!(
-                            federated_bundle.trust_domain().as_ref(),
-                            FEDERATED_TRUST_DOMAIN.as_ref()
-                        );
-                        assert_eq!(federated_bundle.authorities().len(), 1);
+            let federated_bundle = update
+                .bundle_set()
+                .bundle_for_trust_domain(&FEDERATED_TRUST_DOMAIN)
+                .expect("Federated bundle was None")
+                .expect("Failed to unwrap federated bundle");
 
-                        update_count += 1;
-                        if update_count == 3 {
-                            break;
-                        }
-                    }
-                    Err(e) => eprintln!("Error in stream: {e:?}"),
-                }
-            }
-
-            assert_eq!(update_count, 3, "Expected 3 updates from the stream");
+            assert_eq!(
+                federated_bundle.trust_domain().as_ref(),
+                FEDERATED_TRUST_DOMAIN.as_ref()
+            );
+            assert_eq!(federated_bundle.authorities().len(), 1);
         })
         .await;
 
@@ -348,32 +339,25 @@ mod integration_tests_workload_api_client {
         let test_duration = std::time::Duration::from_secs(60);
         let expected_ids = [&*SPIFFE_ID_1, &*SPIFFE_ID_2];
 
+        // SPIRE CI harness uses a long X.509 SVID TTL, so wait for the initial
+        // stream update rather than requiring rotations.
         let result = tokio::time::timeout(test_duration, async {
-            let mut update_count = 0;
             let mut stream = client
                 .stream_x509_svids()
                 .await
                 .expect("Failed to get stream");
 
-            while let Some(update) = stream.next().await {
-                match update {
-                    Ok(svid) => {
-                        assert!(
-                            expected_ids.contains(&svid.spiffe_id()),
-                            "Unexpected SPIFFE ID"
-                        );
-                        assert_eq!(svid.cert_chain().len(), 1);
+            let svid = stream
+                .next()
+                .await
+                .expect("Expected an X509 SVID stream update")
+                .expect("X509 SVID stream returned an error");
 
-                        update_count += 1;
-                        if update_count == 3 {
-                            break;
-                        }
-                    }
-                    Err(e) => eprintln!("Error in stream: {e:?}"),
-                }
-            }
-
-            assert_eq!(update_count, 3, "Expected 3 updates from the stream");
+            assert!(
+                expected_ids.contains(&svid.spiffe_id()),
+                "Unexpected SPIFFE ID"
+            );
+            assert_eq!(svid.cert_chain().len(), 1);
         })
         .await;
 
