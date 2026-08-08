@@ -175,6 +175,9 @@ RUSTLS_CI_FEATURES      := $(RUSTLS_ALL_FEATURES)
 SPIRE_API_CI_FEATURES   := $(SPIRE_API_ALL_FEATURES)
 RUSTLS_TOKIO_CI_FEATURES := $(RUSTLS_TOKIO_ALL_FEATURES)
 
+# SPIRE-backed Workload API integration lane for the spiffe crate.
+SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES := x509-source,jwt-source,jwt,workload-api
+
 # -----------------------------------------------------------------------------
 # Runner helpers
 # -----------------------------------------------------------------------------
@@ -214,6 +217,34 @@ endef
 
 define _msrv_doc
 	cargo +$(MSRV) test --manifest-path $(1) --doc $(2)
+endef
+
+define _assert_spiffe_workload_api_test_discovery
+	@set -euo pipefail; \
+	echo "==> Verify spiffe workload_api_client test discovery"; \
+	list_output="$$( \
+	  $(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --no-default-features \
+	    --features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES) \
+	    --test workload_api_client -- --list \
+	)"; \
+	printf '%s\n' "$$list_output"; \
+	test_count="$$(printf '%s\n' "$$list_output" | awk '/: test$$/{count++} END{print count+0}')"; \
+	if [ "$$test_count" -eq 0 ]; then \
+	  echo "Error: expected workload_api_client integration tests for features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES)" >&2; \
+	  exit 1; \
+	fi
+endef
+
+define _assert_spiffe_workload_api_available
+	@set -euo pipefail; \
+	echo "==> Verify SPIFFE Workload API availability"; \
+	if ! $(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --no-default-features \
+	  --features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES) \
+	  --test workload_api_client \
+	  integration_tests_workload_api_client::fetch_x509_svid -- --ignored --exact; then \
+	  echo "Error: SPIFFE Workload API preflight failed; verify SPIFFE_ENDPOINT_SOCKET and SPIRE workload registration" >&2; \
+	  exit 1; \
+	fi
 endef
 
 check: fmt-check lint build
@@ -304,13 +335,13 @@ spiffe-rustls-tokio-ci-test:
 # -----------------------------------------------------------------------------
 integration-tests:
 	$(info ==> Run integration tests (ignored))
+	$(call _assert_spiffe_workload_api_test_discovery)
+	$(call _assert_spiffe_workload_api_available)
 	@set -euo pipefail; \
-	status=0; \
-	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --features x509-source,jwt-source,jwt -- --ignored || status=1; \
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored || status=1; \
-	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_TOKIO_MANIFEST) -- --ignored || status=1; \
-	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) -- --ignored || status=1; \
-	exit $$status
+	$(CARGO) test --manifest-path $(SPIFFE_MANIFEST) --no-default-features --features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES) -- --ignored; \
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored; \
+	$(CARGO) test --manifest-path $(SPIFFE_RUSTLS_TOKIO_MANIFEST) -- --ignored; \
+	$(CARGO) test --manifest-path $(SPIRE_API_MANIFEST) -- --ignored
 
 # -----------------------------------------------------------------------------
 # Coverage (cargo llvm-cov)
@@ -333,8 +364,9 @@ coverage:
 	done
 
 	# spiffe integration lane (ignored)
+	$(call _assert_spiffe_workload_api_test_discovery)
 	$(CARGO) llvm-cov --no-report --manifest-path $(SPIFFE_MANIFEST) test \
-	  --features x509-source,jwt-source,jwt -- --ignored
+	  --no-default-features --features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES) -- --ignored
 
 	@set -euo pipefail; \
 	for feat in $(RUSTLS_ALL_FEATURES); do \
