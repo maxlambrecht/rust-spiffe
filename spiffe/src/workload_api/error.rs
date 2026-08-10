@@ -38,6 +38,16 @@ pub enum WorkloadApiError {
     #[error("empty Workload API response")]
     EmptyResponse,
 
+    /// The Workload API response omitted a field required by the SPIFFE Workload API.
+    ///
+    /// This indicates malformed response material from a non-conforming Workload API
+    /// implementation, not a transport failure.
+    #[error("Workload API response is missing required field: {field}")]
+    MissingRequiredField {
+        /// The protocol field that was absent or empty.
+        field: &'static str,
+    },
+
     /// Failed to parse the Workload API endpoint string.
     #[error("invalid workload api endpoint: {0}")]
     Endpoint(#[from] EndpointError),

@@ -13,6 +13,7 @@
 ### Fixed
 
 - **X509Source:** A Workload API update is no longer suppressed when an SVID-list reorder changes the default or picker-selected SVID. Reorders that leave the selected SVID unchanged remain suppressed.
+- **WorkloadApiClient / X509Source:** Reject `FetchX509SVID` responses whose mandatory per-SVID `bundle` field is empty, reporting `WorkloadApiError::MissingRequiredField` instead of accepting malformed identity material. `X509Source` discards such responses: initial synchronization keeps retrying with backoff until a valid response arrives, and steady-state malformed updates retain the previous complete SVID and bundle snapshot without notifying subscribers. Empty standalone and federated X.509 bundles remain valid for bundle revocation.
 
 ## [0.16.1] - 2026-08-08
 
