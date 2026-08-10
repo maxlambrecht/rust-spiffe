@@ -22,6 +22,15 @@ mod x509_bundle_tests {
     }
 
     #[test]
+    fn test_x509_bundle_parse_from_empty_der_preserves_revocation_semantics() {
+        let trust_domain = TrustDomain::new("domain.test").unwrap();
+
+        let bundle = X509Bundle::parse_from_der(trust_domain, &[]).unwrap();
+
+        assert!(bundle.authorities().is_empty());
+    }
+
+    #[test]
     fn test_x509_bundle_parse_from_authorities() {
         let authority1: &[u8] = include_bytes!("testdata/bundle/x509/cert1.der");
         let authority2: &[u8] = include_bytes!("testdata/bundle/x509/cert2.der");

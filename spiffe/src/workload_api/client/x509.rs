@@ -180,6 +180,8 @@ impl WorkloadApiClient {
     fn parse_x509_svid_from_grpc_response(
         response: &X509svidResponse,
     ) -> Result<X509Svid, WorkloadApiError> {
+        Self::validate_required_x509_svid_fields(response)?;
+
         let svid = response
             .svids
             .get(DEFAULT_SVID)
@@ -196,6 +198,8 @@ impl WorkloadApiClient {
     fn parse_x509_svids_from_grpc_response(
         response: &X509svidResponse,
     ) -> Result<Vec<X509Svid>, WorkloadApiError> {
+        Self::validate_required_x509_svid_fields(response)?;
+
         response
             .svids
             .iter()
@@ -236,6 +240,8 @@ impl WorkloadApiClient {
     fn parse_x509_context_from_grpc_response(
         response: X509svidResponse,
     ) -> Result<X509Context, WorkloadApiError> {
+        Self::validate_required_x509_svid_fields(&response)?;
+
         let mut svids: Vec<Arc<X509Svid>> = Vec::new();
         let mut bundle_set = X509BundleSet::new();
 
@@ -268,5 +274,106 @@ impl WorkloadApiClient {
         }
 
         Ok(X509Context::new(svids, Arc::new(bundle_set)))
+    }
+
+    fn validate_required_x509_svid_fields(
+        response: &X509svidResponse,
+    ) -> Result<(), WorkloadApiError> {
+        if response.svids.iter().any(|svid| svid.bundle.is_empty()) {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVID.bundle",
+            });
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workload_api::pb::workload::X509svid;
+    use std::collections::HashMap;
+
+    fn x509_svid(bundle: &[u8]) -> X509svid {
+        let cert = include_bytes!("../../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../../tests/testdata/svid/x509/1-key.der");
+        X509svid {
+            spiffe_id: "spiffe://example.org/workload".into(),
+            x509_svid: cert.to_vec().into(),
+            x509_svid_key: key.to_vec().into(),
+            bundle: bundle.to_vec().into(),
+            hint: String::new(),
+        }
+    }
+
+    fn assert_missing_required_local_bundle<T>(result: &Result<T, WorkloadApiError>) {
+        assert!(matches!(
+            result,
+            Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVID.bundle"
+            })
+        ));
+    }
+
+    #[test]
+    fn x509_context_rejects_empty_required_local_bundle() {
+        let response = X509svidResponse {
+            svids: vec![x509_svid(&[])],
+            ..X509svidResponse::default()
+        };
+
+        let result = WorkloadApiClient::parse_x509_context_from_grpc_response(response);
+
+        assert_missing_required_local_bundle(&result);
+    }
+
+    #[test]
+    fn default_x509_svid_parser_rejects_empty_required_bundle_in_complete_response() {
+        let bundle = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der");
+        let response = X509svidResponse {
+            // Even though the selected default entry is valid, a malformed later entry
+            // makes the complete Workload API response invalid and must discard it.
+            svids: vec![x509_svid(bundle), x509_svid(&[])],
+            ..X509svidResponse::default()
+        };
+
+        let result = WorkloadApiClient::parse_x509_svid_from_grpc_response(&response);
+
+        assert_missing_required_local_bundle(&result);
+    }
+
+    #[test]
+    fn all_x509_svids_parser_rejects_empty_required_local_bundle() {
+        let response = X509svidResponse {
+            svids: vec![x509_svid(&[])],
+            ..X509svidResponse::default()
+        };
+
+        let result = WorkloadApiClient::parse_x509_svids_from_grpc_response(&response);
+
+        assert_missing_required_local_bundle(&result);
+    }
+
+    #[test]
+    fn x509_context_accepts_empty_optional_federated_bundle() {
+        let local_bundle = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der");
+        let federated_trust_domain = TrustDomain::new("federated.example.org").unwrap();
+        let response = X509svidResponse {
+            svids: vec![x509_svid(local_bundle)],
+            federated_bundles: HashMap::from([(
+                federated_trust_domain.to_string(),
+                Vec::new().into(),
+            )]),
+            ..X509svidResponse::default()
+        };
+
+        let context = WorkloadApiClient::parse_x509_context_from_grpc_response(response).unwrap();
+        let bundle = context
+            .bundle_set()
+            .get(&federated_trust_domain)
+            .expect("empty federated bundle should remain present in the complete update");
+
+        assert!(bundle.authorities().is_empty());
     }
 }

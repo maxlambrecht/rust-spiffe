@@ -11,11 +11,11 @@ pub enum X509SourceError {
     /// During the initial synchronization performed by [`X509Source::new`](crate::X509Source::new)/
     /// [`X509SourceBuilder::build`](crate::X509SourceBuilder::build), most underlying
     /// [`WorkloadApiError`]s (e.g. transient connectivity failures, `NoIdentityIssued`)
-    /// are retried with backoff rather than surfaced immediately. The one exception is a
-    /// gRPC `INVALID_ARGUMENT` response (see [`WorkloadApiError::is_invalid_argument`]):
-    /// since retrying would just repeat the same rejection, initial sync fails fast and
-    /// returns this error instead of retrying indefinitely. Steady-state reconnects after
-    /// a successful initial sync are unaffected and continue retrying as before.
+    /// are retried with backoff rather than surfaced immediately. Deterministic protocol
+    /// failures—either a gRPC `INVALID_ARGUMENT` response (see
+    /// [`WorkloadApiError::is_invalid_argument`]) or malformed response material—fail fast,
+    /// since retrying would just repeat the same failure. Steady-state reconnects after a
+    /// successful initial sync are unaffected and continue retrying as before.
     #[error("x509 source error: {0}")]
     Source(#[from] WorkloadApiError),
 

@@ -38,6 +38,16 @@ pub enum WorkloadApiError {
     #[error("empty Workload API response")]
     EmptyResponse,
 
+    /// The Workload API response omitted a field required by the SPIFFE Workload API.
+    ///
+    /// This indicates malformed response material from a non-conforming Workload API
+    /// implementation, not a transport failure.
+    #[error("Workload API response is missing required field: {field}")]
+    MissingRequiredField {
+        /// The protocol field that was absent or empty.
+        field: &'static str,
+    },
+
     /// Failed to parse the Workload API endpoint string.
     #[error("invalid workload api endpoint: {0}")]
     Endpoint(#[from] EndpointError),
@@ -106,6 +116,16 @@ impl WorkloadApiError {
             Self::Transport(TransportError::Status(status))
                 if status.code() == tonic::Code::InvalidArgument
         )
+    }
+
+    /// Returns `true` if the response itself violates the Workload API protocol.
+    ///
+    /// Retrying an initial synchronization cannot make deterministic malformed
+    /// response material valid, so sources use this classification to fail cleanly.
+    #[cfg(feature = "x509-source")]
+    #[must_use]
+    pub(crate) const fn is_malformed_response(&self) -> bool {
+        matches!(self, Self::MissingRequiredField { .. })
     }
 }
 
