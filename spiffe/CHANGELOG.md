@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **X509Source:** A Workload API update is no longer suppressed when an SVID-list reorder changes the default or picker-selected SVID. Reorders that leave the selected SVID unchanged remain suppressed.
+
 ## [0.16.1] - 2026-08-08
 
 ### Fixed
