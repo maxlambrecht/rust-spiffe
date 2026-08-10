@@ -282,11 +282,11 @@ impl X509Source {
     /// successful update to the X.509 context. This can be used to detect when
     /// the context has changed without polling.
     ///
-    /// **Note:** The initial sequence number is 0. Notifications are only sent
-    /// when the received X.509 context actually differs from the currently held one.
-    /// The initial sync does not trigger a notification, and neither do re-deliveries
-    /// of an unchanged context (e.g. on reconnect after a dropped stream or agent
-    /// restart) — only genuine rotations advance the sequence.
+    /// **Note:** The initial sequence number is 0. Notifications are sent when the selected
+    /// SVID or the order-insensitive SVID/bundle material changes. Reordering non-selected
+    /// SVIDs or bundle authorities does not notify. The initial sync does not trigger a
+    /// notification, and neither do re-deliveries of unchanged material (e.g. on reconnect
+    /// after a dropped stream or agent restart) — only genuine rotations advance the sequence.
     ///
     /// # Examples
     ///
@@ -734,12 +734,16 @@ impl Inner {
                 // new stream (initial sync, reconnect after agent restart, dropped stream, etc.).
                 // Skip the store/notify/record when the incoming material matches what we already
                 // hold, so `updated()` only fires for actual rotations, matching its docs.
-                // Comparison is order-insensitive for the SVID list and for bundle authorities;
-                // reconnect may reshuffle either without a genuine rotation. Intermediate chain
-                // differences still count as a change because TLS presentation uses the full
-                // chain. Public `X509Context` equality stays order-sensitive because
-                // `default_svid()` is defined as the first list entry.
-                if same_material_for_update(self.snapshot.load().ctx.as_ref(), new_ctx.as_ref()) {
+                // Comparison preserves the selected SVID while otherwise ignoring SVID list
+                // order and bundle authority order. Reconnect may reshuffle non-selected SVIDs
+                // or authorities without a genuine rotation, but a reorder that changes the
+                // default or picker-selected SVID is observable and must be applied.
+                if same_material_for_update(
+                    self.snapshot.load().ctx.as_ref(),
+                    new_ctx.as_ref(),
+                    self.svid_picker.as_deref(),
+                    svid.as_ref(),
+                ) {
                     return Ok(ApplyUpdateResult::Unchanged);
                 }
                 self.snapshot.store(Arc::new(Snapshot {
@@ -776,15 +780,25 @@ impl Inner {
     }
 }
 
-/// Returns true when two contexts carry the same SVID multiset and the same bundle set.
+/// Returns true when two contexts select the same SVID and carry the same SVID multiset and
+/// bundle set.
 ///
-/// Used by `apply_update` so reconnect re-delivery that only reshuffles SVID list order or
-/// bundle authority order does not bump `updated()`. Public [`X509Context`] equality remains
-/// order-sensitive because the Workload API defines the default SVID as the first list entry.
+/// Used by `apply_update` so reconnect re-delivery that only reshuffles non-selected SVIDs or
+/// bundle authority order does not bump `updated()`. A reorder that changes the default or
+/// picker-selected SVID remains material.
 ///
 /// SVID equality includes the full certificate chain: intermediate differences are treated as
 /// material changes because TLS presentation uses the complete chain.
-fn same_material_for_update(current: &X509Context, incoming: &X509Context) -> bool {
+fn same_material_for_update(
+    current: &X509Context,
+    incoming: &X509Context,
+    picker: Option<&dyn SvidPicker>,
+    incoming_selected: &X509Svid,
+) -> bool {
+    if !select_svid(current, picker).is_some_and(|selected| selected.as_ref() == incoming_selected)
+    {
+        return false;
+    }
     if !bundle_set_equal_for_update(current.bundle_set(), incoming.bundle_set()) {
         return false;
     }
@@ -908,6 +922,22 @@ mod tests {
         let key_bytes = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid = Arc::new(X509Svid::parse_from_der(cert_bytes, key_bytes).unwrap());
         Arc::new(X509Context::new([svid], Arc::new(X509BundleSet::new())))
+    }
+
+    struct HintPicker(&'static str);
+
+    impl SvidPicker for HintPicker {
+        fn pick_svid(&self, svids: &[Arc<X509Svid>]) -> Option<usize> {
+            svids.iter().position(|svid| svid.hint() == Some(self.0))
+        }
+    }
+
+    struct IndexPicker(usize);
+
+    impl SvidPicker for IndexPicker {
+        fn pick_svid(&self, svids: &[Arc<X509Svid>]) -> Option<usize> {
+            (self.0 < svids.len()).then_some(self.0)
+        }
     }
 
     fn supervisor_running_guard_for_test(source: &X509Source) -> SupervisorTerminationGuard {
@@ -1500,7 +1530,7 @@ mod tests {
     }
 
     #[test]
-    fn same_material_for_update_ignores_svid_order() {
+    fn same_material_for_update_detects_default_svid_change() {
         let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
         let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid_a = Arc::new(
@@ -1529,7 +1559,12 @@ mod tests {
             ordered, reversed,
             "public X509Context equality remains order-sensitive"
         );
-        assert!(same_material_for_update(&ordered, &reversed));
+        assert!(!same_material_for_update(
+            &ordered,
+            &reversed,
+            None,
+            reversed.default_svid().unwrap().as_ref(),
+        ));
     }
 
     #[test]
@@ -1567,7 +1602,9 @@ mod tests {
 
         assert!(!same_material_for_update(
             leaf_only_ctx.as_ref(),
-            with_chain.as_ref()
+            with_chain.as_ref(),
+            None,
+            with_chain.default_svid().unwrap().as_ref(),
         ));
 
         let metrics = Arc::new(OrderingMetricsRecorder::new());
@@ -1594,7 +1631,7 @@ mod tests {
     }
 
     #[test]
-    fn same_material_for_update_ignores_order_when_chain_differs() {
+    fn same_material_for_update_ignores_tail_order_when_chain_differs() {
         use crate::cert::parsing::to_certificate_vec;
 
         let chain = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
@@ -1616,18 +1653,30 @@ mod tests {
         bundle_set.add_bundle(X509Bundle::new(TrustDomain::new("example.org").unwrap()));
         let bundle_set = Arc::new(bundle_set);
 
+        let selected = Arc::new(
+            X509Svid::parse_from_der_with_hint(chain, key, Some("selected".into())).unwrap(),
+        );
         let ordered = X509Context::new(
-            [Arc::clone(&full), Arc::clone(&leaf_only)],
+            [
+                Arc::clone(&selected),
+                Arc::clone(&full),
+                Arc::clone(&leaf_only),
+            ],
             Arc::clone(&bundle_set),
         );
-        let reversed = X509Context::new([leaf_only, full], bundle_set);
+        let reversed = X509Context::new([selected, leaf_only, full], bundle_set);
 
         assert_ne!(
             ordered, reversed,
             "public X509Context equality remains order-sensitive"
         );
         assert!(
-            same_material_for_update(&ordered, &reversed),
+            same_material_for_update(
+                &ordered,
+                &reversed,
+                None,
+                reversed.default_svid().unwrap().as_ref(),
+            ),
             "equivalent SVID multisets should compare equal even when matching requires the chain"
         );
     }
@@ -1670,11 +1719,16 @@ mod tests {
         let ctx_a = X509Context::new([Arc::clone(&svid)], Arc::new(bundle_set_a));
         let ctx_b = X509Context::new([svid], Arc::new(bundle_set_b));
 
-        assert!(same_material_for_update(&ctx_a, &ctx_b));
+        assert!(same_material_for_update(
+            &ctx_a,
+            &ctx_b,
+            None,
+            ctx_b.default_svid().unwrap().as_ref(),
+        ));
     }
 
     #[test]
-    fn test_apply_update_skips_notify_for_reordered_svids() {
+    fn test_apply_update_applies_reorder_that_changes_default_svid() {
         let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
         let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let svid_a = Arc::new(
@@ -1692,7 +1746,7 @@ mod tests {
             [Arc::clone(&svid_a), Arc::clone(&svid_b)],
             Arc::clone(&bundle_set),
         ));
-        let reordered = Arc::new(X509Context::new([svid_b, svid_a], bundle_set));
+        let reordered = Arc::new(X509Context::new([Arc::clone(&svid_b), svid_a], bundle_set));
 
         let metrics = Arc::new(OrderingMetricsRecorder::new());
         let source = X509Source::new_for_test(
@@ -1706,11 +1760,112 @@ mod tests {
 
         let result = source
             .inner
-            .apply_update(reordered)
-            .expect("reordered but equivalent material should be accepted");
+            .apply_update(Arc::clone(&reordered))
+            .expect("new default SVID should be accepted");
+        assert_eq!(result, ApplyUpdateResult::Applied);
+        assert_eq!(source.updated().last(), 1);
+        assert_eq!(metrics.update_sequences(), vec![Some(1)]);
+        assert_eq!(source.x509_context().unwrap().as_ref(), reordered.as_ref());
+        assert_eq!(source.svid().unwrap().as_ref(), svid_b.as_ref());
+    }
+
+    #[test]
+    fn test_apply_update_suppresses_tail_only_svid_reorder() {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let make_svid = |hint: &str| {
+            Arc::new(X509Svid::parse_from_der_with_hint(cert, key, Some(hint.into())).unwrap())
+        };
+        let selected = make_svid("selected");
+        let tail_a = make_svid("tail-a");
+        let tail_b = make_svid("tail-b");
+        let bundle_set = Arc::new(X509BundleSet::new());
+        let initial = Arc::new(X509Context::new(
+            [
+                Arc::clone(&selected),
+                Arc::clone(&tail_a),
+                Arc::clone(&tail_b),
+            ],
+            Arc::clone(&bundle_set),
+        ));
+        let reordered = Arc::new(X509Context::new([selected, tail_b, tail_a], bundle_set));
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+
+        let result = source.inner.apply_update(reordered).unwrap();
+
         assert_eq!(result, ApplyUpdateResult::Unchanged);
         assert_eq!(source.updated().last(), 0);
-        assert!(metrics.update_sequences().is_empty());
+        assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+    }
+
+    #[test]
+    fn test_apply_update_suppresses_reorder_when_picker_selection_is_unchanged() {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let selected = Arc::new(
+            X509Svid::parse_from_der_with_hint(cert, key, Some("selected".into())).unwrap(),
+        );
+        let other =
+            Arc::new(X509Svid::parse_from_der_with_hint(cert, key, Some("other".into())).unwrap());
+        let bundle_set = Arc::new(X509BundleSet::new());
+        let initial = Arc::new(X509Context::new(
+            [Arc::clone(&selected), Arc::clone(&other)],
+            Arc::clone(&bundle_set),
+        ));
+        let reordered = Arc::new(X509Context::new([other, selected], bundle_set));
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            Some(Box::new(HintPicker("selected"))),
+        );
+
+        let result = source.inner.apply_update(reordered).unwrap();
+
+        assert_eq!(result, ApplyUpdateResult::Unchanged);
+        assert_eq!(source.updated().last(), 0);
+        assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+        assert_eq!(source.svid().unwrap().hint(), Some("selected"));
+    }
+
+    #[test]
+    fn test_apply_update_applies_reorder_when_picker_selection_changes() {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid_a =
+            Arc::new(X509Svid::parse_from_der_with_hint(cert, key, Some("a".into())).unwrap());
+        let svid_b =
+            Arc::new(X509Svid::parse_from_der_with_hint(cert, key, Some("b".into())).unwrap());
+        let bundle_set = Arc::new(X509BundleSet::new());
+        let initial = Arc::new(X509Context::new(
+            [Arc::clone(&svid_a), Arc::clone(&svid_b)],
+            Arc::clone(&bundle_set),
+        ));
+        let reordered = Arc::new(X509Context::new(
+            [Arc::clone(&svid_b), Arc::clone(&svid_a)],
+            bundle_set,
+        ));
+        let source = X509Source::new_for_test(
+            initial,
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            Some(Box::new(IndexPicker(1))),
+        );
+
+        let result = source.inner.apply_update(Arc::clone(&reordered)).unwrap();
+
+        assert_eq!(result, ApplyUpdateResult::Applied);
+        assert_eq!(source.updated().last(), 1);
+        assert_eq!(source.x509_context().unwrap().as_ref(), reordered.as_ref());
+        assert_eq!(source.svid().unwrap().as_ref(), svid_a.as_ref());
     }
 
     #[test]
