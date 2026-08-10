@@ -10,6 +10,10 @@
 
 - **Broker API (experimental):** New `broker-api` feature with bindings for the [SPIFFE Broker API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Broker_API.md): the generated `spiffe.broker` client and messages, a `SecurityHeader` interceptor for the required `broker.spiffe.io` metadata, and `From` conversions that pack PID and Kubernetes object references into a `WorkloadReference` with the full type URL. The `Debug` output of the SVID messages shows only the length of private keys and JWT tokens. `broker-api` is experimental and may change in a semver-incompatible release. While `spiffe` remains pre-1.0, breaking changes require a minor version bump; patch releases remain compatible.
 
+### Fixed
+
+- **X509Source:** A Workload API update is no longer suppressed when an SVID-list reorder changes the default or picker-selected SVID. Reorders that leave the selected SVID unchanged remain suppressed.
+
 ## [0.16.1] - 2026-08-08
 
 ### Fixed
