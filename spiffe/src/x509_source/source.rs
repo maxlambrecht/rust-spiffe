@@ -234,6 +234,11 @@ impl Debug for Inner {
 }
 
 impl X509Source {
+    #[cfg(test)]
+    pub(super) const fn inner_for_test(&self) -> &Arc<Inner> {
+        &self.inner
+    }
+
     /// Creates an `X509Source` using the default Workload API endpoint.
     ///
     /// The endpoint is resolved from `SPIFFE_ENDPOINT_SOCKET`. The source selects the default

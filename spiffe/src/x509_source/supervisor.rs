@@ -503,12 +503,26 @@ impl Inner {
 mod tests {
     use super::*;
     use crate::transport::TransportError;
+    use crate::workload_api::pb::workload::{X509svid, X509svidRequest, X509svidResponse};
+    use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Source};
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use tonic::codegen::http;
 
     fn invalid_argument_error() -> WorkloadApiError {
         WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
             "bad request",
         )))
+    }
+
+    fn context_with_bundle(authority: &[u8]) -> Arc<X509Context> {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid = Arc::new(X509Svid::parse_from_der(cert, key).unwrap());
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let bundle = X509Bundle::from_x509_authorities(trust_domain, &[authority]).unwrap();
+        let mut bundle_set = X509BundleSet::new();
+        bundle_set.add_bundle(bundle);
+        Arc::new(X509Context::new([svid], Arc::new(bundle_set)))
     }
 
     #[tokio::test]
@@ -556,5 +570,138 @@ mod tests {
             1,
             "must not retry client creation after an INVALID_ARGUMENT response"
         );
+    }
+
+    fn x509_svid_response(bundle: &[u8]) -> X509svidResponse {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        X509svidResponse {
+            svids: vec![X509svid {
+                spiffe_id: "spiffe://example.org/service".into(),
+                x509_svid: cert.to_vec().into(),
+                x509_svid_key: key.to_vec().into(),
+                bundle: bundle.to_vec().into(),
+                hint: String::new(),
+            }],
+            ..X509svidResponse::default()
+        }
+    }
+
+    /// Serves `FetchX509SVID` over loopback TCP. The Nth call streams `responses[N]`
+    /// (the last response is repeated once exhausted). Returns the endpoint and call count.
+    async fn spawn_fetch_x509_svid_server(
+        responses: Vec<X509svidResponse>,
+    ) -> (String, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let calls_clone = Arc::clone(&calls);
+        let responses = Arc::new(responses);
+
+        let svc = tower::service_fn(move |req: http::Request<tonic::body::Body>| {
+            let calls = Arc::clone(&calls_clone);
+            let responses = Arc::clone(&responses);
+            async move {
+                let handler =
+                    tower::service_fn(move |_: tonic::Request<X509svidRequest>| {
+                        let call = calls.fetch_add(1, Ordering::SeqCst);
+                        let response = responses
+                            .get(call)
+                            .or_else(|| responses.last())
+                            .cloned()
+                            .expect("at least one response");
+                        async move {
+                            Ok::<_, tonic::Status>(tonic::Response::new(futures::stream::iter([
+                                Ok::<_, tonic::Status>(response),
+                            ])))
+                        }
+                    });
+                let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
+                Ok::<_, std::convert::Infallible>(grpc.server_streaming(handler, req).await)
+            }
+        });
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(
+            tonic::transport::Server::builder()
+                .serve_with_incoming(svc, tonic::transport::server::TcpIncoming::from(listener)),
+        );
+
+        (format!("tcp://{addr}"), calls)
+    }
+
+    #[tokio::test]
+    async fn initial_sync_retries_malformed_response_until_valid() {
+        let authority = include_bytes!("../../tests/testdata/bundle/x509/cert1.der");
+        let (endpoint, calls) = spawn_fetch_x509_svid_server(vec![
+            x509_svid_response(&[]),
+            x509_svid_response(authority),
+        ])
+        .await;
+        let make_client: ClientFactory = Arc::new(move || {
+            let endpoint = endpoint.clone();
+            Box::pin(async move { WorkloadApiClient::connect_to(endpoint).await })
+        });
+        let cancel = CancellationToken::new();
+        let reconnect = ReconnectConfig::new(Duration::from_millis(10), Duration::from_millis(10));
+
+        let (ctx, _) = tokio::time::timeout(
+            Duration::from_secs(5),
+            initial_sync_with_retry(
+                &make_client,
+                None,
+                &cancel,
+                reconnect,
+                ResourceLimits::default(),
+                None,
+            ),
+        )
+        .await
+        .expect("initial sync should reconnect after a malformed response")
+        .expect("initial sync should accept the subsequent valid response");
+
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let bundle = ctx
+            .bundle_set()
+            .get(&TrustDomain::new("example.org").unwrap())
+            .expect("local bundle from the valid response");
+        let authorities: Vec<&[u8]> = bundle.authorities().iter().map(AsRef::as_ref).collect();
+        assert_eq!(authorities, [authority.as_slice()]);
+    }
+
+    #[tokio::test]
+    async fn malformed_update_retains_snapshot_without_notification_and_next_update_recovers() {
+        let old_authority = include_bytes!("../../tests/testdata/bundle/x509/cert1.der");
+        let new_authority = include_bytes!("../../tests/testdata/bundle/x509/cert2.der");
+        let initial = context_with_bundle(old_authority);
+        let recovered = context_with_bundle(new_authority);
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let cancel = CancellationToken::new();
+
+        let mut malformed_stream =
+            futures::stream::iter([Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVID.bundle",
+            })]);
+        source
+            .inner_for_test()
+            .process_stream_updates(&mut malformed_stream, &cancel, 1)
+            .await;
+
+        assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+        assert_eq!(source.updated().last(), 0);
+
+        let mut recovered_stream = futures::stream::iter([Ok(recovered.as_ref().clone())]);
+        source
+            .inner_for_test()
+            .process_stream_updates(&mut recovered_stream, &cancel, 2)
+            .await;
+
+        assert_eq!(source.x509_context().unwrap().as_ref(), recovered.as_ref());
+        assert_eq!(source.updated().last(), 1);
     }
 }
