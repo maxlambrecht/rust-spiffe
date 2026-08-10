@@ -6,6 +6,15 @@
 //! 2) **Offline verification**: verify a token using JWT authorities from bundles.
 //!    Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`)
 //!    and [`JwtSvid::parse_and_validate`].
+//!
+//! ## `kid` compatibility constraint
+//!
+//! Although the JWT-SVID specification makes the `kid` header optional, this
+//! implementation deliberately requires it. Key selection and the public
+//! [`JwtSvid::key_id`] API are `kid`-based; rejecting tokens without one is a
+//! fail-closed policy that matches SPIRE-issued JWT-SVIDs and existing ecosystem
+//! behavior. JWT-SVIDs from non-SPIRE issuers that omit `kid` are therefore
+//! rejected, even if they otherwise satisfy the JWT-SVID profile.
 
 use std::fmt;
 use std::marker::PhantomData;
