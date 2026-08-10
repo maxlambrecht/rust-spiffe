@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Rustls peer verification now rejects X.509-SVID leaf certificates whose SPIFFE ID has no path component (for example, `spiffe://example.org`). Bare trust-domain SPIFFE IDs remain valid in non-leaf contexts. This tightens previously accepted peer behavior and aligns both client and server verifiers with core `X509Svid` validation.
+
 ## [0.8.0] - 2026-07-18
 
 ### Security

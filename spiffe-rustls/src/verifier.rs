@@ -72,8 +72,8 @@ fn condvar_wait<'a, T>(
 /// Both fields are pure functions of the certificate bytes, so cache hits avoid
 /// re-parsing during the TLS handshake.
 ///
-/// `leaf_check` is `Err(reason)` when the certificate is signing-capable and
-/// therefore cannot be accepted as a peer X509-SVID leaf.
+/// `leaf_check` is `Err(reason)` when the certificate does not satisfy the
+/// peer X509-SVID leaf requirements enforced by this crate.
 #[derive(Clone, Debug)]
 struct CachedLeaf {
     spiffe_id: SpiffeId,
@@ -200,9 +200,10 @@ fn lookup_or_parse_leaf(
         }
     })?;
 
+    let leaf_check = leaf_constraint_check(leaf, &spiffe_id);
     let cached = CachedLeaf {
         spiffe_id,
-        leaf_check: leaf_constraint_check(leaf),
+        leaf_check,
     };
 
     if let Some(cache) = cache {
@@ -227,21 +228,26 @@ fn extract_spiffe_id_with_cache(
 
 /// Rejects certificates that must not be used as X509-SVID leaf identities.
 ///
-/// **Specification:** X509-SVID section 5.2 requires leaf validation to reject
-/// signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`).
-/// Section 4.3 requires leaf SVIDs to carry a key usage extension with
-/// `digitalSignature` set (and marked critical at issuance); section 5.2 does
-/// not restate that requirement as a validation MUST.
+/// **Specification:** X509-SVID section 3.1 requires leaf SPIFFE IDs to have a
+/// non-root path component. Section 5.2 requires leaf validation to reject
+/// signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`). Section
+/// 4.3 requires leaf SVIDs to carry a key usage extension with `digitalSignature`
+/// set (and marked critical at issuance); section 5.2 does not restate that
+/// requirement as a validation MUST.
 ///
-/// **Enforced here:** signing-capable certificates are rejected per section 5.2.
-/// The key usage extension must be present and must set `digitalSignature`; this
-/// aligns peer acceptance with section 4.3 certificate constraints even though
-/// section 5.2 does not explicitly require checking them at validation time. The
-/// critical bit on the extension is not checked here.
+/// **Enforced here:** leaf SPIFFE IDs must have a non-root path component, and
+/// signing-capable certificates are rejected. The key usage extension must be
+/// present and must set `digitalSignature`; this aligns peer acceptance with
+/// section 4.3 certificate constraints even though section 5.2 does not explicitly
+/// require checking them at validation time. The critical bit on the extension is
+/// not checked here.
 ///
 /// Returns `Ok(())` for a valid leaf, or `Err(reason)` describing the violation
 /// (or a parse failure, which fails closed).
-fn leaf_constraint_check(leaf: &CertificateDer<'_>) -> std::result::Result<(), String> {
+fn leaf_constraint_check(
+    leaf: &CertificateDer<'_>,
+    spiffe_id: &SpiffeId,
+) -> std::result::Result<(), String> {
     let (_, cert) =
         x509_parser::parse_x509_certificate(leaf.as_ref()).map_err(|e| e.to_string())?;
 
@@ -264,6 +270,10 @@ fn leaf_constraint_check(leaf: &CertificateDer<'_>) -> std::result::Result<(), S
             }
         }
         None => return Err("key usage extension is missing".into()),
+    }
+
+    if spiffe_id.path().is_empty() {
+        return Err("leaf SPIFFE ID must have a non-root path component".into());
     }
 
     Ok(())
@@ -688,7 +698,7 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         // Step 3: Get or build verifier for this trust domain
         let verifier = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Reject signing-capable certificates as peer leaf identities.
+        // Step 4: Enforce SPIFFE-specific peer leaf constraints.
         if let Err(reason) = leaf_check {
             return Err(other_err(Error::InvalidLeaf(reason)));
         }
@@ -928,7 +938,7 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
         // Step 3: Get or build verifier for this trust domain
         let inner = self.get_or_build_inner(trust_domain).map_err(other_err)?;
 
-        // Step 4: Reject signing-capable certificates as peer leaf identities.
+        // Step 4: Enforce SPIFFE-specific peer leaf constraints.
         if let Err(reason) = leaf_check {
             return Err(other_err(Error::InvalidLeaf(reason)));
         }
@@ -1075,6 +1085,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::OnceLock;
 
+    const PATHLESS_LEAF_REASON: &str = "must have a non-root path";
+
     fn ensure_provider() {
         static ONCE: OnceLock<()> = OnceLock::new();
         ONCE.get_or_init(crate::crypto::ensure_crypto_provider_installed);
@@ -1123,6 +1135,21 @@ mod tests {
         ))
     }
 
+    /// CA-signed leaf with a bare trust-domain SPIFFE ID (`spiffe://example.org`).
+    fn fixture_pathless_leaf_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/pathless_leaf.der"
+        ))
+    }
+
+    fn fixture_pathless_ca_der() -> &'static [u8] {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/pathless_ca.der"
+        ))
+    }
+
     fn fixture_leaf_key_pkcs8_der() -> &'static [u8] {
         include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1132,6 +1159,10 @@ mod tests {
 
     fn cert_with_spiffe() -> CertificateDer<'static> {
         CertificateDer::from(fixture_spiffe_leaf_der().to_vec())
+    }
+
+    fn cert_with_pathless_spiffe_id() -> CertificateDer<'static> {
+        CertificateDer::from(fixture_pathless_leaf_der().to_vec())
     }
 
     fn cert_with_spiffe_uri_only() -> CertificateDer<'static> {
@@ -1172,6 +1203,14 @@ mod tests {
         roots
             .add(CertificateDer::from(fixture_ca_der().to_vec()))
             .expect("fixture CA must parse");
+        Arc::new(roots)
+    }
+
+    fn roots_with_pathless_ca() -> Arc<RootCertStore> {
+        let mut roots = RootCertStore::empty();
+        roots
+            .add(CertificateDer::from(fixture_pathless_ca_der().to_vec()))
+            .expect("pathless fixture CA must parse");
         Arc::new(roots)
     }
 
@@ -1235,6 +1274,20 @@ mod tests {
         static_provider_single_td(generation, "example.org")
     }
 
+    fn static_provider_pathless_example_org(generation: u64) -> Arc<dyn MaterialProvider> {
+        let mut roots_by_td = BTreeMap::new();
+        roots_by_td.insert(
+            TrustDomain::new("example.org").expect("valid trust domain"),
+            roots_with_pathless_ca(),
+        );
+
+        Arc::new(StaticMaterial(Arc::new(MaterialSnapshot {
+            generation,
+            certified_key: certified_key_from_fixtures(),
+            roots_by_td,
+        })))
+    }
+
     fn server_name_example_org() -> ServerName<'static> {
         ServerName::try_from("example.org").unwrap()
     }
@@ -1268,6 +1321,16 @@ mod tests {
         }
     }
 
+    fn assert_pathless_leaf_error(error: &Error) {
+        match error {
+            Error::InvalidLeaf(reason) => assert!(
+                reason.contains(PATHLESS_LEAF_REASON),
+                "expected pathless leaf reason, got {reason:?}"
+            ),
+            other => panic!("expected Error::InvalidLeaf, got {other:?}"),
+        }
+    }
+
     #[test]
     fn extract_spiffe_id_ok() {
         let id = extract_spiffe_id(&cert_with_spiffe()).unwrap();
@@ -1282,32 +1345,100 @@ mod tests {
 
     #[test]
     fn leaf_constraint_check_accepts_leaf_certificate() {
-        leaf_constraint_check(&cert_with_spiffe()).unwrap();
-        leaf_constraint_check(&cert_with_spiffe_uri_only()).unwrap();
+        let cert = cert_with_spiffe();
+        let id = extract_spiffe_id(&cert).unwrap();
+        leaf_constraint_check(&cert, &id).unwrap();
+
+        let cert = cert_with_spiffe_uri_only();
+        let id = extract_spiffe_id(&cert).unwrap();
+        leaf_constraint_check(&cert, &id).unwrap();
+    }
+
+    #[test]
+    fn leaf_constraint_check_rejects_pathless_spiffe_id() {
+        let cert = cert_with_pathless_spiffe_id();
+        let id = extract_spiffe_id(&cert).unwrap();
+        let reason = leaf_constraint_check(&cert, &id).unwrap_err();
+        assert!(
+            reason.contains(PATHLESS_LEAF_REASON),
+            "expected pathless leaf reason, got {reason:?}"
+        );
     }
 
     #[test]
     fn leaf_constraint_check_rejects_ca_certificate() {
         // ca.der has CA:TRUE and keyCertSign/cRLSign set.
-        leaf_constraint_check(&CertificateDer::from(fixture_ca_der().to_vec())).unwrap_err();
+        leaf_constraint_check(
+            &CertificateDer::from(fixture_ca_der().to_vec()),
+            &SpiffeId::new("spiffe://example.org/service").unwrap(),
+        )
+        .unwrap_err();
     }
 
     #[test]
     fn leaf_constraint_check_rejects_signing_cert_with_spiffe_id() {
-        leaf_constraint_check(&cert_ca_with_spiffe_signing()).unwrap_err();
+        let cert = cert_ca_with_spiffe_signing();
+        let id = extract_spiffe_id(&cert).unwrap();
+        leaf_constraint_check(&cert, &id).unwrap_err();
     }
 
     #[test]
     fn leaf_constraint_check_rejects_leaf_without_key_usage() {
         // A leaf SVID must carry a key usage extension with digitalSignature set;
         // a leaf with no key usage extension must be rejected.
-        leaf_constraint_check(&cert_with_spiffe_no_key_usage()).unwrap_err();
+        let cert = cert_with_spiffe_no_key_usage();
+        let id = extract_spiffe_id(&cert).unwrap();
+        leaf_constraint_check(&cert, &id).unwrap_err();
     }
 
     #[test]
     fn leaf_constraint_check_rejects_leaf_without_digital_signature() {
         // A leaf with key usage present but digitalSignature unset must be rejected.
-        leaf_constraint_check(&cert_with_spiffe_no_digital_signature()).unwrap_err();
+        let cert = cert_with_spiffe_no_digital_signature();
+        let id = extract_spiffe_id(&cert).unwrap();
+        leaf_constraint_check(&cert, &id).unwrap_err();
+    }
+
+    #[test]
+    fn server_verifier_rejects_ca_signed_pathless_leaf_with_any_authorizer() {
+        ensure_provider();
+
+        let verifier = SpiffeServerCertVerifier::new(
+            static_provider_pathless_example_org(1),
+            crate::authorizer::any(),
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_server_cert(
+                &cert_with_pathless_spiffe_id(),
+                &[],
+                &server_name_example_org(),
+                &[],
+                UnixTime::now(),
+            )
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert_pathless_leaf_error(e);
+    }
+
+    #[test]
+    fn client_verifier_rejects_ca_signed_pathless_leaf_with_any_authorizer() {
+        ensure_provider();
+
+        let verifier = SpiffeClientCertVerifier::new(
+            static_provider_pathless_example_org(1),
+            crate::authorizer::any(),
+            TrustDomainPolicy::AnyInBundleSet,
+        );
+
+        let err = verifier
+            .verify_client_cert(&cert_with_pathless_spiffe_id(), &[], UnixTime::now())
+            .unwrap_err();
+
+        let e = assert_other_downcasts_to_error(&err);
+        assert_pathless_leaf_error(e);
     }
 
     /// A signing-capable certificate that carries a SPIFFE ID must be rejected
@@ -1930,19 +2061,24 @@ mod tests {
     }
 
     #[test]
-    fn lookup_or_parse_leaf_caches_invalid_leaf_result() {
-        // A signing cert must be reported invalid on both the cache-miss (first) and
+    fn lookup_or_parse_leaf_caches_pathless_leaf_result() {
+        // A pathless leaf must be reported invalid on both the cache-miss (first) and
         // cache-hit (second) paths, so caching never turns a rejection into acceptance.
         let cache: Mutex<CertParseCache> = Mutex::new(CertParseCache::new());
-        let cert = cert_ca_with_spiffe_signing();
+        let cert = cert_with_pathless_spiffe_id();
 
         let first = lookup_or_parse_leaf(&cert, Some(&cache)).unwrap();
-        assert!(first.leaf_check.is_err(), "first (miss) must reject leaf");
+        let first_reason = first.leaf_check.unwrap_err();
+        assert!(
+            first_reason.contains(PATHLESS_LEAF_REASON),
+            "first (miss) must report a pathless leaf: {first_reason:?}"
+        );
 
         let second = lookup_or_parse_leaf(&cert, Some(&cache)).unwrap();
+        let second_reason = second.leaf_check.unwrap_err();
         assert!(
-            second.leaf_check.is_err(),
-            "second (hit) must still reject leaf"
+            second_reason.contains(PATHLESS_LEAF_REASON),
+            "second (hit) must report a pathless leaf: {second_reason:?}"
         );
         assert_eq!(first.spiffe_id, second.spiffe_id);
     }
