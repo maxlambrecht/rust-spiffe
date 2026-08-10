@@ -123,8 +123,15 @@ impl JwtBundle {
         &self.trust_domain
     }
 
-    /// Parses a `JwtBundle` from bytes representing a set of  JWT authorities. The data must be
-    /// a standard RFC 7517 JWTK document.
+    /// Parses a `JwtBundle` from an RFC 7517 JWK Set containing JWT authorities.
+    ///
+    /// This consumes the purpose-specific JWKS returned by the Workload API
+    /// `FetchJWTBundles` RPC, not a full SPIFFE bundle document. The Workload API
+    /// has already selected JWT-SVID signing keys, and standard JWKS entries may
+    /// omit the SPIFFE bundle-document `use` field. Consequently, this method does
+    /// not filter authorities by `use == "jwt-svid"`. Callers starting with a full
+    /// SPIFFE bundle document must perform that purpose filtering before calling
+    /// this method.
     ///
     /// # Arguments
     ///
@@ -416,7 +423,7 @@ mod jwt_bundle_test {
     }
 
     #[test]
-    fn test_parse_bundle_from_json_single_authority() {
+    fn test_parse_workload_api_jwks_keeps_authority_without_use() {
         let bundle_bytes = r#"{
             "keys": [
                 {
@@ -433,9 +440,11 @@ mod jwt_bundle_test {
         let trust_domain = td("example.org");
         let jwt_bundle = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes).unwrap();
 
-        assert!(jwt_bundle
+        let authority = jwt_bundle
             .find_jwt_authority("C6vs25welZOx6WksNYfbMfiw9l96pMnD")
-            .is_some());
+            .expect("authority without 'use' must remain selectable");
+        let jwk: Value = serde_json::from_slice(authority.jwk_json()).unwrap();
+        assert!(jwk.get("use").is_none());
     }
 
     #[test]
