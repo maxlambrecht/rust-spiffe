@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- **WorkloadApiClient / X509Source:** Reject `FetchX509SVID` responses whose mandatory per-SVID `bundle` field is empty, reporting `WorkloadApiError::MissingRequiredField` instead of accepting malformed identity material. Initial `X509Source` synchronization fails cleanly, while steady-state malformed updates retain the previous complete SVID and bundle snapshot without notifying subscribers. Empty standalone and federated X.509 bundles remain valid for bundle revocation.
+
 ## [0.16.1] - 2026-08-08
 
 ### Fixed

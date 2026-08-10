@@ -203,10 +203,10 @@ pub(super) async fn initial_sync_with_retry(
                 // reconnects (after a successful initial sync) are intentionally left
                 // retrying as before, since we already hold valid material at that point.
                 if let X509SourceError::Source(inner) = &e {
-                    if inner.is_invalid_argument() {
+                    if inner.is_invalid_argument() || inner.is_malformed_response() {
                         warn!(
-                            "Initial sync: Workload API rejected the request as invalid \
-                             (INVALID_ARGUMENT); not retrying: error={e}"
+                            "Initial sync: Workload API request or response is deterministically \
+                             invalid; not retrying: error={e}"
                         );
                         return Err(e);
                     }
@@ -503,12 +503,24 @@ impl Inner {
 mod tests {
     use super::*;
     use crate::transport::TransportError;
+    use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Source};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn invalid_argument_error() -> WorkloadApiError {
         WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
             "bad request",
         )))
+    }
+
+    fn context_with_bundle(authority: &[u8]) -> Arc<X509Context> {
+        let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
+        let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
+        let svid = Arc::new(X509Svid::parse_from_der(cert, key).unwrap());
+        let trust_domain = TrustDomain::new("example.org").unwrap();
+        let bundle = X509Bundle::from_x509_authorities(trust_domain, &[authority]).unwrap();
+        let mut bundle_set = X509BundleSet::new();
+        bundle_set.add_bundle(bundle);
+        Arc::new(X509Context::new([svid], Arc::new(bundle_set)))
     }
 
     #[tokio::test]
@@ -556,5 +568,82 @@ mod tests {
             1,
             "must not retry client creation after an INVALID_ARGUMENT response"
         );
+    }
+
+    #[tokio::test]
+    async fn initial_sync_fails_fast_on_malformed_response() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_clone = Arc::clone(&attempts);
+        let make_client: ClientFactory = Arc::new(move || {
+            attempts_clone.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async {
+                Err(WorkloadApiError::MissingRequiredField {
+                    field: "X509SVID.bundle",
+                })
+            })
+        });
+        let cancel = CancellationToken::new();
+        let reconnect = ReconnectConfig::new(Duration::from_secs(30), Duration::from_secs(60));
+
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            initial_sync_with_retry(
+                &make_client,
+                None,
+                &cancel,
+                reconnect,
+                ResourceLimits::default(),
+                None,
+            ),
+        )
+        .await
+        .expect("initial sync should fail fast on malformed response material");
+
+        assert!(matches!(
+            result,
+            Err(X509SourceError::Source(
+                WorkloadApiError::MissingRequiredField {
+                    field: "X509SVID.bundle"
+                }
+            ))
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn malformed_update_retains_snapshot_without_notification_and_next_update_recovers() {
+        let old_authority = include_bytes!("../../tests/testdata/bundle/x509/cert1.der");
+        let new_authority = include_bytes!("../../tests/testdata/bundle/x509/cert2.der");
+        let initial = context_with_bundle(old_authority);
+        let recovered = context_with_bundle(new_authority);
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let cancel = CancellationToken::new();
+
+        let mut malformed_stream =
+            futures::stream::iter([Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVID.bundle",
+            })]);
+        source
+            .inner_for_test()
+            .process_stream_updates(&mut malformed_stream, &cancel, 1)
+            .await;
+
+        assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+        assert_eq!(source.updated().last(), 0);
+
+        let mut recovered_stream = futures::stream::iter([Ok(recovered.as_ref().clone())]);
+        source
+            .inner_for_test()
+            .process_stream_updates(&mut recovered_stream, &cancel, 2)
+            .await;
+
+        assert_eq!(source.x509_context().unwrap().as_ref(), recovered.as_ref());
+        assert_eq!(source.updated().last(), 1);
     }
 }
