@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Documentation
+
+- **JWT bundles / JWT-SVID:** Clarified that Workload API JWT JWKS entries may omit `use`, and documented the deliberate fail-closed requirement for JWT-SVID `kid` headers, including interoperability implications for non-SPIRE issuers.
+
 ## [0.16.1] - 2026-08-08
 
 ### Fixed
