@@ -95,7 +95,8 @@ impl JwtAlg {
 
 /// Represents a SPIFFE JWT-SVID.
 ///
-/// The serialized token is zeroized on drop.
+/// The serialized token is zeroized on drop and omitted from `Debug` output
+/// (only the token length is shown).
 ///
 /// ## Usage Patterns
 ///
@@ -207,10 +208,18 @@ impl From<std::convert::Infallible> for JwtSvidError {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Zeroize)]
+#[derive(Clone, Eq, PartialEq, Zeroize)]
 #[zeroize(drop)]
 struct Token {
     inner: String,
+}
+
+impl fmt::Debug for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Token")
+            .field("len", &self.inner.len())
+            .finish()
+    }
 }
 
 impl From<&str> for Token {
@@ -618,6 +627,41 @@ mod tests {
         assert_eq!(svid.key_id(), "k1");
         assert_eq!(svid.audience(), &["aud1".to_string()]);
         assert_eq!(svid.token(), token);
+    }
+
+    #[test]
+    fn debug_redacts_compact_jwt() {
+        use base64ct::{Base64UrlUnpadded, Encoding as _};
+
+        // Use a distinctive signature segment so the redaction assertion cannot
+        // collide with unrelated Debug text (unlike mk_token's short ".sig").
+        let header = Base64UrlUnpadded::encode_string(
+            br#"{"alg":"ES256","kid":"redaction-key-id","typ":"JWT"}"#,
+        );
+        let claims = Base64UrlUnpadded::encode_string(
+            br#"{"sub":"spiffe://example.org/redaction-service","aud":"aud1","exp":4294967295}"#,
+        );
+        let token = format!("{header}.{claims}.signature-segment-must-not-leak");
+        let svid = JwtSvid::parse_insecure(&token).unwrap();
+
+        let debug = format!("{svid:?}");
+        assert!(!debug.contains(&token));
+        for segment in token.split('.') {
+            assert!(!debug.contains(segment));
+        }
+        assert!(debug.contains("spiffe://example.org/redaction-service"));
+        assert!(debug.contains("redaction-key-id"));
+    }
+
+    #[test]
+    fn token_debug_redacts_inner_value() {
+        let token = Token::from("header-segment.claims-segment.signature-segment");
+
+        let debug = format!("{token:?}");
+        assert_eq!(debug, "Token { len: 47 }");
+        for segment in token.as_ref().split('.') {
+            assert!(!debug.contains(segment));
+        }
     }
 
     #[test]

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- **JwtSvid:** `Debug` no longer includes the compact JWT token; only the token length is shown (matching `PrivateKey` redaction).
+
 ## [0.16.1] - 2026-08-08
 
 ### Fixed
