@@ -369,9 +369,10 @@ impl JwtSvid {
         Ok(untrusted)
     }
 
-    /// Returns a copy of this JWT-SVID with the given Workload API hint attached.
+    /// Returns a copy of this JWT-SVID with the given usage hint attached.
     ///
-    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload API.
+    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload
+    /// API or SPIRE Delegated Identity API.
     #[must_use]
     pub fn with_hint(mut self, hint: impl Into<Arc<str>>) -> Self {
         self.hint = Some(hint.into());
@@ -415,10 +416,10 @@ impl JwtSvid {
         &self.claims
     }
 
-    /// Returns the Workload API hint (if any).
+    /// Returns the usage hint (if any).
     ///
-    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload API
-    /// when more than one SVID is available.
+    /// This hint is not part of the JWT; it is metadata returned by the SPIFFE Workload
+    /// API or SPIRE Delegated Identity API when more than one SVID is available.
     pub fn hint(&self) -> Option<&str> {
         self.hint.as_deref()
     }
