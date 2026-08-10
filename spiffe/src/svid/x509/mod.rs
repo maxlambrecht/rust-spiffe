@@ -104,9 +104,9 @@ impl X509Svid {
     /// Creates a [`X509Svid`] from a certificate chain and private key, with an optional usage hint.
     ///
     /// The `hint` is an operator-provided string supplied by the SPIFFE Workload API
-    /// to convey guidance on how the SVID should be used when multiple SVIDs are
-    /// available (e.g. `"internal"`, `"external"`). The hint is optional and may be
-    /// absent.
+    /// or SPIRE Delegated Identity API to convey guidance on how the SVID should be
+    /// used when multiple SVIDs are available (e.g. `"internal"`, `"external"`). The
+    /// hint is optional and may be absent.
     ///
     /// # Arguments
     ///
@@ -164,7 +164,8 @@ impl X509Svid {
         self.expiry_unix
     }
 
-    /// Returns the optional hint provided by the Workload API.
+    /// Returns the optional hint provided by the Workload API or SPIRE Delegated
+    /// Identity API.
     pub fn hint(&self) -> Option<&str> {
         self.hint.as_deref()
     }
