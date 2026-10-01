@@ -1710,7 +1710,7 @@ mod tests {
             .expect("reordered but equivalent material should be accepted");
         assert_eq!(result, ApplyUpdateResult::Unchanged);
         assert_eq!(source.updated().last(), 0);
-        assert!(metrics.update_sequences().is_empty());
+        assert_eq!(metrics.update_sequences(), Vec::<Option<u64>>::new());
     }
 
     #[test]

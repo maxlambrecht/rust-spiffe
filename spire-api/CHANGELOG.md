@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Preserve non-empty SVID hints from Delegated Identity X.509 and JWT responses (empty hints still map to `None`), matching Workload API client behavior.
+
 ## [0.8.0] – 2026-06-08
 
 ### Breaking changes

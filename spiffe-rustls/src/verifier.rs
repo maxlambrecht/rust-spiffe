@@ -1768,7 +1768,7 @@ mod tests {
         let schemes_td2 = verifier.supported_schemes_cached(&td2);
 
         let intersection = verifier.supported_verify_schemes();
-        assert!(!intersection.is_empty());
+        assert_ne!(intersection, []);
 
         for scheme in &intersection {
             assert!(
@@ -2004,13 +2004,13 @@ mod tests {
         };
 
         let s1 = verifier.supported_verify_schemes();
-        assert!(!s1.is_empty());
+        assert_ne!(s1, []);
 
         // Swap snapshot generation.
         *lock_mutex(&provider.0).unwrap() = snap2;
 
         let s2 = verifier.supported_verify_schemes();
-        assert!(!s2.is_empty());
+        assert_ne!(s2, []);
     }
 
     /// [`MaterialProvider`] whose snapshot can be swapped after construction,
@@ -2074,7 +2074,7 @@ mod tests {
         let value = verifier
             .get_or_build_inner(&td)
             .expect("build must succeed once the root store is valid");
-        assert!(!value.schemes.is_empty());
+        assert_ne!(value.schemes, []);
     }
 
     #[test]
@@ -2124,6 +2124,6 @@ mod tests {
         let value = verifier
             .get_or_build_inner(&td)
             .expect("build must succeed once the root store is valid");
-        assert!(!value.schemes.is_empty());
+        assert_ne!(value.schemes, []);
     }
 }

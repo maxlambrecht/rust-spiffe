@@ -27,6 +27,7 @@ use spiffe::{
 };
 
 use std::str::FromStr as _;
+use std::sync::Arc;
 
 use futures::{Stream, StreamExt as _};
 
@@ -183,6 +184,8 @@ impl DelegatedIdentityClient {
     /// # Returns
     ///
     /// On success, it returns a valid [`X509Svid`] which represents the parsed SVID.
+    /// A non-empty usage hint from the API is preserved on the returned SVID
+    /// (via [`X509Svid::hint`]); an empty hint is mapped to [`None`].
     /// If the fetch operation or the parsing fails, it returns a [`DelegatedIdentityError`].
     ///
     /// # Errors
@@ -317,16 +320,21 @@ impl DelegatedIdentityClient {
         }))
     }
 
-    /// Fetches a list of [`JwtSvid`] parsing the JWT token in the Workload API response, for the given audience and selectors.
+    /// Fetches a list of [`JwtSvid`] parsing the JWT tokens in the Delegated Identity
+    /// response, for the given audience and attestation request.
+    ///
+    /// Each returned [`JwtSvid`] may include an optional usage hint (via [`JwtSvid::hint`])
+    /// that can be used to disambiguate which SVID to use when multiple identities are
+    /// returned. Empty hints from the API are mapped to [`None`].
     ///
     /// # Arguments
     ///
     /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
-    /// * `selectors` - A list of selectors to filter the list of [`JwtSvid`].
+    /// * `attest_type` - PID or selectors identifying the workload to attest.
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the API or
     /// there is a problem processing the response.
     pub async fn fetch_jwt_svids<T: AsRef<str> + Sync + ToString>(
         &self,
@@ -433,7 +441,10 @@ impl DelegatedIdentityClient {
             cert_chain_bytes.extend_from_slice(c);
         }
 
-        X509Svid::parse_from_der(&cert_chain_bytes, svid.x509_svid_key.as_ref()).map_err(Into::into)
+        let hint = (!x509_svid.hint.is_empty()).then(|| Arc::<str>::from(x509_svid.hint.as_str()));
+
+        X509Svid::parse_from_der_with_hint(&cert_chain_bytes, svid.x509_svid_key.as_ref(), hint)
+            .map_err(Into::into)
     }
 
     fn parse_jwt_svid_from_grpc_response(
@@ -441,7 +452,13 @@ impl DelegatedIdentityClient {
     ) -> Result<Vec<JwtSvid>, DelegatedIdentityError> {
         svids
             .into_iter()
-            .map(|r| JwtSvid::from_str(&r.token).map_err(DelegatedIdentityError::from))
+            .map(|r| {
+                let mut svid = JwtSvid::from_str(&r.token)?;
+                if !r.hint.is_empty() {
+                    svid = svid.with_hint(Arc::<str>::from(r.hint));
+                }
+                Ok(svid)
+            })
             .collect()
     }
 
@@ -519,5 +536,85 @@ fn make_jwtsvid_request<T: AsRef<str> + ToString>(
             selectors: Vec::new(),
             pid,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::pb::spire::api::agent::delegatedidentity::v1::X509svidWithKey;
+    use crate::pb::spire::api::types::X509svid as ProtoX509Svid;
+
+    const JWT_TOKEN: &str = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImsxIiwidHlwIjoiSldUIn0.eyJzdWIiOiJzcGlmZmU6Ly9leGFtcGxlLm9yZy9zZXJ2aWNlIiwiYXVkIjoiYXVkMSIsImV4cCI6NDI5NDk2NzI5NX0.sig";
+
+    fn delegated_x509_response(hint: &str) -> SubscribeToX509sviDsResponse {
+        SubscribeToX509sviDsResponse {
+            x509_svids: vec![X509svidWithKey {
+                x509_svid: Some(ProtoX509Svid {
+                    cert_chain: vec![prost::bytes::Bytes::from_static(include_bytes!(
+                        "../../../spiffe/tests/testdata/svid/x509/1-svid-chain.der"
+                    ))],
+                    hint: hint.to_owned(),
+                    ..Default::default()
+                }),
+                x509_svid_key: prost::bytes::Bytes::from_static(include_bytes!(
+                    "../../../spiffe/tests/testdata/svid/x509/1-key.der"
+                )),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn delegated_x509_svid_preserves_non_empty_hint() {
+        let response = delegated_x509_response("internal");
+
+        let svid = DelegatedIdentityClient::parse_x509_svid_from_grpc_response(&response)
+            .expect("delegated X.509 SVID should parse");
+
+        assert_eq!(svid.hint(), Some("internal"));
+    }
+
+    #[test]
+    fn delegated_x509_svid_maps_empty_hint_to_none() {
+        let response = delegated_x509_response("");
+
+        let svid = DelegatedIdentityClient::parse_x509_svid_from_grpc_response(&response)
+            .expect("delegated X.509 SVID should parse");
+
+        assert_eq!(svid.hint(), None);
+    }
+
+    #[test]
+    fn delegated_jwt_svids_preserve_order_and_hints() {
+        let svids = DelegatedIdentityClient::parse_jwt_svid_from_grpc_response(vec![
+            ProtoJwtSvid {
+                token: JWT_TOKEN.to_owned(),
+                hint: "internal".to_owned(),
+                ..Default::default()
+            },
+            ProtoJwtSvid {
+                token: JWT_TOKEN.to_owned(),
+                hint: "external".to_owned(),
+                ..Default::default()
+            },
+            ProtoJwtSvid {
+                token: JWT_TOKEN.to_owned(),
+                hint: String::new(),
+                ..Default::default()
+            },
+        ])
+        .expect("delegated JWT SVIDs should parse");
+
+        assert_eq!(svids.len(), 3);
+        assert_eq!(
+            svids.first().expect("first JWT-SVID").hint(),
+            Some("internal")
+        );
+        assert_eq!(
+            svids.get(1).expect("second JWT-SVID").hint(),
+            Some("external")
+        );
+        assert_eq!(svids.get(2).expect("third JWT-SVID").hint(), None);
     }
 }

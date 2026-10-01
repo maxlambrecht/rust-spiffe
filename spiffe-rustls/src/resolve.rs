@@ -441,7 +441,7 @@ mod tests {
 
         let mat = build_material(&src, 1).unwrap();
 
-        assert!(!mat.certified_key.cert.is_empty());
+        assert_ne!(mat.certified_key.cert, []);
         assert!(!mat.roots_by_td.is_empty());
         assert!(mat.roots_by_td.contains_key(&td));
     }
@@ -583,7 +583,7 @@ mod tests {
         let key = fixture_leaf_key_pkcs8_der();
 
         let ck = certified_key_from_chain_and_key(chain, key).unwrap();
-        assert!(!ck.cert.is_empty());
+        assert_ne!(ck.cert, []);
     }
 
     #[test]
