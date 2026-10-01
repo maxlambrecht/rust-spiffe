@@ -45,13 +45,44 @@ fn repo_root() -> anyhow::Result<PathBuf> {
         .map(Path::to_path_buf)
 }
 
-#[expect(clippy::print_stdout, reason = "sloppy CLI")]
 fn gen_spiffe_protos() -> anyhow::Result<()> {
-    let repo_root = repo_root()?;
+    let crate_dir = repo_root()?.join("spiffe");
+    gen_spiffe_proto(
+        &crate_dir,
+        "workload.proto",
+        "src/workload_api/pb",
+        true,
+        |_| {},
+    )?;
+    // The Broker Endpoint requires mTLS, so the broker client gets no plaintext `connect`.
+    gen_spiffe_proto(
+        &crate_dir,
+        "broker.proto",
+        "src/broker_api/pb",
+        false,
+        |config| {
+            // Broker API references are packed into `google.protobuf.Any`, and SPIRE matches the
+            // full type URL. The SVID messages hold a private key or a token, so they skip the
+            // derived `Debug`. `spiffe::broker_api` implements one that shows only the length of
+            // the key or token.
+            config
+                .enable_type_names()
+                .type_name_domain(["."], "type.googleapis.com")
+                .skip_debug([".spiffe.broker.X509SVID", ".spiffe.broker.JWTSVID"]);
+        },
+    )
+}
 
-    let crate_dir = repo_root.join("spiffe");
+#[expect(clippy::print_stdout, reason = "sloppy CLI")]
+fn gen_spiffe_proto(
+    crate_dir: &Path,
+    proto_name: &str,
+    out_dir: &str,
+    transport: bool,
+    configure: impl FnOnce(&mut prost_build::Config),
+) -> anyhow::Result<()> {
     let proto_dir = crate_dir.join("src/proto");
-    let proto_file = proto_dir.join("workload.proto");
+    let proto_file = proto_dir.join(proto_name);
 
     ensure!(
         proto_file.exists(),
@@ -60,7 +91,7 @@ fn gen_spiffe_protos() -> anyhow::Result<()> {
     );
 
     // Committed output directory
-    let out_dir = crate_dir.join("src/workload_api/pb");
+    let out_dir = crate_dir.join(out_dir);
     fs::create_dir_all(&out_dir)
         .with_context(|| format!("failed to create output dir: {}", out_dir.display()))?;
 
@@ -72,12 +103,14 @@ fn gen_spiffe_protos() -> anyhow::Result<()> {
         &[proto_file],
         &proto_dir,
         &tmp_dir,
-        "failed to compile spiffe workload proto",
+        transport,
+        configure,
+        &format!("failed to compile spiffe proto {proto_name}"),
     )?;
 
     // We expect exactly one generated .rs file for this invocation.
     let generated = single_generated_rs(&tmp_dir)?;
-    let final_path = out_dir.join("workload.rs");
+    let final_path = out_dir.join(Path::new(proto_name).with_extension("rs"));
 
     replace_file(&generated, &final_path)?;
     fs::remove_dir_all(&tmp_dir)
@@ -119,6 +152,8 @@ fn gen_spire_api_protos() -> anyhow::Result<()> {
         &[delegated],
         &proto_root,
         &tmp_dir,
+        true,
+        |_| {},
         "failed to compile SPIRE delegated identity proto",
     )?;
 
@@ -152,10 +187,13 @@ fn compile_protos(
     proto_files: &[PathBuf],
     include_dir: &Path,
     out_dir: &Path,
+    transport: bool,
+    configure: impl FnOnce(&mut prost_build::Config),
     err_ctx: &str,
 ) -> anyhow::Result<()> {
     let mut proto_config = prost_build::Config::new();
     proto_config.bytes(["."]);
+    configure(&mut proto_config);
 
     let fds = protox::compile(proto_files.iter().map(PathBuf::as_path), [include_dir])
         .with_context(|| err_ctx.to_string())?;
@@ -163,6 +201,7 @@ fn compile_protos(
     tonic_prost_build::configure()
         .build_client(true)
         .build_server(false)
+        .build_transport(transport)
         .out_dir(out_dir)
         .compile_fds_with_config(fds, proto_config)
         .with_context(|| err_ctx.to_string())?;

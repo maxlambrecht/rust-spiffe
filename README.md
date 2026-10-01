@@ -38,7 +38,7 @@ abstraction required.
 
 ### [`spiffe`](./spiffe)
 
-Standards-aligned SPIFFE identity primitives and clients for the **SPIFFE Workload API**.
+Standards-aligned SPIFFE identity primitives and clients for the **SPIFFE Workload API**, plus experimental **SPIFFE Broker API** bindings.
 
 **Use this crate if you need:**
 
