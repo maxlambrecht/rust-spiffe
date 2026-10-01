@@ -8,13 +8,13 @@ license.workspace = true
 repository.workspace = true
 documentation = "https://docs.rs/spiffe"
 readme = "README.md"
-description = "Core SPIFFE identity types and Workload API sources"
+description = "Core SPIFFE identity types, Workload API sources, and experimental Broker API bindings"
 categories = ["authentication", "network-programming"]
 keywords = ["spiffe", "spire", "identity", "x509", "jwt"]
 
 [package.metadata.docs.rs]
 no-default-features = true
-features = ["x509-source", "jwt-source", "jwt-verify-rust-crypto"]
+features = ["x509-source", "jwt-source", "jwt-verify-rust-crypto", "broker-api"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [lints]
@@ -125,6 +125,13 @@ x509-source = ["workload-api-x509"]
 # JWT watcher/caching API built on the Workload API.
 # Depends on the JWT-only Workload API bundle to avoid pulling in X.509 dependencies.
 jwt-source = ["workload-api-jwt"]
+
+# --- SPIFFE Broker API (experimental) ---
+
+# Generated Broker API client and messages, plus the security-header interceptor
+# and workload-reference helpers. It is experimental, because SPIRE ships the
+# Broker API under its `experimental` configuration.
+broker-api = ["dep:tonic", "dep:tonic-prost", "dep:prost", "dep:prost-types"]
 
 # --- JWT signature verification backends (select exactly one) ---
 
