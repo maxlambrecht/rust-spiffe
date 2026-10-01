@@ -1,4 +1,5 @@
-//! Client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md).
+//! Client library for the [SPIFFE Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md),
+//! with experimental bindings for the [SPIFFE Broker API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Broker_API.md).
 //!
 //! Provides standards-compliant access to SPIFFE identities and trust material.
 //! Supports fetching and watching X.509 and JWT SVIDs and trust bundles using
@@ -91,6 +92,12 @@
 //! | `x509-source` | High-level X.509 watcher/caching built on the Workload API |
 //! | `jwt-source` | High-level JWT watcher/caching built on the Workload API |
 //!
+//! ### Experimental
+//!
+//! | Feature | Description |
+//! |---------|-------------|
+//! | `broker-api` | SPIFFE Broker API bindings: generated client and messages, the security-header interceptor, and workload-reference helpers |
+//!
 //! **Notes:**
 //!
 //! - The `x509` feature gates heavy X.509 parsing dependencies.
@@ -142,6 +149,9 @@ pub mod workload_api;
 
 #[cfg(feature = "x509-source")]
 pub mod x509_source;
+
+#[cfg(feature = "broker-api")]
+pub mod broker_api;
 
 #[cfg(feature = "jwt-source")]
 pub mod jwt_source;

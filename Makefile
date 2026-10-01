@@ -111,7 +111,7 @@ fmt-check:
 # -----------------------------------------------------------------------------
 # spiffe: dev lanes should be meaningful (spiffe has no default features).
 SPIFFE_DEV_FEATURES := \
-  x509-source,jwt-source,jwt,jwt-verify-rust-crypto,tracing
+  x509-source,jwt-source,jwt,jwt-verify-rust-crypto,tracing,broker-api
 
 RUSTLS_DEV_FEATURES := \
   $(DEFAULT_LANE) \
@@ -146,7 +146,8 @@ SPIFFE_ALL_FEATURES := \
   x509-source,logging \
   x509-source,tracing \
   jwt-source,logging \
-  jwt-source,tracing
+  jwt-source,tracing \
+  broker-api
 
 RUSTLS_ALL_FEATURES := \
   $(DEFAULT_LANE) \
@@ -165,6 +166,7 @@ RUSTLS_TOKIO_ALL_FEATURES := \
 # Clippy runs in the lint job; these lanes are test + doctests only.
 SPIFFE_CI_FEATURES := \
   x509 \
+  broker-api \
   jwt \
   jwt-verify-rust-crypto \
   jwt-verify-aws-lc-rs \
@@ -415,8 +417,8 @@ msrv:
 	$(info ==> spiffe (MSRV))
 	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509)
 	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto)
-	$(call _msrv_doc,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto)
+	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api)
+	$(call _msrv_doc,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api)
 
 	$(info ==> spire-api (MSRV))
 	$(call _msrv_test,$(SPIRE_API_MANIFEST),)
