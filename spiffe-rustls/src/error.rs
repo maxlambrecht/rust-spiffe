@@ -46,8 +46,8 @@ pub enum Error {
 
     /// The peer certificate is not acceptable as an X509-SVID leaf.
     ///
-    /// Signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`)
-    /// are validation material and must not be accepted as peer identities.
+    /// This includes signing-capable certificates (`cA=true`, `keyCertSign`, or
+    /// `cRLSign`) and leaf certificates whose SPIFFE ID has no path component.
     #[error("peer leaf certificate is not a valid X509-SVID leaf: {0}")]
     InvalidLeaf(String),
 
