@@ -19,9 +19,9 @@ Add `spiffe-rustls-tokio` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe-rustls-tokio = "0.3"
-spiffe-rustls = "0.6"
-spiffe = { version = "0.15", features = ["x509-source"] }
+spiffe-rustls-tokio = "0.6"
+spiffe-rustls = "0.10"
+spiffe = { version = "0.18", features = ["x509-source"] }
 ```
 
 ---

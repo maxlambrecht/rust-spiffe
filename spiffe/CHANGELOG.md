@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.0] - 2026-10-06
+
+### Breaking changes
+
+- Updated `pkcs8` from 0.10 to 0.11. `PrivateKeyError::DecodePkcs8` now carries `pkcs8` 0.11's `Error`.
+- Updated `jsonwebtoken` from 10 to 11 on the JWT verification features. `JwtSvidError::InvalidToken` now carries `jsonwebtoken` 11's error type.
+
+### Security
+
+- **JwtSvid:** Reject JWT-SVIDs whose `aud` claim is an empty array, as required by JWT-SVID §3.2. This surfaces as `JwtSvidError::InvalidJson`.
+
 ## [0.17.0] - 2026-10-05
 
 ### Security
