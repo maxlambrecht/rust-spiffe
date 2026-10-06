@@ -9,6 +9,9 @@ members = [
     "spiffe/fuzz",
     "xtask",
 ]
+# Release verification unpacks published archives under target/ and builds them
+# as standalone packages.
+exclude = ["target"]
 default-members = [
     "spiffe",
     "spire-api",

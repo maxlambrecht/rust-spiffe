@@ -2,24 +2,37 @@ name: Coverage
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_LLVM_COV_VERSION: "0.6.23"
 
 jobs:
   coverage:
     name: Run tests and generate coverage report
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     env:
-      SPIFFE_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/public/api.sock"
-      SPIFFE_ENDPOINT_SOCKET_FEDERATED: "unix:/tmp/spire-agent-federated/public/api.sock"
-      SPIRE_ADMIN_ENDPOINT_SOCKET: "unix:/tmp/spire-agent/admin/api.sock"
+      SPIFFE_ENDPOINT_SOCKET: unix:/tmp/spire-agent/public/api.sock
+      SPIFFE_ENDPOINT_SOCKET_FEDERATED: unix:/tmp/spire-agent-federated/public/api.sock
+      SPIRE_ADMIN_ENDPOINT_SOCKET: unix:/tmp/spire-agent/admin/api.sock
 
     steps:
       - name: Check out code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Install toolchain
         uses: ./.github/actions/setup-env
@@ -28,12 +41,17 @@ jobs:
 
       - name: Cache project
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
 
       - name: Install LLVM tools
         run: rustup component add llvm-tools-preview
 
       - name: Install cargo-llvm-cov
-        run: cargo install cargo-llvm-cov --locked
+        run: |
+          cargo install cargo-llvm-cov \
+            --version "${CARGO_LLVM_COV_VERSION}" \
+            --locked
 
       - name: Start SPIRE
         run: .github/workflows/scripts/run-spire.sh

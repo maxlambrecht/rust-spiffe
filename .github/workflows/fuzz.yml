@@ -1,0 +1,53 @@
+name: Fuzz Smoke Tests
+
+on:
+  schedule:
+    - cron: '23 5 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep this pinned to a nightly verified with the fuzz targets.
+  FUZZ_TOOLCHAIN: nightly-2026-10-01
+
+jobs:
+  fuzz:
+    name: Build and smoke-test fuzz targets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install pinned nightly Rust
+        run: |
+          set -euo pipefail
+          rustup toolchain install "${FUZZ_TOOLCHAIN}" \
+            --profile minimal \
+            --no-self-update
+
+      - name: Install cargo-fuzz
+        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab
+        with:
+          tool: cargo-fuzz@0.13.1
+
+      - name: Cache project
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: fuzz-${{ env.FUZZ_TOOLCHAIN }}
+
+      - name: Build fuzz targets
+        run: make fuzz-build
+
+      - name: Run bounded fuzz smoke tests
+        run: make fuzz FUZZ_SECONDS=15 FUZZ_MAX_LEN=4096

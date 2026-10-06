@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 /// Contains a collection of trusted X.509 authorities for a [`TrustDomain`].
 ///
-/// X.509 bundles are used to verify the signatures of [`X509Svid`] certificates.
-/// Obtain bundles from the [Workload API](crate::WorkloadApiClient) or [`X509Source`].
+/// X.509 bundles are used to verify the signatures of [`crate::X509Svid`] certificates.
+/// Obtain bundles from the [Workload API](crate::WorkloadApiClient) or [`crate::X509Source`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Bundle {
     trust_domain: TrustDomain,

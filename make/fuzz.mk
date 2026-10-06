@@ -1,7 +1,9 @@
 FUZZ_DIR := spiffe/fuzz
 FUZZ_TARGETS := \
 	fuzz_spiffe_id_parse \
-	fuzz_trust_domain_parse
+	fuzz_trust_domain_parse \
+	fuzz_x509_svid_parse \
+	fuzz_jwt_and_jwks_parse
 
 # Default fuzzing duration (seconds).
 # Keep this short to preserve fast developer feedback.
@@ -13,9 +15,17 @@ FUZZ_SECONDS ?= 60
 FUZZ_MAX_LEN ?= 2048
 FUZZ_DICT ?= fuzz.dict
 
-.PHONY: fuzz-setup
+.PHONY: fuzz-setup fuzz-build
 fuzz-setup:
 	@command -v cargo-fuzz >/dev/null 2>&1 || cargo +nightly install cargo-fuzz --locked
+
+fuzz-build: fuzz-setup
+	@set -euo pipefail; \
+	cd $(FUZZ_DIR); \
+	for t in $(FUZZ_TARGETS); do \
+	  echo "==> build fuzz target $$t"; \
+	  cargo +nightly fuzz build $$t; \
+	done
 
 .PHONY: fuzz
 fuzz: fuzz-setup

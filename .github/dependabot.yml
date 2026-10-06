@@ -17,35 +17,9 @@ updates:
         patterns: ["*"]
 
   - package-ecosystem: cargo
-    directory: /spiffe
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    labels: [dependencies, rust]
-    commit-message:
-      prefix: "chore(deps)"
-    groups:
-      minor-patch:
-        update-types: [minor, patch]
-      major:
-        update-types: [major]
-
-  - package-ecosystem: cargo
-    directory: /spiffe-rustls
-    schedule:
-      interval: weekly
-    open-pull-requests-limit: 5
-    labels: [dependencies, rust]
-    commit-message:
-      prefix: "chore(deps)"
-    groups:
-      minor-patch:
-        update-types: [minor, patch]
-      major:
-        update-types: [major]
-
-  - package-ecosystem: cargo
-    directory: /spire-api
+    # The root manifest owns the workspace and shared lockfile, so this covers
+    # every member, including spiffe-rustls-tokio and private tooling/examples.
+    directory: /
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
