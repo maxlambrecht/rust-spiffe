@@ -148,7 +148,7 @@ impl DelegatedIdentityClient {
     ///
     /// ## Errors
     ///
-    /// Returns [`GrpcClientError`] if the connection fails or the endpoint is unsupported.
+    /// Returns [`DelegatedIdentityError`] if the connection fails or the endpoint is unsupported.
     pub async fn connect(endpoint: Endpoint) -> Result<Self, DelegatedIdentityError> {
         let channel = spiffe::transport::connector::connect(&endpoint).await?;
         Ok(Self {
@@ -552,13 +552,13 @@ mod tests {
             x509_svids: vec![X509svidWithKey {
                 x509_svid: Some(ProtoX509Svid {
                     cert_chain: vec![prost::bytes::Bytes::from_static(include_bytes!(
-                        "../../../spiffe/tests/testdata/svid/x509/1-svid-chain.der"
+                        "../../tests/testdata/svid/x509/1-svid-chain.der"
                     ))],
                     hint: hint.to_owned(),
                     ..Default::default()
                 }),
                 x509_svid_key: prost::bytes::Bytes::from_static(include_bytes!(
-                    "../../../spiffe/tests/testdata/svid/x509/1-key.der"
+                    "../../tests/testdata/svid/x509/1-key.der"
                 )),
             }],
             ..Default::default()

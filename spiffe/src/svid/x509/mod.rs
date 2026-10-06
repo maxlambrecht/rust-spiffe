@@ -18,7 +18,7 @@ use self::chain::CertificateChain;
 /// and a private key as DER-encoded PKCS#8.
 ///
 /// Use [`X509Svid::parse_from_der`] to create an SVID from DER-encoded data, or
-/// obtain one from the [Workload API](crate::WorkloadApiClient) or [`X509Source`].
+/// obtain one from the [Workload API](crate::WorkloadApiClient) or [`crate::X509Source`].
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct X509Svid {
     spiffe_id: SpiffeId,

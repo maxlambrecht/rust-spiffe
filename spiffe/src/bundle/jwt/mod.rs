@@ -61,7 +61,7 @@ impl JwtAuthority {
 
 /// Contains a collection of trusted JWT authorities (Public keys) for a `TrustDomain`.
 ///
-/// JWT bundles are used to verify the signatures of [`JwtSvid`] tokens.
+/// JWT bundles are used to verify the signatures of [`crate::JwtSvid`] tokens.
 /// Obtain bundles from the [Workload API](crate::WorkloadApiClient).
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct JwtBundle {

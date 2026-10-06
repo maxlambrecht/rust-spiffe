@@ -32,6 +32,10 @@ make ci
 
 # Run integration tests (requires SPIRE setup)
 make integration-tests
+
+# Before releasing one published crate from a clean commit
+# (requires cargo-semver-checks and cargo-deny)
+make release-check CRATE=spiffe
 ```
 
 ---
@@ -90,6 +94,10 @@ make fuzz
 Fuzz tests are not required for every pull request, but contributors touching
 parsing, validation, or security-sensitive code are encouraged to run them
 locally.
+
+The scheduled fuzz workflow builds every target and performs short bounded smoke
+runs. Longer campaigns remain a local maintainer task; set `FUZZ_SECONDS` to
+increase the duration.
 
 ---
 
@@ -153,6 +161,12 @@ Pull requests are checked using automated CI, including:
 * Unit and integration tests
 * Dependency vulnerability scanning (`cargo-audit`)
 * Dependency, license, and source policy checks (`cargo-deny`)
+
+Release checks additionally validate package contents, warning-free rustdoc for
+the supported release feature lane, and public API compatibility with
+`cargo-semver-checks`. They intentionally run at release time rather than on
+every pull request because registry/tool availability failures are not source
+regressions.
 
 New dependencies must comply with the existing policy defined in `deny.toml`.
 

@@ -4,6 +4,10 @@ set -euo pipefail
 # Constants
 spire_version="1.15.2"
 spire_folder="spire-${spire_version}"
+spire_archive="${spire_folder}-linux-amd64-musl.tar.gz"
+# Official checksum published with the SPIRE v1.15.2 GitHub release.
+spire_archive_sha256="3874d07ffeb6640bafb9fe6a538de06151f155d5ed2f8e8a51f138d2f51b8105"
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 spire_server_log_file="/tmp/spire-server/server.log"
 spire_server_socket_path="/tmp/spire-server/private/api.sock"
@@ -128,7 +132,15 @@ wait_for_federation_bundle() {
 # -------------------------------------------------------------------
 # SPIRE prerequisites
 # -------------------------------------------------------------------
-curl -s -N -L "https://github.com/spiffe/spire/releases/download/v${spire_version}/spire-${spire_version}-linux-amd64-musl.tar.gz" | tar xz
+download_dir="$(mktemp -d)"
+trap 'rm -rf -- "${download_dir}"' EXIT
+archive_path="${download_dir}/${spire_archive}"
+
+curl --fail --silent --show-error --location \
+  --output "${archive_path}" \
+  "https://github.com/spiffe/spire/releases/download/v${spire_version}/${spire_archive}"
+bash "${script_dir}/verify-sha256.sh" "${archive_path}" "${spire_archive_sha256}"
+tar -xzf "${archive_path}"
 pushd "${spire_folder}" >/dev/null
 
 mkdir -p conf/server conf/agent

@@ -9,5 +9,24 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "BSL-1.0",
-    "OpenSSL"
+    "OpenSSL",
+    # libfuzzer-sys includes LLVM's libFuzzer runtime under NCSA in addition
+    # to its Rust wrapper's MIT/Apache-2.0 terms.
+    "NCSA",
+]
+
+[bans]
+# Duplicate versions are sometimes unavoidable in a feature-rich Rust graph;
+# keep them visible without turning routine ecosystem transitions into failures.
+multiple-versions = "warn"
+wildcards = "deny"
+# Private workspace tools/examples use path-only dependencies. Published crates
+# must still declare a registry version for non-dev path dependencies.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = [
+    "https://github.com/rust-lang/crates.io-index",
 ]

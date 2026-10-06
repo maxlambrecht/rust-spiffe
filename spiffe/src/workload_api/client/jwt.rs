@@ -191,7 +191,7 @@ impl WorkloadApiClient {
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
-    /// use [`X509Source`] for X.509 material or handle reconnection manually.
+    /// use [`crate::X509Source`] for X.509 material or handle reconnection manually.
     ///
     /// # Errors
     ///
