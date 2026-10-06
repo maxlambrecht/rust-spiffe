@@ -565,6 +565,14 @@ where
                 }
                 result.push(elem);
             }
+
+            // JWT-SVID §3.2 requires `aud` to contain one or more values.
+            // An empty JSON array does not satisfy that invariant.
+            if result.is_empty() {
+                return Err(de::Error::custom(
+                    "JWT `aud` claim must contain at least one value",
+                ));
+            }
             Ok(result)
         }
     }
@@ -683,6 +691,17 @@ mod tests {
 
         let svid = JwtSvid::parse_insecure(&token).unwrap();
         assert_eq!(svid.audience(), &["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn parse_insecure_rejects_empty_audience_array() {
+        let token = mk_token(
+            r#"{"alg":"ES256","kid":"k1"}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":[],"exp":4294967295}"#,
+        );
+
+        let error = JwtSvid::parse_insecure(&token).unwrap_err();
+        assert!(matches!(error, JwtSvidError::InvalidJson(_)));
     }
 
     #[test]
