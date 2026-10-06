@@ -7,7 +7,7 @@ use crate::cert::parsing::{
     extract_spiffe_ids_from_uri_san, parse_der_encoded_bytes_as_x509_certificate,
 };
 use crate::SpiffeId;
-use pkcs8::PrivateKeyInfo;
+use pkcs8::PrivateKeyInfoRef;
 use x509_parser::certificate::X509Certificate;
 use zeroize::Zeroize;
 
@@ -99,7 +99,7 @@ impl TryFrom<&[u8]> for PrivateKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         // Validate that the bytes are a valid PKCS#8 private key.
-        PrivateKeyInfo::try_from(bytes).map_err(PrivateKeyError::DecodePkcs8)?;
+        PrivateKeyInfoRef::try_from(bytes).map_err(PrivateKeyError::DecodePkcs8)?;
         Ok(Self(Vec::from(bytes)))
     }
 }
@@ -109,7 +109,7 @@ impl TryFrom<Vec<u8>> for PrivateKey {
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         // Validate that the bytes are a valid PKCS#8 private key.
-        PrivateKeyInfo::try_from(bytes.as_slice()).map_err(PrivateKeyError::DecodePkcs8)?;
+        PrivateKeyInfoRef::try_from(bytes.as_slice()).map_err(PrivateKeyError::DecodePkcs8)?;
         Ok(Self(bytes))
     }
 }
