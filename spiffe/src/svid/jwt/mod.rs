@@ -793,8 +793,7 @@ mod test {
     use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
     use p256::ecdsa::SigningKey;
     use p256::elliptic_curve::pkcs8::EncodePrivateKey as _;
-    // use rand_core::OsRng;
-    use p256::elliptic_curve::rand_core::OsRng;
+    use p256::elliptic_curve::Generate as _;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn b64u(data: &[u8]) -> String {
@@ -807,7 +806,7 @@ mod test {
     /// { "kty":"EC", "crv":"P-256", "x":"...", "y":"...", "alg":"ES256", "use":"sig", "kid":"..." }
     fn make_es256_public_jwk_json(signing_key: &SigningKey, kid: &str) -> Vec<u8> {
         let verifying_key = signing_key.verifying_key();
-        let point = verifying_key.to_encoded_point(false); // uncompressed form
+        let point = verifying_key.to_sec1_point(false); // uncompressed form
 
         let x = point.x().expect("x coordinate missing");
         let y = point.y().expect("y coordinate missing");
@@ -826,7 +825,7 @@ mod test {
 
     fn new_es256_authority_and_encoding_key(kid: &str) -> (JwtAuthority, EncodingKey) {
         // Stable ES256 keypair
-        let signing_key = SigningKey::random(&mut OsRng);
+        let signing_key = SigningKey::generate();
 
         // jsonwebtoken expects a DER-encoded EC private key for signing (PKCS#8 works well here).
         let pkcs8_der = signing_key
@@ -1018,7 +1017,7 @@ mod test {
         kid: &str,
     ) -> Vec<u8> {
         let verifying_key = signing_key.verifying_key();
-        let point = verifying_key.to_encoded_point(false);
+        let point = verifying_key.to_sec1_point(false);
 
         let x = point.x().expect("x coordinate missing");
         let y = point.y().expect("y coordinate missing");
@@ -1043,7 +1042,7 @@ mod test {
     fn test_accepts_jwk_with_use_jwt_svid() {
         let kid = "test-key-id-jwt-svid";
 
-        let signing_key = SigningKey::random(&mut OsRng);
+        let signing_key = SigningKey::generate();
 
         let pkcs8_der = signing_key
             .to_pkcs8_der()
@@ -1099,7 +1098,7 @@ mod test {
     #[test]
     fn test_jwt_audience_claim_size_limit() {
         let kid = "test-key-id";
-        let signing_key = SigningKey::random(&mut OsRng);
+        let signing_key = SigningKey::generate();
         let pkcs8_der = signing_key
             .to_pkcs8_der()
             .expect("PKCS#8 DER serialization should succeed");
