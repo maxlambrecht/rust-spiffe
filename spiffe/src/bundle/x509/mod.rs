@@ -27,7 +27,7 @@ pub struct X509BundleSet {
 
 /// An error that can arise trying to parse a [`X509Bundle`] from bytes
 /// representing DER-encoded X.509 authorities.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum X509BundleError {
     /// Error processing or validating the X.509 certificates in the bundle.

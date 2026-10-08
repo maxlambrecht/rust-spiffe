@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.18` to `0.19` for the dependency-independent parser and transport error wrappers.
+- Replaced raw delegated PIDs and selector vectors with validated `DelegatePid` and `DelegateSelectors` values, available through `DelegateAttestationRequest::for_pid` and `for_selectors`.
+- Changed Unix PID selectors to validated `UnixPid` values and Unix UID/GID selectors to full-width `UnixId` values.
+- `DelegatedIdentityClient::new` now returns `Self` directly.
+- Selector and delegated-attestation enums are now non-exhaustive.
+- Removed the public `From<tonic::Status>` and `From<tonic::transport::Error>` implementations for `DelegatedIdentityError`; tonic failures are mapped privately by the client.
+
+### Fixed
+
+- Preserve original delegated gRPC statuses and their nested diagnostic causes through the standard error source chain.
+- Update README delegated request examples and dependency versions.
+
+- Reject invalid delegated PIDs, empty selector lists, and JWT-SVID requests containing an empty audience before sending a request.
+- The stream returned by `DelegatedIdentityClient::stream_x509_svids` no longer unnecessarily borrows the client.
+- Corrected Delegated Identity documentation to refer to `SPIRE_ADMIN_ENDPOINT_SOCKET` and the Agent Admin API.
+- Documented generated protobuf bindings as unstable low-level API.
+
 ## [0.10.0] – 2026-10-06
 
 ### Breaking changes

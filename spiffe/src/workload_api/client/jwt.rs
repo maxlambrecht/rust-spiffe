@@ -25,8 +25,10 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> =
-            client.fetch_jwt_bundles(request).await?;
+        let grpc_stream_response: tonic::Response<tonic::Streaming<JwtBundlesResponse>> = client
+            .fetch_jwt_bundles(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         Self::parse_jwt_bundle_set_from_grpc_response(response)
@@ -207,10 +209,13 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let response = client.fetch_jwt_bundles(request).await?;
+        let response = client
+            .fetch_jwt_bundles(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(WorkloadApiError::from)
+                .map_err(WorkloadApiError::from_status)
                 .and_then(Self::parse_jwt_bundle_set_from_grpc_response)
         });
         Ok(Box::pin(stream))
@@ -237,7 +242,11 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        Ok(client.fetch_jwtsvid(request).await?.into_inner())
+        Ok(client
+            .fetch_jwtsvid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?
+            .into_inner())
     }
 
     async fn validate_jwt(
@@ -250,7 +259,11 @@ impl WorkloadApiClient {
             svid: jwt_svid.into(),
         };
         let mut client = self.client.clone();
-        Ok(client.validate_jwtsvid(request).await?.into_inner())
+        Ok(client
+            .validate_jwtsvid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?
+            .into_inner())
     }
 
     fn parse_jwt_bundle_set_from_grpc_response(

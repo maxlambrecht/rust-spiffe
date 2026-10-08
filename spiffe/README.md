@@ -20,16 +20,16 @@ Add `spiffe` to your `Cargo.toml`. All features are opt-in:
 ```toml
 [dependencies]
 # Minimal: only SPIFFE primitives 
-spiffe = "0.18"
+spiffe = "0.19"
 
 # OR X.509 workloads (recommended)
-# spiffe = { version = "0.18", features = ["x509-source"] }
+# spiffe = { version = "0.19", features = ["x509-source"] }
 
 # OR JWT workloads (recommended)
-# spiffe = { version = "0.18", features = ["jwt-source"] }
+# spiffe = { version = "0.19", features = ["jwt-source"] }
 
 # OR Direct Workload API usage
-# spiffe = { version = "0.18", features = ["workload-api"] }
+# spiffe = { version = "0.19", features = ["workload-api"] }
 ```
 
 ---
@@ -76,6 +76,10 @@ let bundle = context
 
 ### Watch for updates
 
+Streaming examples use `futures-util`; add
+`futures-util = { version = "0.3", default-features = false, features = ["std"] }`
+to your dependencies.
+
 ```rust
 use futures_util::StreamExt;
 
@@ -97,7 +101,7 @@ It maintains a locally cached, automatically refreshed view of X.509 SVIDs and b
 handling reconnections and rotations transparently.
 
 ```rust
-use spiffe::{TrustDomain, X509Source};
+use spiffe::{BundleSource, TrustDomain, X509Source};
 
 let source = X509Source::new().await?;
 
@@ -127,7 +131,7 @@ handling reconnections and rotations transparently. JWT SVIDs are fetched on-dem
 with specific audiences.
 
 ```rust
-use spiffe::{TrustDomain, JwtSource};
+use spiffe::{BundleSource, TrustDomain, JwtSource};
 
 let source = JwtSource::new().await?;
 
@@ -236,7 +240,7 @@ use spiffe::JwtSvid;
 let svid = JwtSvid::from_workload_api_token(token_str)?;
 ```
 
-No additional features are required.
+Requires the `jwt` feature; no JWT verification backend is required.
 
 ---
 
@@ -275,14 +279,14 @@ backend.
 
 ```toml
 [dependencies]
-spiffe = { version = "0.18", features = ["jwt-verify-rust-crypto"] }
+spiffe = { version = "0.19", features = ["jwt-verify-rust-crypto"] }
 ```
 
 #### Using the AWS-LC backend
 
 ```toml
 [dependencies]
-spiffe = { version = "0.18", features = ["jwt-verify-aws-lc-rs"] }
+spiffe = { version = "0.19", features = ["jwt-verify-aws-lc-rs"] }
 ```
 
 This enables local signature verification using JWT authorities from bundles:
@@ -313,7 +317,7 @@ All features are additive and opt-in. The crate has **no default features** (`de
 
 #### `x509`
 
-Enables X.509 SVID and bundle types plus parsing. Gates heavy ASN.1/X.509 dependencies (`asn1`, `x509-parser`, `pkcs8`).
+Enables X.509 SVID and bundle types plus parsing. Gates X.509 dependencies (`x509-parser`, `pkcs8`, `zeroize`).
 
 **Note:** Most users should enable `x509-source` instead, which includes this feature automatically.
 
@@ -327,7 +331,7 @@ gRPC connector for Unix/TCP endpoints. Requires `transport` and adds tokio/tonic
 
 #### `workload-api`
 
-Enables the async SPIFFE Workload API client. Requires `transport-grpc` and `x509`.
+Enables the async SPIFFE Workload API client. Includes `workload-api-x509` and `workload-api-jwt` (and their `x509` and `jwt` parsing features).
 
 Provides:
 
@@ -338,7 +342,7 @@ Provides:
 
 #### `x509-source`
 
-High-level X.509 watcher and caching abstraction. Requires `workload-api` (and transitively `x509`).
+High-level X.509 watcher and caching abstraction. Includes `workload-api-x509` (and transitively `x509`).
 
 Provides:
 
@@ -348,7 +352,7 @@ Provides:
 
 #### `jwt-source`
 
-High-level JWT watcher and caching abstraction. Requires `workload-api` and `jwt`.
+High-level JWT watcher and caching abstraction. Includes `workload-api-jwt` (and transitively `jwt`).
 
 Provides:
 
@@ -436,7 +440,7 @@ facade. Events are emitted via `log::debug!`, `log::info!`, `log::warn!`, and `l
 
 ```toml
 [dependencies]
-spiffe = { version = "0.18", features = ["logging"] }
+spiffe = { version = "0.19", features = ["logging"] }
 ```
 
 **Note:** The `logging` feature is not included in the default `workload-api` feature.
@@ -452,7 +456,7 @@ or distributed tracing systems. When both `tracing` and `logging` features are e
 
 ```toml
 [dependencies]
-spiffe = { version = "0.18", features = ["tracing"] }
+spiffe = { version = "0.19", features = ["tracing"] }
 ```
 
 **Note:** The `tracing` and `logging` features are not mutually exclusive. When both
@@ -468,13 +472,13 @@ In addition to the higher-level bundles (`workload-api-x509`, `workload-api-jwt`
 
 ```toml
 [dependencies]
-spiffe = { version = "0.18", features = ["workload-api-core"] }
+spiffe = { version = "0.19", features = ["workload-api-core"] }
 ```
 
 This feature includes:
 
 - **Transport layer** (`transport-grpc`): endpoint parsing and gRPC connector
-- **Runtime dependencies**: `tokio`, `tonic`, `tokio-stream`, `tokio-util`
+- **Runtime dependencies**: `tokio`, `tonic`, `tokio-util`
 - **Protobuf types**: generated Workload API message definitions
 
 **Excluded** (not included in `workload-api-core`):

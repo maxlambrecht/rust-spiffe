@@ -65,6 +65,7 @@ use std::collections::BTreeSet;
 /// let policy = TrustDomainPolicy::default();
 /// ```
 #[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub enum TrustDomainPolicy {
     /// Default: use all trust domain bundles provided by the Workload API.
     ///

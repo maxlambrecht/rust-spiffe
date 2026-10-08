@@ -483,13 +483,10 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::TransportError;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn invalid_argument_error() -> WorkloadApiError {
-        WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
-            "bad request",
-        )))
+        WorkloadApiError::from_status(tonic::Status::invalid_argument("bad request"))
     }
 
     #[tokio::test]

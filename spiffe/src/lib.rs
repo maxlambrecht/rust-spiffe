@@ -125,6 +125,8 @@ pub mod bundle;
 #[cfg(feature = "x509")]
 pub mod cert;
 pub mod constants;
+#[cfg(feature = "jwt")]
+mod error;
 pub mod spiffe_id;
 pub mod svid;
 
@@ -159,9 +161,15 @@ pub mod jwt_source;
 // Core identifiers
 pub use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
 
+// Shared errors
+#[cfg(feature = "jwt")]
+pub use crate::error::JsonError;
+
 // SVIDs
 #[cfg(feature = "jwt")]
 pub use crate::svid::jwt::{JwtSvid, JwtSvidError};
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+pub use crate::svid::jwt::{JwtVerificationError, JwtVerificationErrorKind};
 #[cfg(feature = "x509")]
 pub use crate::svid::x509::{X509Svid, X509SvidError};
 
