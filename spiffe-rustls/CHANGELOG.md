@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.18` to `0.19`. Because `spiffe-rustls` exposes `spiffe` types in its public API, downstream users must use compatible `spiffe` `0.19` types.
+- Marked `TrustDomainPolicy` non-exhaustive so additional policy variants can be added compatibly.
+
 ## [0.10.0] - 2026-10-06
 
 ### Breaking changes

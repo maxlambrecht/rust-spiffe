@@ -20,8 +20,10 @@ impl WorkloadApiClient {
         let request = X509svidRequest::default();
 
         let mut client = self.client.clone();
-        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            client.fetch_x509svid(request).await?;
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> = client
+            .fetch_x509svid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
 
         let resp = Self::first_message(grpc_stream_response.into_inner()).await?;
 
@@ -39,8 +41,10 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            client.fetch_x509svid(request).await?;
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> = client
+            .fetch_x509svid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         Self::parse_x509_svids_from_grpc_response(&response)
@@ -59,8 +63,10 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> =
-            client.fetch_x509_bundles(request).await?;
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509BundlesResponse>> = client
+            .fetch_x509_bundles(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
 
@@ -81,8 +87,10 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> =
-            client.fetch_x509svid(request).await?;
+        let grpc_stream_response: tonic::Response<tonic::Streaming<X509svidResponse>> = client
+            .fetch_x509svid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
 
         let response = Self::first_message(grpc_stream_response.into_inner()).await?;
         Self::parse_x509_context_from_grpc_response(response)
@@ -109,10 +117,13 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let response = client.fetch_x509svid(request).await?;
+        let response = client
+            .fetch_x509svid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(WorkloadApiError::from)
+                .map_err(WorkloadApiError::from_status)
                 .and_then(Self::parse_x509_context_from_grpc_response)
         });
         Ok(Box::pin(stream))
@@ -138,9 +149,12 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let response = client.fetch_x509svid(request).await?;
+        let response = client
+            .fetch_x509svid(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
         let stream = response.into_inner().map(|message| {
-            let resp = message.map_err(WorkloadApiError::from)?;
+            let resp = message.map_err(WorkloadApiError::from_status)?;
             Self::parse_x509_svid_from_grpc_response(&resp)
         });
         Ok(Box::pin(stream))
@@ -166,10 +180,13 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        let response = client.fetch_x509_bundles(request).await?;
+        let response = client
+            .fetch_x509_bundles(request)
+            .await
+            .map_err(WorkloadApiError::from_status)?;
         let stream = response.into_inner().map(|message| {
             message
-                .map_err(WorkloadApiError::from)
+                .map_err(WorkloadApiError::from_status)
                 .and_then(Self::parse_x509_bundle_set_from_grpc_response)
         });
         Ok(Box::pin(stream))

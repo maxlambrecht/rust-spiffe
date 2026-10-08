@@ -10,8 +10,8 @@ publish = false
 workspace = true
 
 [dependencies]
-spiffe = { version = "0.18", path = "../spiffe", features = ["x509-source"] }
-spiffe-rustls = { path = "../spiffe-rustls", features = ["ring"] }
+spiffe = { version = "0.19", path = "../spiffe", features = ["x509-source"] }
+spiffe-rustls = { version = "0.11", path = "../spiffe-rustls", features = ["ring"] }
 
 # gRPC stack
 tonic = { version = "0.14", features = ["transport"] }

@@ -190,7 +190,8 @@ impl WorkloadApiClient {
     async fn first_message<T>(mut stream: tonic::Streaming<T>) -> Result<T, WorkloadApiError> {
         stream
             .message()
-            .await?
+            .await
+            .map_err(WorkloadApiError::from_status)?
             .ok_or(WorkloadApiError::EmptyResponse)
     }
 }

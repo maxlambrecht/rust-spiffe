@@ -2,6 +2,7 @@
 
 use crate::bundle::BundleSource;
 use crate::spiffe_id::TrustDomain;
+use crate::JsonError;
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
 use std::convert::Infallible;
@@ -43,14 +44,16 @@ impl JwtAuthority {
     ///
     /// Note: Cryptographic validity of the key material is **not** checked here.
     pub fn from_jwk_json(jwk_json: &[u8]) -> Result<Self, JwtBundleError> {
-        let value: Value = serde_json::from_slice(jwk_json)?;
+        let value: Value = serde_json::from_slice(jwk_json)
+            .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;
 
         let kid = value
             .get("kid")
             .and_then(|v| v.as_str())
             .ok_or(JwtBundleError::MissingKeyId)?;
 
-        let jwk_json = serde_json::to_vec(&value)?;
+        let jwk_json = serde_json::to_vec(&value)
+            .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;
 
         Ok(Self {
             kid: Arc::<str>::from(kid),
@@ -84,7 +87,7 @@ pub enum JwtBundleError {
     MissingKeyId,
     /// There was a problem deserializing bytes into a Json JWT keys set.
     #[error("cannot deserialize json jwk set")]
-    Deserialize(#[from] serde_json::Error),
+    Deserialize(#[source] JsonError),
 }
 
 impl JwtBundle {
@@ -174,17 +177,20 @@ impl JwtBundle {
     ) -> Result<Self, JwtBundleError> {
         use serde::de::Error as _;
 
-        let value: Value = serde_json::from_slice(jwks)?;
+        let value: Value = serde_json::from_slice(jwks)
+            .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;
 
         let keys = value
             .get("keys")
             .and_then(Value::as_array)
-            .ok_or_else(|| serde_json::Error::custom("jwks must contain a 'keys' array"))?;
+            .ok_or_else(|| serde_json::Error::custom("jwks must contain a 'keys' array"))
+            .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;
 
         let mut authorities: HashMap<String, Arc<JwtAuthority>> = HashMap::new();
 
         for key in keys {
-            let jwk_json = serde_json::to_vec(key)?;
+            let jwk_json = serde_json::to_vec(key)
+                .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;
             let authority = JwtAuthority::from_jwk_json(&jwk_json)?;
             authorities.insert(authority.key_id().to_owned(), Arc::new(authority));
         }
@@ -519,7 +525,15 @@ mod jwt_bundle_test {
         let trust_domain = td("example.org");
         let err = JwtBundle::from_jwt_authorities(trust_domain, bundle_bytes).unwrap_err();
 
-        assert!(matches!(err, JwtBundleError::Deserialize(_)));
+        let JwtBundleError::Deserialize(error) = err else {
+            panic!("invalid JSON should return a deserialize error");
+        };
+
+        let displayed = error.to_string();
+        assert_ne!(displayed, "");
+        if let Some(cause) = std::error::Error::source(&error) {
+            assert_ne!(cause.to_string(), displayed);
+        }
     }
 
     #[test]

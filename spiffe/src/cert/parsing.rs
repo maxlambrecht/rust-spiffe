@@ -1,6 +1,6 @@
 //! Internal parsing and validation helpers.
 
-use crate::cert::error::CertificateError;
+use crate::cert::error::{CertificateError, X509ExtensionId, X509ParseError};
 use crate::cert::Certificate;
 use crate::spiffe_id::uri_has_spiffe_scheme;
 use crate::SpiffeId;
@@ -48,14 +48,16 @@ pub(crate) fn to_certificate_vec(
         }
 
         let (new_rest, cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
-            Err::Incomplete(_) => {
-                CertificateError::ParseX509Certificate(X509Error::InvalidCertificate)
+            Err::Incomplete(_) => CertificateError::ParseX509Certificate(X509ParseError::new(
+                X509Error::InvalidCertificate,
+            )),
+            Err::Error(err) | Err::Failure(err) => {
+                CertificateError::ParseX509Certificate(X509ParseError::new(err))
             }
-            Err::Error(err) | Err::Failure(err) => CertificateError::ParseX509Certificate(err),
         })?;
 
         // Validate and store the original DER bytes
-        certs.push(cert.into());
+        certs.push(Certificate::from_x509(&cert));
 
         rest = new_rest;
     }
@@ -81,14 +83,16 @@ pub(crate) fn to_certificate_vec_unbounded(
 
     while !rest.is_empty() {
         let (new_rest, cert) = x509_parser::parse_x509_certificate(rest).map_err(|e| match e {
-            Err::Incomplete(_) => {
-                CertificateError::ParseX509Certificate(X509Error::InvalidCertificate)
+            Err::Incomplete(_) => CertificateError::ParseX509Certificate(X509ParseError::new(
+                X509Error::InvalidCertificate,
+            )),
+            Err::Error(err) | Err::Failure(err) => {
+                CertificateError::ParseX509Certificate(X509ParseError::new(err))
             }
-            Err::Error(err) | Err::Failure(err) => CertificateError::ParseX509Certificate(err),
         })?;
 
         // Validate and store the original DER bytes
-        certs.push(cert.into());
+        certs.push(Certificate::from_x509(&cert));
 
         rest = new_rest;
     }
@@ -109,16 +113,18 @@ pub(crate) fn parse_der_encoded_bytes_as_x509_certificate(
     match x509_parser::parse_x509_certificate(der_bytes) {
         Ok((rest, cert)) => {
             if !rest.is_empty() {
-                return Err(CertificateError::ParseX509Certificate(
+                return Err(CertificateError::ParseX509Certificate(X509ParseError::new(
                     X509Error::InvalidCertificate,
-                ));
+                )));
             }
             Ok(cert)
         }
         Err(Err::Incomplete(_)) => Err(CertificateError::ParseX509Certificate(
-            X509Error::InvalidCertificate,
+            X509ParseError::new(X509Error::InvalidCertificate),
         )),
-        Err(Err::Error(e) | Err::Failure(e)) => Err(CertificateError::ParseX509Certificate(e)),
+        Err(Err::Error(e) | Err::Failure(e)) => Err(CertificateError::ParseX509Certificate(
+            X509ParseError::new(e),
+        )),
     }
 }
 
@@ -131,8 +137,14 @@ pub(crate) fn get_x509_extension<'a>(
     cert: &'a X509Certificate<'_>,
     oid: &Oid<'static>,
 ) -> Result<&'a ParsedExtension<'a>, CertificateError> {
-    match cert.tbs_certificate.get_extension_unique(oid)? {
-        None => Err(CertificateError::MissingX509Extension(oid.clone())),
+    match cert
+        .tbs_certificate
+        .get_extension_unique(oid)
+        .map_err(|source| CertificateError::ParseX509Certificate(X509ParseError::new(source)))?
+    {
+        None => Err(CertificateError::MissingX509Extension(
+            X509ExtensionId::new(oid),
+        )),
         Some(ext) => Ok(ext.parsed_extension()),
     }
 }

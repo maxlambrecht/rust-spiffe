@@ -19,9 +19,11 @@ Add `spiffe-rustls-tokio` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spiffe-rustls-tokio = "0.6"
-spiffe-rustls = "0.10"
-spiffe = { version = "0.18", features = ["x509-source"] }
+spiffe-rustls-tokio = "0.7"
+spiffe-rustls = "0.11"
+spiffe = { version = "0.19", features = ["x509-source"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+rustls = { version = "0.23", default-features = false, features = ["std"] }
 ```
 
 ---
@@ -48,6 +50,16 @@ use std::sync::Arc;
 
 let connector = TlsConnector::new(Arc::new(client_config));
 // ... use connector.connect() or connector.connect_addr()
+```
+
+When constructing an identity in application code, use `PeerIdentity::new`
+instead of a struct literal; read the identity through `spiffe_id()`:
+
+```rust
+use spiffe_rustls_tokio::PeerIdentity;
+
+let identity = PeerIdentity::new(Some("spiffe://example.org/my-service".parse()?));
+assert!(identity.spiffe_id().is_some());
 ```
 
 ---

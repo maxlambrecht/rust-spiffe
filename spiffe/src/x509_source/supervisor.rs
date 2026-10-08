@@ -502,16 +502,13 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::TransportError;
     use crate::workload_api::pb::workload::{X509svid, X509svidRequest, X509svidResponse};
     use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Source};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tonic::codegen::http;
 
     fn invalid_argument_error() -> WorkloadApiError {
-        WorkloadApiError::Transport(TransportError::Status(tonic::Status::invalid_argument(
-            "bad request",
-        )))
+        WorkloadApiError::from_status(tonic::Status::invalid_argument("bad request"))
     }
 
     fn context_with_bundle(authority: &[u8]) -> Arc<X509Context> {

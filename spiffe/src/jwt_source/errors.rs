@@ -81,6 +81,7 @@ pub enum JwtSourceError {
 
 /// The kind of resource limit that was exceeded.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
 pub enum LimitKind {
     /// Maximum number of bundles exceeded.
     MaxBundles,
@@ -110,6 +111,7 @@ impl fmt::Display for LimitKind {
 ///
 /// Use these stable, low-cardinality labels when recording metrics.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+#[non_exhaustive]
 pub enum MetricsErrorKind {
     /// Failed to create a Workload API client.
     ClientCreation,

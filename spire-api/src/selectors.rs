@@ -25,6 +25,7 @@ impl From<Selector> for SpiffeSelector {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 /// Represents various types of SPIFFE identity selectors.
 pub enum Selector {
     /// Represents a SPIFFE identity selector based on Kubernetes constructs.
@@ -49,6 +50,7 @@ impl From<K8s> for String {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 /// Represents a SPIFFE identity selector for Kubernetes.
 pub enum K8s {
     /// SPIFFE identity selector for a Kubernetes service account.
@@ -72,15 +74,90 @@ impl From<Unix> for String {
     }
 }
 
+/// A Unix user or group identifier.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct UnixId(u32);
+
+impl UnixId {
+    /// Creates a UID or GID selector value.
+    ///
+    /// Accepts any `u32` value without checking for a corresponding user or group.
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the numeric identifier.
+    pub const fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<u32> for UnixId {
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+impl std::fmt::Display for UnixId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A positive Unix process identifier used in a SPIFFE selector.
+///
+/// Accepts values in `1..=u32::MAX`. Requests for PID-based delegated attestation
+/// use the narrower range of
+/// [`DelegatePid`](crate::agent::delegated_identity::DelegatePid).
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct UnixPid(std::num::NonZeroU32);
+
+impl UnixPid {
+    /// Creates a selector process identifier in the `1..=u32::MAX` range.
+    ///
+    /// Returns `None` if `value` is zero.
+    pub const fn new(value: u32) -> Option<Self> {
+        match std::num::NonZeroU32::new(value) {
+            Some(value) => Some(Self(value)),
+            None => None,
+        }
+    }
+
+    /// Returns the numeric process ID.
+    pub const fn get(self) -> u32 {
+        self.0.get()
+    }
+}
+
+impl TryFrom<u32> for UnixPid {
+    type Error = InvalidUnixPid;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        Self::new(value).ok_or(InvalidUnixPid)
+    }
+}
+
+impl std::fmt::Display for UnixPid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// An error indicating that a process ID is zero.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, thiserror::Error)]
+#[error("Unix PID must be greater than zero")]
+pub struct InvalidUnixPid;
+
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 /// Represents SPIFFE identity selectors based on Unix process-related attributes.
 pub enum Unix {
     /// Specifies a selector for a Unix process ID (PID).
-    Pid(u16),
+    Pid(UnixPid),
     /// Specifies a selector for a Unix group ID (GID).
-    Gid(u16),
+    Gid(UnixId),
     /// Specifies a selector for a Unix user ID (UID).
-    Uid(u16),
+    Uid(UnixId),
 }
 
 #[cfg(test)]
@@ -105,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_unix_pid_selector() {
-        let selector = Selector::Unix(Unix::Pid(500));
+        let selector = Selector::Unix(Unix::Pid(UnixPid::new(500).unwrap()));
         let spiffe_selector: SpiffeSelector = selector.into();
         assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
         assert_eq!(spiffe_selector.value, "pid:500");
@@ -113,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_unix_gid_selector() {
-        let selector = Selector::Unix(Unix::Gid(500));
+        let selector = Selector::Unix(Unix::Gid(UnixId::new(500)));
         let spiffe_selector: SpiffeSelector = selector.into();
         assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
         assert_eq!(spiffe_selector.value, "gid:500");
@@ -121,9 +198,24 @@ mod tests {
 
     #[test]
     fn test_unix_uid_selector() {
-        let selector = Selector::Unix(Unix::Uid(500));
+        let selector = Selector::Unix(Unix::Uid(UnixId::new(500)));
         let spiffe_selector: SpiffeSelector = selector.into();
         assert_eq!(spiffe_selector.r#type, UNIX_TYPE);
         assert_eq!(spiffe_selector.value, "uid:500");
+    }
+
+    #[test]
+    fn unix_ids_preserve_u32_boundaries() {
+        let uid: String = Unix::Uid(UnixId::new(u32::MAX)).into();
+        let gid: String = Unix::Gid(UnixId::new(u32::from(u16::MAX) + 1)).into();
+
+        assert_eq!(uid, format!("uid:{}", u32::MAX));
+        assert_eq!(gid, "gid:65536");
+    }
+
+    #[test]
+    fn unix_pid_rejects_zero_and_accepts_u32_max() {
+        assert_eq!(UnixPid::try_from(0), Err(InvalidUnixPid));
+        assert_eq!(UnixPid::try_from(u32::MAX).unwrap().get(), u32::MAX);
     }
 }

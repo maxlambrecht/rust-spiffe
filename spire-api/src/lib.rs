@@ -20,10 +20,11 @@
 //! // Or connect to a specific endpoint
 //! // let client = DelegatedIdentityClient::connect_to("unix:///tmp/spire-agent/public/admin.sock").await?;
 //!
+//! let request = DelegateAttestationRequest::for_selectors(vec![
+//!     selectors::Selector::Unix(selectors::Unix::Uid(selectors::UnixId::new(1000))),
+//! ])?;
 //! let svid = client
-//!     .fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
-//!         selectors::Selector::Unix(selectors::Unix::Uid(1000)),
-//!     ]))
+//!     .fetch_x509_svid(request)
 //!     .await?;
 //!
 //! println!("SPIFFE ID: {}", svid.spiffe_id());
@@ -48,6 +49,12 @@
 /// Generated protobuf bindings for SPIRE APIs.
 ///
 /// **This module contains generated code. Do not edit these files manually.**
+///
+/// This is a low-level API whose types and module layout follow the upstream
+/// SPIRE protobuf definitions. While `spire-api` remains pre-1.0, breaking changes
+/// require a minor version bump; patch releases remain compatible. Prefer the
+/// crate's high-level clients and request types to reduce coupling to generated
+/// bindings.
 ///
 /// Regenerate with: `cargo run -p xtask -- gen spire-api` from the repo root.
 ///
@@ -102,11 +109,13 @@ pub mod selectors;
 pub mod prelude {
     /// Common imports for SPIRE client usage.
     pub use crate::agent::delegated_identity::{
-        DelegateAttestationRequest, DelegatedIdentityClient, DelegatedIdentityError,
+        DelegateAttestationRequest, DelegateAttestationRequestError, DelegatePid,
+        DelegateSelectors, DelegatedIdentityClient, DelegatedIdentityError,
     };
     pub use crate::selectors;
 }
 
 pub use agent::delegated_identity::{
-    DelegateAttestationRequest, DelegatedIdentityClient, DelegatedIdentityError,
+    DelegateAttestationRequest, DelegateAttestationRequestError, DelegatePid, DelegateSelectors,
+    DelegatedIdentityClient, DelegatedIdentityError,
 };

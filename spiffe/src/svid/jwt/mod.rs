@@ -27,6 +27,7 @@ use time::OffsetDateTime;
 use zeroize::Zeroize;
 
 use crate::spiffe_id::{SpiffeId, SpiffeIdError, TrustDomain};
+use crate::JsonError;
 
 #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use crate::bundle::jwt::{JwtAuthority, JwtBundle};
@@ -36,15 +37,66 @@ use crate::bundle::BundleSource;
 #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use jsonwebtoken::{DecodingKey, Validation};
 
+/// The kind of failure encountered during offline JWT verification.
+///
+/// Verification reports the first failure encountered. A token may have other
+/// problems, and the order of validation checks is unspecified.
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum JwtVerificationErrorKind {
+    /// The token has expired.
+    Expired,
+    /// The token audience does not match the expected audience.
+    AudienceMismatch,
+    /// The signature does not verify with the selected authority.
+    InvalidSignature,
+    /// Another verification failure, including malformed signatures or
+    /// unusable authority keys. The error source provides diagnostic details.
+    Other,
+}
+
+/// An error encountered during offline JWT verification.
+///
+/// Use [`Self::kind`] to classify the failure. This wrapper is transparent.
+/// Formatting it formats the underlying verification error, and
+/// [`std::error::Error::source`] returns that error's source. The underlying
+/// error type is not part of this crate's public API and may change between
+/// releases.
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct JwtVerificationError {
+    source: jsonwebtoken::errors::Error,
+}
+
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+impl JwtVerificationError {
+    const fn new(source: jsonwebtoken::errors::Error) -> Self {
+        Self { source }
+    }
+
+    /// Returns the kind of verification failure.
+    pub fn kind(&self) -> JwtVerificationErrorKind {
+        use jsonwebtoken::errors::ErrorKind;
+
+        match self.source.kind() {
+            ErrorKind::ExpiredSignature => JwtVerificationErrorKind::Expired,
+            ErrorKind::InvalidAudience => JwtVerificationErrorKind::AudienceMismatch,
+            ErrorKind::InvalidSignature => JwtVerificationErrorKind::InvalidSignature,
+            _ => JwtVerificationErrorKind::Other,
+        }
+    }
+}
+
 /// Algorithms supported for JWT-SVIDs according to the SPIFFE JWT-SVID profile.
 ///
 /// Represents the subset of JWT signature algorithms compliant with the SPIFFE JWT-SVID specification.
 ///
-/// Offline verification (`parse_and_validate`) currently depends on
-/// `jsonwebtoken` v10 (enabled via `jwt-verify-rust-crypto` or
-/// `jwt-verify-aws-lc-rs`), which does not provide ES512 (P-521) verification.
-/// ES512 JWT-SVIDs are accepted by parsing APIs, but offline verification
-/// returns [`JwtSvidError::BackendUnsupportedAlgorithm`].
+/// ES512 (P-521) JWT-SVIDs can be parsed, but cannot currently be verified by
+/// [`JwtSvid::parse_and_validate`]. With either `jwt-verify-rust-crypto` or
+/// `jwt-verify-aws-lc-rs` enabled, verification returns
+/// [`JwtSvidError::BackendUnsupportedAlgorithm`] for ES512 tokens.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum JwtAlg {
@@ -178,7 +230,7 @@ pub enum JwtSvidError {
 
     /// Invalid JSON in JWT header or claims.
     #[error("malformed jwt token: invalid json")]
-    InvalidJson(#[source] serde_json::Error),
+    InvalidJson(#[source] JsonError),
 
     /// Cannot find a JWT bundle for the trust domain, to validate the token signature.
     #[error("cannot find JWT bundle for trust domain: {0}")]
@@ -203,12 +255,12 @@ pub enum JwtSvidError {
     /// The authority JWK JSON could not be parsed.
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     #[error("cannot parse authority JWK JSON: {0}")]
-    InvalidAuthorityJwk(#[from] serde_json::Error),
+    InvalidAuthorityJwk(#[source] JsonError),
 
-    /// Error returned by the JWT decoding library.
+    /// Offline JWT verification failed.
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     #[error("cannot decode token")]
-    InvalidToken(#[from] jsonwebtoken::errors::Error),
+    InvalidToken(#[source] JwtVerificationError),
 }
 
 impl From<std::convert::Infallible> for JwtSvidError {
@@ -378,11 +430,14 @@ impl JwtSvid {
         validation.set_audience(&aud);
 
         // Convert stored authority JSON to a jsonwebtoken Jwk, then to DecodingKey.
-        let jwk: Jwk = serde_json::from_slice(jwt_authority.jwk_json())?;
-        let dec_key = DecodingKey::from_jwk(&jwk)?;
+        let jwk: Jwk = serde_json::from_slice(jwt_authority.jwk_json())
+            .map_err(|source| JwtSvidError::InvalidAuthorityJwk(JsonError::new(source)))?;
+        let dec_key = DecodingKey::from_jwk(&jwk)
+            .map_err(|source| JwtSvidError::InvalidToken(JwtVerificationError::new(source)))?;
 
         // Perform a validating decode (signature, exp, aud).
-        jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)?;
+        jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)
+            .map_err(|source| JwtSvidError::InvalidToken(JwtVerificationError::new(source)))?;
 
         Ok(untrusted)
     }
@@ -481,10 +536,10 @@ impl FromStr for JwtSvid {
         let header_json = decode_b64url_to_vec(header_b64)?;
         let claims_json = decode_b64url_to_vec(claims_b64)?;
 
-        let header: Header =
-            serde_json::from_slice(&header_json).map_err(JwtSvidError::InvalidJson)?;
-        let claims: Claims =
-            serde_json::from_slice(&claims_json).map_err(JwtSvidError::InvalidJson)?;
+        let header: Header = serde_json::from_slice(&header_json)
+            .map_err(|source| JwtSvidError::InvalidJson(JsonError::new(source)))?;
+        let claims: Claims = serde_json::from_slice(&claims_json)
+            .map_err(|source| JwtSvidError::InvalidJson(JsonError::new(source)))?;
 
         // Validate typ if present.
         if let Some(t) = header.typ.as_deref() {
@@ -768,7 +823,15 @@ mod tests {
         );
 
         let err = JwtSvid::parse_insecure(&token).unwrap_err();
-        assert!(matches!(err, JwtSvidError::InvalidJson(_)));
+        let JwtSvidError::InvalidJson(error) = err else {
+            panic!("invalid claims JSON should return a JSON error");
+        };
+
+        let displayed = error.to_string();
+        assert_ne!(displayed, "");
+        if let Some(cause) = std::error::Error::source(&error) {
+            assert_ne!(cause.to_string(), displayed);
+        }
     }
 
     #[test]
@@ -1006,7 +1069,76 @@ mod test {
         let result =
             JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap_err();
 
-        assert!(matches!(result, JwtSvidError::InvalidToken(_)));
+        let JwtSvidError::InvalidToken(error) = result else {
+            panic!("expired token should return a verification error");
+        };
+
+        assert_eq!(error.kind(), JwtVerificationErrorKind::Expired);
+        assert_ne!(error.to_string(), "");
+    }
+
+    #[test]
+    fn verification_classifies_audience_and_signature_failures() {
+        let kid = "classification-key";
+        let (authority, encoding_key) = new_es256_authority_and_encoding_key(kid);
+        let bundle_source = bundle_source_with(authority);
+        let token = generate_token(
+            vec!["audience".to_owned()],
+            "spiffe://example.org/service".to_owned(),
+            Some("JWT".to_owned()),
+            Some(kid.to_owned()),
+            0xFFFF_FFFF,
+            Algorithm::ES256,
+            &encoding_key,
+        );
+        let err = JwtSvid::parse_and_validate(&token, &bundle_source, &["other"]).unwrap_err();
+        let JwtSvidError::InvalidToken(error) = err else {
+            panic!("audience mismatch should return a verification error");
+        };
+        assert_eq!(error.kind(), JwtVerificationErrorKind::AudienceMismatch);
+        assert_ne!(error.to_string(), "");
+
+        // Replace the signature with a correctly encoded, invalid ES256 signature.
+        let (unsigned, _) = token.rsplit_once('.').unwrap();
+        let invalid = format!("{unsigned}.{}", b64u(&[0; 64]));
+        let err = JwtSvid::parse_and_validate(&invalid, &bundle_source, &["audience"]).unwrap_err();
+        let JwtSvidError::InvalidToken(error) = err else {
+            panic!("signature mismatch should return a verification error");
+        };
+        assert_eq!(error.kind(), JwtVerificationErrorKind::InvalidSignature);
+        assert_ne!(error.to_string(), "");
+    }
+
+    #[test]
+    fn unusable_authority_retains_diagnostics_without_a_key_classification() {
+        let kid = "unusable-authority";
+        let (_, encoding_key) = new_es256_authority_and_encoding_key(kid);
+        let token = generate_token(
+            vec!["audience".to_owned()],
+            "spiffe://example.org/service".to_owned(),
+            None,
+            Some(kid.to_owned()),
+            0xFFFF_FFFF,
+            Algorithm::ES256,
+            &encoding_key,
+        );
+        // Bundle parsing accepts JWK JSON; decoding its invalid base64 coordinate fails.
+        let authority = JwtAuthority::from_jwk_json(
+            br#"{"kty":"EC","kid":"unusable-authority","crv":"P-256","x":"!","y":"!"}"#,
+        )
+        .unwrap();
+        let err =
+            JwtSvid::parse_and_validate(&token, &bundle_source_with(authority), &["audience"])
+                .unwrap_err();
+        let JwtSvidError::InvalidToken(error) = err else {
+            panic!("unusable authority should return a verification error");
+        };
+        assert_eq!(error.kind(), JwtVerificationErrorKind::Other);
+        let displayed = error.to_string();
+        assert_ne!(displayed, "");
+        if let Some(cause) = std::error::Error::source(&error) {
+            assert_ne!(cause.to_string(), displayed);
+        }
     }
 
     fn generate_token(
