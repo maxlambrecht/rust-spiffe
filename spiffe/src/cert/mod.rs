@@ -2,13 +2,12 @@
 //!
 //! These types wrap DER-encoded bytes and validate them at construction time.
 
-use crate::cert::error::{CertificateError, PrivateKeyError};
+use crate::cert::error::{CertificateError, Pkcs8DecodeError, PrivateKeyError};
 use crate::cert::parsing::{
     extract_spiffe_ids_from_uri_san, parse_der_encoded_bytes_as_x509_certificate,
 };
 use crate::SpiffeId;
 use pkcs8::PrivateKeyInfoRef;
-use x509_parser::certificate::X509Certificate;
 use zeroize::Zeroize;
 
 pub mod error;
@@ -48,8 +47,8 @@ impl AsRef<[u8]> for Certificate {
     }
 }
 
-impl From<X509Certificate<'_>> for Certificate {
-    fn from(cert: X509Certificate<'_>) -> Self {
+impl Certificate {
+    pub(crate) fn from_x509(cert: &x509_parser::certificate::X509Certificate<'_>) -> Self {
         Self(cert.as_raw().to_vec())
     }
 }
@@ -99,7 +98,8 @@ impl TryFrom<&[u8]> for PrivateKey {
 
     fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
         // Validate that the bytes are a valid PKCS#8 private key.
-        PrivateKeyInfoRef::try_from(bytes).map_err(PrivateKeyError::DecodePkcs8)?;
+        PrivateKeyInfoRef::try_from(bytes)
+            .map_err(|source| PrivateKeyError::DecodePkcs8(Pkcs8DecodeError::new(source)))?;
         Ok(Self(Vec::from(bytes)))
     }
 }
@@ -109,7 +109,8 @@ impl TryFrom<Vec<u8>> for PrivateKey {
 
     fn try_from(bytes: Vec<u8>) -> Result<Self, Self::Error> {
         // Validate that the bytes are a valid PKCS#8 private key.
-        PrivateKeyInfoRef::try_from(bytes.as_slice()).map_err(PrivateKeyError::DecodePkcs8)?;
+        PrivateKeyInfoRef::try_from(bytes.as_slice())
+            .map_err(|source| PrivateKeyError::DecodePkcs8(Pkcs8DecodeError::new(source)))?;
         Ok(Self(bytes))
     }
 }
@@ -138,7 +139,7 @@ pub fn spiffe_id_from_der(der: &[u8]) -> Result<SpiffeId, CertificateError> {
 }
 
 pub(crate) fn extract_single_spiffe_id_from_uri_san(
-    cert: &X509Certificate<'_>,
+    cert: &x509_parser::certificate::X509Certificate<'_>,
 ) -> Result<SpiffeId, CertificateError> {
     let mut ids = extract_spiffe_ids_from_uri_san(cert)?.into_iter();
 

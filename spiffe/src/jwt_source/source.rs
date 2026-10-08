@@ -6,7 +6,7 @@ use super::supervisor::initial_sync_with_retry;
 use super::types::ClientFactory;
 use crate::bundle::BundleSource;
 use crate::prelude::{debug, warn};
-use crate::transport::TransportError;
+use crate::transport::{GrpcStatusCode, TransportError};
 use crate::workload_api::WorkloadApiClient;
 use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiError};
 use arc_swap::ArcSwap;
@@ -632,12 +632,14 @@ impl JwtSource {
     }
 }
 
-fn is_retryable_jwt_fetch_error(error: &WorkloadApiError) -> bool {
+const fn is_retryable_jwt_fetch_error(error: &WorkloadApiError) -> bool {
     match error {
-        WorkloadApiError::Transport(TransportError::Tonic(_)) => true,
+        WorkloadApiError::Transport(TransportError::Connect(_)) => true,
         WorkloadApiError::Transport(TransportError::Status(status)) => matches!(
             status.code(),
-            tonic::Code::Cancelled | tonic::Code::DeadlineExceeded | tonic::Code::Unavailable
+            GrpcStatusCode::Cancelled
+                | GrpcStatusCode::DeadlineExceeded
+                | GrpcStatusCode::Unavailable
         ),
         _ => false,
     }
@@ -1016,9 +1018,9 @@ mod tests {
                 Self::InvalidJwt => Err(WorkloadApiError::JwtSvid(
                     JwtSvid::parse_insecure("not-a-jwt").unwrap_err(),
                 )),
-                Self::Unavailable => Err(WorkloadApiError::Transport(TransportError::Status(
+                Self::Unavailable => Err(WorkloadApiError::from_status(
                     tonic::Status::unavailable("agent unavailable"),
-                ))),
+                )),
             }
         }
     }

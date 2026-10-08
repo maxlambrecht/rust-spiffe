@@ -30,7 +30,7 @@ pub struct X509Svid {
 
 /// Errors that may arise parsing a [`X509Svid`] from a DER-encoded
 /// chain of certificates and private key.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum X509SvidError {
     /// The chain of certificates is empty.

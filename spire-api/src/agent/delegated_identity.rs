@@ -20,7 +20,7 @@ use crate::pb::spire::api::types::Jwtsvid as ProtoJwtSvid;
 use crate::selectors::Selector;
 
 use spiffe::constants::DEFAULT_SVID;
-use spiffe::transport::{Endpoint, TransportError};
+use spiffe::transport::{Endpoint, GrpcStatusCode, TransportError};
 use spiffe::{
     JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeIdError, TrustDomain,
     X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
@@ -77,6 +77,10 @@ pub enum DelegatedIdentityError {
     /// Failed to parse a SPIFFE identifier.
     #[error("SPIFFE ID error: {0}")]
     SpiffeId(#[from] SpiffeIdError),
+
+    /// The delegated attestation request is invalid.
+    #[error(transparent)]
+    InvalidRequest(#[from] DelegateAttestationRequestError),
 }
 
 /// Load the admin endpoint socket URI from the environment.
@@ -103,11 +107,108 @@ pub struct DelegatedIdentityClient {
 /// Represents that a delegate attestation request can have one-of
 /// PID (let agent attest PID->selectors) or selectors (delegate has already attested a PID)
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum DelegateAttestationRequest {
     /// PID (let agent attest PID->selectors)
-    Pid(i32),
+    Pid(DelegatePid),
     /// selectors (delegate has already attested a PID and generated full set of selectors)
-    Selectors(Vec<Selector>),
+    Selectors(DelegateSelectors),
+}
+
+impl DelegateAttestationRequest {
+    /// Creates an attestation request for a positive process ID.
+    ///
+    /// Accepts values in `1..=i32::MAX`. For the wider range supported by PID
+    /// selectors, see [`UnixPid`](crate::selectors::UnixPid).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DelegateAttestationRequestError::PidOutOfRange`] when `pid` is
+    /// outside `1..=i32::MAX`.
+    pub fn for_pid(pid: u32) -> Result<Self, DelegateAttestationRequestError> {
+        Ok(Self::Pid(DelegatePid::try_from(pid)?))
+    }
+
+    /// Creates an attestation request from a non-empty selector list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DelegateAttestationRequestError::EmptySelectors`] when no
+    /// selectors are supplied.
+    pub fn for_selectors(
+        selectors: Vec<Selector>,
+    ) -> Result<Self, DelegateAttestationRequestError> {
+        Ok(Self::Selectors(DelegateSelectors::try_from(selectors)?))
+    }
+}
+
+/// A process ID in `1..=i32::MAX` for delegated attestation.
+///
+/// The Delegated Identity API uses a signed 32-bit PID field. For PID selectors
+/// with a wider range, see [`UnixPid`](crate::selectors::UnixPid).
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub struct DelegatePid(i32);
+
+impl DelegatePid {
+    /// Returns the numeric process ID.
+    pub const fn get(self) -> i32 {
+        self.0
+    }
+}
+
+impl TryFrom<u32> for DelegatePid {
+    type Error = DelegateAttestationRequestError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        if value == 0 {
+            return Err(DelegateAttestationRequestError::PidOutOfRange(value));
+        }
+        i32::try_from(value)
+            .map(Self)
+            .map_err(|_range_error| DelegateAttestationRequestError::PidOutOfRange(value))
+    }
+}
+
+/// A non-empty selector list for delegated attestation.
+#[derive(Debug, Clone)]
+pub struct DelegateSelectors(Vec<Selector>);
+
+impl DelegateSelectors {
+    fn into_vec(self) -> Vec<Selector> {
+        self.0
+    }
+
+    /// Returns the selectors in this request.
+    pub fn as_slice(&self) -> &[Selector] {
+        &self.0
+    }
+}
+
+impl TryFrom<Vec<Selector>> for DelegateSelectors {
+    type Error = DelegateAttestationRequestError;
+
+    fn try_from(value: Vec<Selector>) -> Result<Self, Self::Error> {
+        if value.is_empty() {
+            Err(DelegateAttestationRequestError::EmptySelectors)
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
+/// Errors encountered when validating delegated attestation or JWT-SVID requests.
+#[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
+#[non_exhaustive]
+pub enum DelegateAttestationRequestError {
+    /// The process ID is outside `1..=i32::MAX`.
+    #[error("delegated PID {0} is outside the supported range 1..={max}", max = i32::MAX)]
+    PidOutOfRange(u32),
+    /// The selector list is empty.
+    #[error("delegated attestation selector list must not be empty")]
+    EmptySelectors,
+    /// The audience list is empty or contains an empty value.
+    #[error("JWT-SVID audience must contain at least one non-empty value")]
+    EmptyAudience,
 }
 
 /// Constructors
@@ -132,8 +233,8 @@ impl DelegatedIdentityClient {
 
     /// Creates a new `DelegatedIdentityClient` using the default socket endpoint address.
     ///
-    /// Requires that the environment variable `SPIFFE_ENDPOINT_SOCKET` be set with
-    /// the path to the Workload API endpoint socket.
+    /// Requires that [`ADMIN_SOCKET_ENV`] (`SPIRE_ADMIN_ENDPOINT_SOCKET`) be set
+    /// to the SPIRE Agent Admin API endpoint socket.
     ///
     /// # Errors
     ///
@@ -161,25 +262,21 @@ impl DelegatedIdentityClient {
     /// This constructor does not perform any network I/O. It only wraps the
     /// provided [`tonic::transport::Channel`] and prepares the client for use.
     ///
-    /// # Errors
-    ///
-    /// Returns [`DelegatedIdentityError`] if the client could not be constructed from
-    /// the provided channel (for example, due to an invalid configuration).
-    pub fn new(conn: tonic::transport::Channel) -> Result<Self, DelegatedIdentityError> {
-        Ok(Self {
+    pub fn new(conn: tonic::transport::Channel) -> Self {
+        Self {
             client: DelegatedIdentityApiClient::new(conn),
-        })
+        }
     }
 }
 
 impl DelegatedIdentityClient {
     /// Fetches a single X509 SPIFFE Verifiable Identity Document (SVID).
     ///
-    /// This method connects to the SPIFFE Workload API and returns the first X509 SVID in the response.
+    /// This method calls the SPIRE Agent Admin API and returns the first X509 SVID in the response.
     ///
     /// # Arguments
     ///
-    /// * `selectors` - A list of selectors to filter the stream of [`X509Svid`] updates.
+    /// * `attest_type` - A validated PID or selector request identifying the workload to attest.
     ///
     /// # Returns
     ///
@@ -200,22 +297,24 @@ impl DelegatedIdentityClient {
         self.client
             .clone()
             .subscribe_to_x509svi_ds(request)
-            .await?
+            .await
+            .map_err(status_error)?
             .into_inner()
             .message()
-            .await?
+            .await
+            .map_err(status_error)?
             .ok_or(DelegatedIdentityError::EmptyResponse)
             .and_then(|resp| Self::parse_x509_svid_from_grpc_response(&resp))
     }
 
     /// Watches the stream of [`X509Svid`] updates.
     ///
-    /// This function establishes a stream with the Workload API to continuously receive updates for the [`X509Svid`].
+    /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`X509Svid`].
     /// The returned stream can be used to asynchronously yield new `X509Svid` updates as they become available.
     ///
     /// # Arguments
     ///
-    /// * `selectors` - A list of selectors to filter the stream of [`X509Svid`] updates.
+    /// * `attest_type` - A validated PID or selector request identifying the workload to attest.
     ///
     /// # Returns
     ///
@@ -226,7 +325,7 @@ impl DelegatedIdentityClient {
     ///
     /// The function can return an error variant of [`DelegatedIdentityError`] in the following scenarios:
     ///
-    /// * There's an issue connecting to the Workload API.
+    /// * There's an issue connecting to the Agent Admin API.
     /// * An error occurs while setting up the stream.
     ///
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
@@ -234,24 +333,29 @@ impl DelegatedIdentityClient {
         &self,
         attest_type: DelegateAttestationRequest,
     ) -> Result<
-        impl Stream<Item = Result<X509Svid, DelegatedIdentityError>> + Send + '_,
+        impl Stream<Item = Result<X509Svid, DelegatedIdentityError>> + Send + 'static + use<>,
         DelegatedIdentityError,
     > {
         let request = match attest_type {
             DelegateAttestationRequest::Selectors(selectors) => SubscribeToX509sviDsRequest {
-                selectors: selectors.into_iter().map(Into::into).collect(),
+                selectors: selectors.into_vec().into_iter().map(Into::into).collect(),
                 pid: 0,
             },
             DelegateAttestationRequest::Pid(pid) => SubscribeToX509sviDsRequest {
                 selectors: Vec::new(),
-                pid,
+                pid: pid.get(),
             },
         };
 
-        let response = self.client.clone().subscribe_to_x509svi_ds(request).await?;
+        let response = self
+            .client
+            .clone()
+            .subscribe_to_x509svi_ds(request)
+            .await
+            .map_err(status_error)?;
 
         let stream = response.into_inner().map(|message| {
-            let resp = message.map_err(DelegatedIdentityError::from)?;
+            let resp = message.map_err(status_error)?;
             Self::parse_x509_svid_from_grpc_response(&resp)
         });
 
@@ -262,7 +366,7 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Agent Admin API or
     /// there is a problem processing the response.
     pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, DelegatedIdentityError> {
         let request = SubscribeToX509BundlesRequest::default();
@@ -271,12 +375,14 @@ impl DelegatedIdentityClient {
             .client
             .clone()
             .subscribe_to_x509_bundles(request)
-            .await?;
+            .await
+            .map_err(status_error)?;
 
         let initial = response
             .into_inner()
             .message()
-            .await?
+            .await
+            .map_err(status_error)?
             .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         Self::parse_x509_bundle_set_from_grpc_response(initial)
@@ -284,7 +390,7 @@ impl DelegatedIdentityClient {
 
     /// Watches the stream of [`X509Bundle`] updates.
     ///
-    /// This function establishes a stream with the Workload API to continuously receive updates for the [`X509Bundle`].
+    /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`X509Bundle`].
     /// The returned stream can be used to asynchronously yield new `X509Bundle` updates as they become available.
     ///
     /// # Returns
@@ -312,10 +418,11 @@ impl DelegatedIdentityClient {
             .client
             .clone()
             .subscribe_to_x509_bundles(request)
-            .await?;
+            .await
+            .map_err(status_error)?;
 
         Ok(response.into_inner().map(|msg| {
-            msg.map_err(DelegatedIdentityError::from)
+            msg.map_err(status_error)
                 .and_then(Self::parse_x509_bundle_set_from_grpc_response)
         }))
     }
@@ -329,25 +436,29 @@ impl DelegatedIdentityClient {
     ///
     /// # Arguments
     ///
-    /// * `audience`  - A list of audiences to include in the JWT token. Cannot be empty nor contain only empty strings.
+    /// * `audience`  - A non-empty list of non-empty audiences to include in the JWT token.
     /// * `attest_type` - PID or selectors identifying the workload to attest.
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the API or
-    /// there is a problem processing the response.
+    /// Returns [`DelegatedIdentityError::InvalidRequest`] containing
+    /// [`DelegateAttestationRequestError::EmptyAudience`] if the audience list is
+    /// empty or contains an empty value. This validation occurs before contacting
+    /// the API. Errors also occur if the API request fails or the response cannot
+    /// be parsed.
     pub async fn fetch_jwt_svids<T: AsRef<str> + Sync + ToString>(
         &self,
         audience: &[T],
         attest_type: DelegateAttestationRequest,
     ) -> Result<Vec<JwtSvid>, DelegatedIdentityError> {
-        let request = make_jwtsvid_request(audience, attest_type);
+        let request = make_jwtsvid_request(audience, attest_type)?;
 
         let resp = self
             .client
             .clone()
             .fetch_jwtsvi_ds(request)
-            .await?
+            .await
+            .map_err(status_error)?
             .into_inner()
             .svids;
 
@@ -356,7 +467,7 @@ impl DelegatedIdentityClient {
 
     /// Watches the stream of [`JwtBundleSet`] updates.
     ///
-    /// This function establishes a stream with the Workload API to continuously receive updates for the [`JwtBundleSet`].
+    /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`JwtBundleSet`].
     /// The returned stream can be used to asynchronously yield new `JwtBundleSet` updates as they become available.
     ///
     /// # Returns
@@ -368,7 +479,7 @@ impl DelegatedIdentityClient {
     ///
     /// The function can return an error variant of [`DelegatedIdentityError`] in the following scenarios:
     ///
-    /// * There's an issue connecting to the Workload API.
+    /// * There's an issue connecting to the Agent Admin API.
     /// * An error occurs while setting up the stream.
     ///
     /// Individual stream items might also be errors if there's an issue processing the response for a specific update.
@@ -384,10 +495,11 @@ impl DelegatedIdentityClient {
             .client
             .clone()
             .subscribe_to_jwt_bundles(request)
-            .await?;
+            .await
+            .map_err(status_error)?;
 
         Ok(response.into_inner().map(|msg| {
-            msg.map_err(DelegatedIdentityError::from)
+            msg.map_err(status_error)
                 .and_then(Self::parse_jwt_bundle_set_from_grpc_response)
         }))
     }
@@ -396,7 +508,7 @@ impl DelegatedIdentityClient {
     ///
     /// # Errors
     ///
-    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Workload API or
+    /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Agent Admin API or
     /// there is a problem processing the response.
     pub async fn fetch_jwt_bundles(&self) -> Result<JwtBundleSet, DelegatedIdentityError> {
         let request = SubscribeToJwtBundlesRequest::default();
@@ -405,12 +517,14 @@ impl DelegatedIdentityClient {
             .client
             .clone()
             .subscribe_to_jwt_bundles(request)
-            .await?;
+            .await
+            .map_err(status_error)?;
 
         let initial = response
             .into_inner()
             .message()
-            .await?
+            .await
+            .map_err(status_error)?
             .ok_or(DelegatedIdentityError::EmptyResponse)?;
 
         Self::parse_jwt_bundle_set_from_grpc_response(initial)
@@ -493,28 +607,43 @@ impl DelegatedIdentityClient {
     }
 }
 
-// Error conversions
-impl From<tonic::Status> for DelegatedIdentityError {
-    fn from(status: tonic::Status) -> Self {
-        Self::Transport(TransportError::Status(status))
-    }
+fn status_error(status: tonic::Status) -> DelegatedIdentityError {
+    let code = grpc_status_code(status.code());
+    let message = status.message().to_owned();
+    DelegatedIdentityError::Transport(TransportError::status_with_source(code, message, status))
 }
 
-impl From<tonic::transport::Error> for DelegatedIdentityError {
-    fn from(err: tonic::transport::Error) -> Self {
-        Self::Transport(TransportError::Tonic(err))
+const fn grpc_status_code(code: tonic::Code) -> GrpcStatusCode {
+    match code {
+        tonic::Code::Ok => GrpcStatusCode::Ok,
+        tonic::Code::Cancelled => GrpcStatusCode::Cancelled,
+        tonic::Code::Unknown => GrpcStatusCode::Unknown,
+        tonic::Code::InvalidArgument => GrpcStatusCode::InvalidArgument,
+        tonic::Code::DeadlineExceeded => GrpcStatusCode::DeadlineExceeded,
+        tonic::Code::NotFound => GrpcStatusCode::NotFound,
+        tonic::Code::AlreadyExists => GrpcStatusCode::AlreadyExists,
+        tonic::Code::PermissionDenied => GrpcStatusCode::PermissionDenied,
+        tonic::Code::ResourceExhausted => GrpcStatusCode::ResourceExhausted,
+        tonic::Code::FailedPrecondition => GrpcStatusCode::FailedPrecondition,
+        tonic::Code::Aborted => GrpcStatusCode::Aborted,
+        tonic::Code::OutOfRange => GrpcStatusCode::OutOfRange,
+        tonic::Code::Unimplemented => GrpcStatusCode::Unimplemented,
+        tonic::Code::Internal => GrpcStatusCode::Internal,
+        tonic::Code::Unavailable => GrpcStatusCode::Unavailable,
+        tonic::Code::DataLoss => GrpcStatusCode::DataLoss,
+        tonic::Code::Unauthenticated => GrpcStatusCode::Unauthenticated,
     }
 }
 
 fn make_x509svid_request(attest_type: DelegateAttestationRequest) -> SubscribeToX509sviDsRequest {
     match attest_type {
         DelegateAttestationRequest::Selectors(selectors) => SubscribeToX509sviDsRequest {
-            selectors: selectors.into_iter().map(Into::into).collect(),
+            selectors: selectors.into_vec().into_iter().map(Into::into).collect(),
             pid: 0,
         },
         DelegateAttestationRequest::Pid(pid) => SubscribeToX509sviDsRequest {
             selectors: Vec::new(),
-            pid,
+            pid: pid.get(),
         },
     }
 }
@@ -522,21 +651,24 @@ fn make_x509svid_request(attest_type: DelegateAttestationRequest) -> SubscribeTo
 fn make_jwtsvid_request<T: AsRef<str> + ToString>(
     audience: &[T],
     attest_type: DelegateAttestationRequest,
-) -> FetchJwtsviDsRequest {
-    let audience = audience.iter().map(ToString::to_string).collect();
+) -> Result<FetchJwtsviDsRequest, DelegateAttestationRequestError> {
+    let audience: Vec<_> = audience.iter().map(ToString::to_string).collect();
+    if audience.is_empty() || audience.iter().any(String::is_empty) {
+        return Err(DelegateAttestationRequestError::EmptyAudience);
+    }
 
-    match attest_type {
+    Ok(match attest_type {
         DelegateAttestationRequest::Selectors(selectors) => FetchJwtsviDsRequest {
             audience,
-            selectors: selectors.into_iter().map(Into::into).collect(),
+            selectors: selectors.into_vec().into_iter().map(Into::into).collect(),
             pid: 0,
         },
         DelegateAttestationRequest::Pid(pid) => FetchJwtsviDsRequest {
             audience,
             selectors: Vec::new(),
-            pid,
+            pid: pid.get(),
         },
-    }
+    })
 }
 
 #[cfg(test)]
@@ -616,5 +748,124 @@ mod tests {
             Some("external")
         );
         assert_eq!(svids.get(2).expect("third JWT-SVID").hint(), None);
+    }
+
+    #[test]
+    fn tonic_status_keeps_its_code_and_message() {
+        let cases = [
+            (tonic::Code::Ok, GrpcStatusCode::Ok),
+            (tonic::Code::Cancelled, GrpcStatusCode::Cancelled),
+            (tonic::Code::Unknown, GrpcStatusCode::Unknown),
+            (
+                tonic::Code::InvalidArgument,
+                GrpcStatusCode::InvalidArgument,
+            ),
+            (
+                tonic::Code::DeadlineExceeded,
+                GrpcStatusCode::DeadlineExceeded,
+            ),
+            (tonic::Code::NotFound, GrpcStatusCode::NotFound),
+            (tonic::Code::AlreadyExists, GrpcStatusCode::AlreadyExists),
+            (
+                tonic::Code::PermissionDenied,
+                GrpcStatusCode::PermissionDenied,
+            ),
+            (
+                tonic::Code::ResourceExhausted,
+                GrpcStatusCode::ResourceExhausted,
+            ),
+            (
+                tonic::Code::FailedPrecondition,
+                GrpcStatusCode::FailedPrecondition,
+            ),
+            (tonic::Code::Aborted, GrpcStatusCode::Aborted),
+            (tonic::Code::OutOfRange, GrpcStatusCode::OutOfRange),
+            (tonic::Code::Unimplemented, GrpcStatusCode::Unimplemented),
+            (tonic::Code::Internal, GrpcStatusCode::Internal),
+            (tonic::Code::Unavailable, GrpcStatusCode::Unavailable),
+            (tonic::Code::DataLoss, GrpcStatusCode::DataLoss),
+            (
+                tonic::Code::Unauthenticated,
+                GrpcStatusCode::Unauthenticated,
+            ),
+        ];
+
+        for (tonic_code, expected) in cases {
+            let status = tonic::Status::new(tonic_code, "detail");
+            let err = status_error(status);
+            let DelegatedIdentityError::Transport(transport) = err else {
+                panic!("{tonic_code:?} should remain a transport error");
+            };
+            let TransportError::Status(grpc) = transport else {
+                panic!("{tonic_code:?} should remain a gRPC status");
+            };
+
+            assert_eq!(grpc.code(), expected);
+            assert_eq!(grpc.message(), "detail");
+            assert!(std::error::Error::source(&grpc)
+                .expect("original status")
+                .to_string()
+                .contains("detail"));
+        }
+    }
+
+    #[test]
+    fn delegated_status_retains_details_metadata_and_nested_cause() {
+        use std::error::Error as _;
+
+        let mut status = tonic::Status::with_details(
+            tonic::Code::Unavailable,
+            "agent unavailable",
+            b"diagnostic details".as_slice().into(),
+        );
+        status
+            .metadata_mut()
+            .insert("diagnostic", "context".parse().unwrap());
+        status.set_source(Arc::new(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "admin socket refused",
+        )));
+        let err = status_error(status);
+        let source = err.source().expect("transport diagnostic source");
+        // Downcasting here verifies retention internally; consumers use the owned
+        // code/message for behavior and the error chain for diagnostics.
+        let status = source
+            .downcast_ref::<tonic::Status>()
+            .expect("original status");
+        assert_eq!(status.details(), b"diagnostic details");
+        assert_eq!(status.metadata().get("diagnostic").unwrap(), "context");
+        assert_eq!(
+            source.source().expect("nested cause").to_string(),
+            "admin socket refused"
+        );
+    }
+
+    #[test]
+    fn delegated_request_rejects_invalid_protocol_states() {
+        assert_eq!(
+            DelegateAttestationRequest::for_pid(0).unwrap_err(),
+            DelegateAttestationRequestError::PidOutOfRange(0)
+        );
+        assert_eq!(
+            DelegateAttestationRequest::for_pid(i32::MAX as u32 + 1).unwrap_err(),
+            DelegateAttestationRequestError::PidOutOfRange(i32::MAX as u32 + 1)
+        );
+        assert_eq!(
+            DelegateAttestationRequest::for_selectors(Vec::new()).unwrap_err(),
+            DelegateAttestationRequestError::EmptySelectors
+        );
+        assert_eq!(
+            make_jwtsvid_request(&["", ""], DelegateAttestationRequest::for_pid(1).unwrap())
+                .unwrap_err(),
+            DelegateAttestationRequestError::EmptyAudience
+        );
+        assert_eq!(
+            make_jwtsvid_request(
+                &["payments", ""],
+                DelegateAttestationRequest::for_pid(1).unwrap()
+            )
+            .unwrap_err(),
+            DelegateAttestationRequestError::EmptyAudience
+        );
     }
 }

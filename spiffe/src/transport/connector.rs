@@ -57,7 +57,11 @@ fn tcp_uri(host: IpAddr, port: u16) -> String {
 /// recommends Unix domain sockets for local Workload API communication.
 async fn connect_tcp(host: IpAddr, port: u16) -> Result<Channel, TransportError> {
     let uri = tcp_uri(host, port);
-    Ok(TonicEndpoint::try_from(uri)?.connect().await?)
+    TonicEndpoint::try_from(uri)
+        .map_err(TransportError::from_transport)?
+        .connect()
+        .await
+        .map_err(TransportError::from_transport)
 }
 
 async fn connect_unix(path: &Path) -> Result<Channel, TransportError> {
@@ -71,7 +75,8 @@ async fn connect_unix(path: &Path) -> Result<Channel, TransportError> {
     {
         let path = path.to_owned();
 
-        let channel = TonicEndpoint::try_from(TONIC_DUMMY_URI)?
+        let channel = TonicEndpoint::try_from(TONIC_DUMMY_URI)
+            .map_err(TransportError::from_transport)?
             .connect_with_connector(service_fn(move |_: Uri| {
                 let path = path.clone();
                 async move {
@@ -79,7 +84,8 @@ async fn connect_unix(path: &Path) -> Result<Channel, TransportError> {
                     Ok::<_, std::io::Error>(TokioIo::new(stream))
                 }
             }))
-            .await?;
+            .await
+            .map_err(TransportError::from_transport)?;
 
         Ok(channel)
     }

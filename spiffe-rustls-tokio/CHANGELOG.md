@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0] – 2026-10-07
+
+### Breaking changes
+
+- Bumped the `spiffe` dependency from `0.18` to `0.19` and the example/dev dependency on `spiffe-rustls` from `0.10` to `0.11`.
+- Made `PeerIdentity::spiffe_id` private; use the existing `spiffe_id()` or `require_spiffe_id()` accessors.
+
 ## [0.6.0] – 2026-10-06
 
 ### Breaking changes

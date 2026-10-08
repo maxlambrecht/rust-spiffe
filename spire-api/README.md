@@ -32,7 +32,7 @@ Add `spire-api` to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-spire-api = "0.10"
+spire-api = "0.11"
 ```
 
 ---
@@ -57,9 +57,9 @@ use spire_api::selectors;
 let client = DelegatedIdentityClient::connect_env().await?;
 
 let x509_svid = client
-    .fetch_x509_svid(DelegateAttestationRequest::Selectors(vec![
-        selectors::Selector::Unix(selectors::Unix::Uid(1000)),
-    ]))
+    .fetch_x509_svid(DelegateAttestationRequest::for_selectors(vec![
+        selectors::Selector::Unix(selectors::Unix::Uid(selectors::UnixId::new(1000))),
+    ])?)
     .await?;
 ```
 
@@ -67,7 +67,7 @@ Using PID-based attestation (let the agent attest the PID and generate selectors
 
 ```rust
 let x509_svid = client
-    .fetch_x509_svid(DelegateAttestationRequest::Pid(1234))
+    .fetch_x509_svid(DelegateAttestationRequest::for_pid(1234)?)
     .await?;
 ```
 
@@ -77,9 +77,9 @@ let x509_svid = client
 let jwt_svids = client
     .fetch_jwt_svids(
         &["audience1", "audience2"],
-        DelegateAttestationRequest::Selectors(vec![
-            selectors::Selector::Unix(selectors::Unix::Uid(1000)),
-        ]),
+        DelegateAttestationRequest::for_selectors(vec![
+            selectors::Selector::Unix(selectors::Unix::Uid(selectors::UnixId::new(1000))),
+        ])?,
     )
     .await?;
 ```
@@ -97,7 +97,7 @@ let jwt_bundles = client.fetch_jwt_bundles().await?;
 ### Streaming updates
 
 The client also supports streaming methods for continuous updates:
-- `stream_x509_svids()` - Stream X.509 SVID updates
+- `stream_x509_svids(request)` - Stream X.509 SVID updates
 - `stream_x509_bundles()` - Stream X.509 bundle updates
 - `stream_jwt_bundles()` - Stream JWT bundle updates
 

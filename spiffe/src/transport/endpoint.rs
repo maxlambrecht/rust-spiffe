@@ -15,6 +15,7 @@ const UNIX_SCHEME: &str = "unix";
 
 /// Parsed SPIFFE endpoint.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Endpoint {
     /// UNIX domain socket endpoint (POSIX systems).
     Unix(PathBuf),
@@ -28,12 +29,31 @@ pub enum Endpoint {
     },
 }
 
+/// An error returned when an endpoint cannot be parsed as a URI.
+///
+/// The underlying error is available through [`std::error::Error::source`]
+/// for diagnostics. Its concrete type and formatted message may change
+/// between releases.
+#[derive(Debug, Error)]
+#[error("{source}")]
+pub struct EndpointParseError {
+    #[source]
+    source: url::ParseError,
+}
+
+impl EndpointParseError {
+    const fn new(source: url::ParseError) -> Self {
+        Self { source }
+    }
+}
+
 /// Errors returned by [`Endpoint::parse`].
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error)]
+#[non_exhaustive]
 pub enum EndpointError {
     /// The input could not be parsed as a valid URI.
     #[error("endpoint socket is not a valid URI")]
-    Parse(#[from] url::ParseError),
+    Parse(#[source] EndpointParseError),
 
     /// The URI scheme is not supported.
     #[error("endpoint socket URI scheme must be unix: or tcp:")]
@@ -91,7 +111,8 @@ impl Endpoint {
     /// - the endpoint does not satisfy the validation rules for its scheme.
     pub fn parse(input: &str) -> Result<Self, EndpointError> {
         let normalized = normalize_endpoint_uri(input);
-        let url = Url::parse(&normalized)?;
+        let url = Url::parse(&normalized)
+            .map_err(|source| EndpointError::Parse(EndpointParseError::new(source)))?;
 
         if !url.username().is_empty() || url.password().is_some() {
             return Err(EndpointError::HasUserInfo);
@@ -269,7 +290,11 @@ mod tests {
     fn parse_errors_are_stable_across_url_versions() {
         for input in [" ", "foo"] {
             let err = Endpoint::parse(input).unwrap_err();
-            assert!(matches!(err, EndpointError::Parse(_)));
+            let EndpointError::Parse(parse_error) = &err else {
+                panic!("invalid URI should return an endpoint parse error");
+            };
+
+            assert!(std::error::Error::source(parse_error).is_some());
             assert_eq!(err.to_string(), "endpoint socket is not a valid URI");
         }
     }
@@ -283,7 +308,10 @@ mod tests {
 
                     let err = Endpoint::parse(input).unwrap_err();
 
-                    assert_eq!(err, expected_error);
+                    assert_eq!(
+                        std::mem::discriminant(&err),
+                        std::mem::discriminant(&expected_error)
+                    );
                     assert_eq!(err.to_string(), expected_message);
                 }
             )*
@@ -371,7 +399,7 @@ mod tests {
         // `unix:tmp/sock` (missing slash after scheme) should fail deterministically
         // because the path is not absolute (doesn't start with "/").
         let err = Endpoint::parse("unix:tmp/sock").unwrap_err();
-        assert_eq!(err, EndpointError::UnixMissingPath);
+        assert!(matches!(err, EndpointError::UnixMissingPath));
         assert_eq!(
             err.to_string(),
             "unix: endpoint socket URI must include a path"
@@ -396,7 +424,7 @@ mod tests {
     fn parse_tcp_shorthand_missing_port() {
         // `tcp:127.0.0.1` should return TcpMissingPort
         let err = Endpoint::parse("tcp:127.0.0.1").unwrap_err();
-        assert_eq!(err, EndpointError::TcpMissingPort);
+        assert!(matches!(err, EndpointError::TcpMissingPort));
         assert_eq!(
             err.to_string(),
             "tcp: endpoint socket URI must include a port"
@@ -407,7 +435,7 @@ mod tests {
     fn parse_tcp_ipv6_missing_port() {
         // `tcp://[::1]` should return TcpMissingPort
         let err = Endpoint::parse("tcp://[::1]").unwrap_err();
-        assert_eq!(err, EndpointError::TcpMissingPort);
+        assert!(matches!(err, EndpointError::TcpMissingPort));
         assert_eq!(
             err.to_string(),
             "tcp: endpoint socket URI must include a port"

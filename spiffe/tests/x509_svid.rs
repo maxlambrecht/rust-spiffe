@@ -35,7 +35,7 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&[], key_bytes);
 
-        assert_eq!(result.unwrap_err(), X509SvidError::EmptyChain);
+        assert!(matches!(result.unwrap_err(), X509SvidError::EmptyChain));
     }
 
     #[test]
@@ -44,7 +44,7 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der_with_hint(&[], key_bytes, Some("test-hint".into()));
 
-        assert_eq!(result.unwrap_err(), X509SvidError::EmptyChain);
+        assert!(matches!(result.unwrap_err(), X509SvidError::EmptyChain));
     }
 
     #[test]
@@ -90,10 +90,13 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert!(matches!(
-            result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::ParseX509Certificate(..))
-        ));
+        let X509SvidError::Certificate(CertificateError::ParseX509Certificate(error)) =
+            result.unwrap_err()
+        else {
+            panic!("corrupted certificate should return an X.509 parse error");
+        };
+
+        assert!(std::error::Error::source(&error).is_some());
     }
 
     /// Security test: `Certificate::try_from` must reject DER bytes that contain
@@ -129,10 +132,12 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert!(matches!(
-            result.unwrap_err(),
-            X509SvidError::PrivateKey(PrivateKeyError::DecodePkcs8(..))
-        ));
+        let X509SvidError::PrivateKey(PrivateKeyError::DecodePkcs8(error)) = result.unwrap_err()
+        else {
+            panic!("corrupted private key should return a PKCS#8 decode error");
+        };
+
+        assert!(std::error::Error::source(&error).is_some());
     }
 
     #[test]
@@ -142,7 +147,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(result.unwrap_err(), X509SvidError::LeafCertificateHasCaFlag);
+        assert!(matches!(
+            result.unwrap_err(),
+            X509SvidError::LeafCertificateHasCaFlag
+        ));
     }
 
     #[test]
@@ -152,10 +160,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::LeafCertificateHasCrlSign
-        );
+        ));
     }
 
     #[test]
@@ -165,10 +173,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::LeafCertificateHasKeyCertSign
-        );
+        ));
     }
 
     #[test]
@@ -178,10 +186,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::LeafCertificateMissingDigitalSignature
-        );
+        ));
     }
 
     #[test]
@@ -191,10 +199,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::Certificate(CertificateError::MissingSpiffeId)
-        );
+        ));
     }
 
     #[test]
@@ -204,10 +212,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::SigningCertificateMissingCaFlag
-        );
+        ));
     }
 
     #[test]
@@ -218,10 +226,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(certs_bytes, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::SigningCertificateMissingKeyCertSign
-        );
+        ));
     }
 
     #[test]
@@ -402,12 +410,12 @@ mod x509_svid_tests {
         let corrupted = corrupt_extension_value(cert_bytes, OID_BASIC_CONSTRAINTS_DER);
         let result = X509Svid::parse_from_der(&corrupted, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::UnparseableExtension {
                 extension: "BasicConstraints"
             }
-        );
+        ));
     }
 
     #[test]
@@ -418,12 +426,12 @@ mod x509_svid_tests {
         let corrupted = corrupt_extension_value(cert_bytes, OID_KEY_USAGE_DER);
         let result = X509Svid::parse_from_der(&corrupted, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::UnparseableExtension {
                 extension: "KeyUsage"
             }
-        );
+        ));
     }
 
     #[test]
@@ -442,12 +450,12 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&corrupted_chain, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::UnparseableExtension {
                 extension: "BasicConstraints"
             }
-        );
+        ));
     }
 
     #[test]
@@ -466,12 +474,12 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&corrupted_chain, key_bytes);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::UnparseableExtension {
                 extension: "KeyUsage"
             }
-        );
+        ));
     }
 
     #[expect(
@@ -576,7 +584,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
 
-        assert_eq!(result.unwrap_err(), X509SvidError::LeafSpiffeIdMissingPath);
+        assert!(matches!(
+            result.unwrap_err(),
+            X509SvidError::LeafSpiffeIdMissingPath
+        ));
     }
 
     #[test]
@@ -588,10 +599,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
-        );
+        ));
     }
 
     #[test]
@@ -606,10 +617,10 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::Certificate(CertificateError::OversizedUriSan { max: MAX_URI_LEN })
-        );
+        ));
     }
 
     #[test]
@@ -624,9 +635,9 @@ mod x509_svid_tests {
 
         let result = X509Svid::parse_from_der(&cert_der, &key_der);
 
-        assert_eq!(
+        assert!(matches!(
             result.unwrap_err(),
             X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
-        );
+        ));
     }
 }

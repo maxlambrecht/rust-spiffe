@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.19.0] - 2026-10-07
+
+### Added
+
+- `JwtVerificationError::kind()` returns a non-exhaustive `JwtVerificationErrorKind` (`Expired`, `AudienceMismatch`, `InvalidSignature`, or `Other`) for consumer decisions without backend downcasts. Verification semantics and order are unchanged.
+- `TransportError::status_with_source` preserves a type-erased diagnostic source alongside the authoritative status code and message.
+
+### Breaking changes
+
+- `PrivateKeyError::DecodePkcs8` now carries the crate-owned `Pkcs8DecodeError` wrapper instead of `pkcs8::Error`. The wrapper is not constructible from a foreign error.
+- `JwtSvidError::InvalidToken` now carries the crate-owned `JwtVerificationError` wrapper instead of `jsonwebtoken::errors::Error`. `From<jsonwebtoken::errors::Error> for JwtSvidError` is removed. The wrapper is not constructible from a foreign error.
+- JWT parsing and bundle errors now carry the crate-owned `JsonError` wrapper instead of `serde_json::Error`. `From<serde_json::Error>` is removed for `JwtBundleError` and, when JWT verification is enabled, for `JwtSvidError`. `JsonError` is not constructible from a foreign error.
+- X.509 certificate errors now carry crate-owned `X509ParseError` and `X509ExtensionId` types instead of `x509-parser` types. `From<x509_parser::error::X509Error> for CertificateError` is removed, as is `From<x509_parser::certificate::X509Certificate> for Certificate`. Construct certificates from DER bytes. `X509ExtensionId` is `Hash`; the new error wrappers intentionally do not copy `Clone` or `Copy` from the foreign errors.
+- `EndpointError::Parse` now carries the crate-owned `EndpointParseError` wrapper instead of `url::ParseError`. `From<url::ParseError> for EndpointError` is removed. The wrapper is not constructible from a foreign error.
+- `TransportError::Status` now carries `GrpcStatusError` instead of `tonic::Status`, and `TransportError::Tonic(_)` is renamed to `TransportError::Connect(_)`, which carries `TransportConnectError` instead of `tonic::transport::Error`. Update matches to use `Connect`. `WorkloadApiError` no longer implements `From<tonic::Status>` or `From<tonic::transport::Error>`. Convert a foreign gRPC status with `TransportError::status(code, message)` or a connection error with `TransportError::connect`. The status code and message are authoritative for formatting and classification.
+- `Endpoint`, `EndpointError`, `LimitKind`, and `MetricsErrorKind` are now `#[non_exhaustive]`, separately from the error-wrapper work, so a later patch can add a scheme, a validation failure, a resource limit, or a metric label. External matches must include a wildcard.
+- Opaque dependency-error wrappers and their owning X.509 and endpoint error enums no longer implement `PartialEq`/`Eq`; their foreign error equality was not a stable contract.
+
+Parser, verification, and transport variants carry crate-owned wrappers with stable accessors. Internally created wrappers retain the underlying dependency error in their error chain; `TransportError::status` constructs a source-free status, while `status_with_source` retains the supplied diagnostic. Concrete source types and diagnostic text are implementation details, not a behavioral API contract.
+
+The shared transport helpers and Workload API errors are dependency-independent, but the channel constructors and interceptor APIs remain an intentional public `tonic` boundary.
+
 ## [0.18.0] - 2026-10-06
 
 ### Breaking changes

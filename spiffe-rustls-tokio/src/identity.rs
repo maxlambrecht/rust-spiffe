@@ -37,7 +37,7 @@ use spiffe::SpiffeId;
 #[derive(Debug, Clone)]
 pub struct PeerIdentity {
     /// The SPIFFE ID extracted from the peer's certificate, if present.
-    pub spiffe_id: Option<SpiffeId>,
+    spiffe_id: Option<SpiffeId>,
 }
 
 impl PeerIdentity {

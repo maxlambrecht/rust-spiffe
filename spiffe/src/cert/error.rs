@@ -1,16 +1,72 @@
 //! Error types for certificate and private key parsing/validation.
 
 use crate::SpiffeIdError;
-use x509_parser::asn1_rs::Oid;
 use x509_parser::error::X509Error;
 
+/// An X.509 extension object identifier in dotted-decimal notation.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub struct X509ExtensionId(Box<str>);
+
+impl X509ExtensionId {
+    pub(crate) fn new(oid: &x509_parser::asn1_rs::Oid<'_>) -> Self {
+        Self(oid.to_string().into_boxed_str())
+    }
+
+    /// Returns the dotted-decimal object identifier.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for X509ExtensionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// An error returned while parsing an X.509 certificate.
+///
+/// The underlying error is available through [`std::error::Error::source`]
+/// for diagnostics. Its concrete type and formatted message may change
+/// between releases.
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct X509ParseError {
+    #[source]
+    source: X509Error,
+}
+
+impl X509ParseError {
+    pub(crate) const fn new(source: X509Error) -> Self {
+        Self { source }
+    }
+}
+
+/// An error returned when a private key cannot be decoded as PKCS#8.
+///
+/// The underlying error is available through [`std::error::Error::source`]
+/// for diagnostics. Its concrete type and formatted message may change
+/// between releases.
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct Pkcs8DecodeError {
+    #[source]
+    source: pkcs8::Error,
+}
+
+impl Pkcs8DecodeError {
+    pub(crate) const fn new(source: pkcs8::Error) -> Self {
+        Self { source }
+    }
+}
+
 /// An error that may arise parsing and validating X.509 certificates.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum CertificateError {
     /// An X.509 extension cannot be found.
     #[error("X.509 extension is missing: {0}")]
-    MissingX509Extension(Oid<'static>),
+    MissingX509Extension(X509ExtensionId),
 
     /// Unexpected X.509 extension encountered.
     #[error("unexpected X.509 extension: {0}")]
@@ -18,7 +74,7 @@ pub enum CertificateError {
 
     /// Error returned by the X.509 parsing library.
     #[error("failed parsing X.509 certificate")]
-    ParseX509Certificate(#[from] X509Error),
+    ParseX509Certificate(#[source] X509ParseError),
 
     /// The certificate does not contain any URI SAN that is a SPIFFE ID.
     #[error("certificate is missing SPIFFE ID in URI SAN")]
@@ -70,10 +126,10 @@ pub enum CertificateError {
 }
 
 /// An error that may arise decoding private keys.
-#[derive(Debug, thiserror::Error, PartialEq)]
+#[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum PrivateKeyError {
-    /// Error returned by the pkcs#8 private key decoding library.
+    /// The private key could not be decoded as PKCS#8.
     #[error("failed decoding PKCS#8 private key")]
-    DecodePkcs8(pkcs8::Error),
+    DecodePkcs8(#[source] Pkcs8DecodeError),
 }

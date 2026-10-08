@@ -13,10 +13,10 @@ pub mod connector;
 pub mod error;
 
 #[cfg(feature = "transport")]
-pub use endpoint::{Endpoint, EndpointError};
+pub use endpoint::{Endpoint, EndpointError, EndpointParseError};
 
 #[cfg(feature = "transport-grpc")]
 pub use connector::connect;
 
 #[cfg(feature = "transport-grpc")]
-pub use error::TransportError;
+pub use error::{GrpcStatusCode, GrpcStatusError, TransportConnectError, TransportError};

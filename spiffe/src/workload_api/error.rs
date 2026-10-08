@@ -10,6 +10,8 @@ use crate::{JwtBundleError, JwtSvidError};
 use crate::{X509BundleError, X509SvidError};
 
 #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
+use crate::transport::GrpcStatusCode;
+#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 use crate::transport::TransportError;
 
 /// Errors produced by Workload API operations.
@@ -114,17 +116,12 @@ impl WorkloadApiError {
         matches!(
             self,
             Self::Transport(TransportError::Status(status))
-                if status.code() == tonic::Code::InvalidArgument
+                if status.code() == GrpcStatusCode::InvalidArgument
         )
     }
-}
 
-#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
-impl From<tonic::Status> for WorkloadApiError {
-    fn from(status: tonic::Status) -> Self {
-        use tonic::Code;
-
-        if status.code() == Code::PermissionDenied {
+    pub(crate) fn from_status(status: tonic::Status) -> Self {
+        if status.code() == tonic::Code::PermissionDenied {
             let msg = status.message();
 
             // SPIFFE only specifies PermissionDenied for this condition; this string is
@@ -138,14 +135,7 @@ impl From<tonic::Status> for WorkloadApiError {
             return Self::PermissionDenied(msg.to_owned());
         }
 
-        Self::Transport(TransportError::Status(status))
-    }
-}
-
-#[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
-impl From<tonic::transport::Error> for WorkloadApiError {
-    fn from(e: tonic::transport::Error) -> Self {
-        Self::Transport(TransportError::Tonic(e))
+        Self::Transport(TransportError::from_status(status))
     }
 }
 
@@ -156,22 +146,31 @@ mod tests {
 
     #[test]
     fn is_invalid_argument_true_for_invalid_argument_status() {
-        let err = WorkloadApiError::from(tonic::Status::invalid_argument("bad request"));
+        let err = WorkloadApiError::from_status(tonic::Status::invalid_argument("bad request"));
         assert!(err.is_invalid_argument());
     }
 
     #[test]
     fn is_invalid_argument_false_for_other_transport_statuses() {
-        let err = WorkloadApiError::from(tonic::Status::unavailable("try again"));
+        let err = WorkloadApiError::from_status(tonic::Status::unavailable("try again"));
         assert!(!err.is_invalid_argument());
     }
 
     #[test]
-    fn is_invalid_argument_false_for_permission_denied() {
-        // PermissionDenied is mapped away from Transport(Status) entirely, but confirm
-        // the classification still correctly says "not invalid_argument".
-        let err = WorkloadApiError::from(tonic::Status::permission_denied("nope"));
+    fn permission_denied_preserves_the_status_message() {
+        let err = WorkloadApiError::from_status(tonic::Status::permission_denied("nope"));
+
         assert!(!err.is_invalid_argument());
+        assert!(matches!(err, WorkloadApiError::PermissionDenied(message) if message == "nope"));
+    }
+
+    #[test]
+    fn no_identity_issued_stays_a_distinct_permission_failure() {
+        let err = WorkloadApiError::from_status(tonic::Status::permission_denied(
+            "no identity issued for this workload",
+        ));
+
+        assert!(matches!(err, WorkloadApiError::NoIdentityIssued));
     }
 
     #[test]
