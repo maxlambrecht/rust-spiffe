@@ -82,9 +82,14 @@ Fuzzing is used to harden parsing against malformed or adversarial inputs and
 to enforce core invariants such as round-trip stability and API consistency.
 
 Running fuzz tests locally requires `cargo-fuzz` and a nightly Rust toolchain.
+`make fuzz-setup`, `make fuzz-build`, and `make fuzz` use `FUZZ_TOOLCHAIN`
+(default `nightly`) and pass `--target` explicitly: `FUZZ_TARGET` when set,
+otherwise that toolchain's host triple. CI sets both to a pinned nightly and
+`x86_64-unknown-linux-gnu`. AddressSanitizer cannot use the musl triple that
+prebuilt Linux `cargo-fuzz` binaries select by default.
 
 ```bash
-# Install cargo-fuzz if needed
+# Install cargo-fuzz if needed. `make fuzz-setup` uses FUZZ_TOOLCHAIN.
 cargo +nightly install cargo-fuzz --locked
 
 # Run all fuzz targets
