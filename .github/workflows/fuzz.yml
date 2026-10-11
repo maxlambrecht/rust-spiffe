@@ -14,7 +14,13 @@ permissions:
 
 env:
   # Keep this pinned to a nightly verified with the fuzz targets.
+  # Fuzz Make targets read FUZZ_TOOLCHAIN. `cargo +nightly` is a different,
+  # rolling toolchain and does not select this pin.
   FUZZ_TOOLCHAIN: nightly-2026-10-01
+  # The Linux cargo-fuzz release binary is built for x86_64-unknown-linux-musl
+  # and uses that triple unless --target is set. AddressSanitizer cannot link
+  # musl's statically linked libc, so CI fuzzes the glibc target instead.
+  FUZZ_TARGET: x86_64-unknown-linux-gnu
 
 jobs:
   fuzz:
@@ -34,7 +40,12 @@ jobs:
           set -euo pipefail
           rustup toolchain install "${FUZZ_TOOLCHAIN}" \
             --profile minimal \
+            --target "${FUZZ_TARGET}" \
             --no-self-update
+          rustup default "${FUZZ_TOOLCHAIN}"
+          rustc -vV
+          rustup target list --installed --toolchain "${FUZZ_TOOLCHAIN}" \
+            | grep -Fx "${FUZZ_TARGET}"
 
       - name: Install cargo-fuzz
         uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab
@@ -44,7 +55,7 @@ jobs:
       - name: Cache project
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: fuzz-${{ env.FUZZ_TOOLCHAIN }}
+          key: fuzz-${{ env.FUZZ_TOOLCHAIN }}-${{ env.FUZZ_TARGET }}
 
       - name: Build fuzz targets
         run: make fuzz-build
