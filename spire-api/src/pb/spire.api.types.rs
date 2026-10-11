@@ -137,6 +137,7 @@ pub struct X509svid {
 /// JWT SPIFFE Verifiable Identity Document. It contains the raw JWT token
 /// as well as a few denormalized fields for convenience.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+#[prost(skip_debug)]
 pub struct Jwtsvid {
     /// The serialized JWT token.
     #[prost(string, tag = "1")]
