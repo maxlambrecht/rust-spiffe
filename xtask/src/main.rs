@@ -416,7 +416,13 @@ fn gen_spire_api_protos() -> anyhow::Result<()> {
         &proto_root,
         &tmp_dir,
         true,
-        |_| {},
+        |config| {
+            // Handwritten Debug in spire-api/src/protobuf_debug.rs redacts these credentials.
+            config.skip_debug([
+                ".spire.api.agent.delegatedidentity.v1.X509SVIDWithKey",
+                ".spire.api.types.JWTSVID",
+            ]);
+        },
         "failed to compile SPIRE delegated identity proto",
     )?;
 

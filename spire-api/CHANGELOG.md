@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Redact X.509 private keys and JWT bearer tokens in generated SPIRE credential message `Debug` output, including nested responses. Length-only placeholders retain useful diagnostics without changing public fields or protobuf encoding.
 - Preserve original delegated gRPC statuses and their nested diagnostic causes through the standard error source chain.
 - Update README delegated request examples and dependency versions.
 

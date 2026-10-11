@@ -56,6 +56,11 @@
 /// crate's high-level clients and request types to reduce coupling to generated
 /// bindings.
 ///
+/// Credential message `Debug` output replaces private keys and JWT bearer tokens
+/// with length-only placeholders, including in containing responses. Certificates
+/// and identity metadata remain visible. Public fields and protobuf serialization
+/// still contain the full credentials; formatting those fields directly is not redacted.
+///
 /// Regenerate with: `cargo run -p xtask -- gen spire-api` from the repo root.
 ///
 /// ## Lint Suppressions
@@ -98,6 +103,8 @@ pub mod pb {
         }
     }
 }
+
+mod protobuf_debug;
 
 /// SPIRE Agent API clients.
 pub mod agent;
