@@ -122,12 +122,23 @@ trust anchor is outside the protection this library can provide.
   SPIFFE ID, JWT, and bundle fields are parsed through the same validating types
   used by direct callers. Missing required local X.509 bundle bytes reject the
   complete response.
-- Streaming responses represent complete current state. Source updates are
-  validated before atomically replacing last-known-good material; rejected
-  updates do not partially replace SVIDs or bundles.
-- Source health and update notifications distinguish initial synchronization,
-  unchanged re-delivery, genuine rotation, shutdown, and rejected material.
-  Resource limits bound source-managed bundle and SVID updates.
+- Streaming responses represent complete current state. Parsing and resource
+  limits are validated before atomic publication; malformed or over-limit
+  responses do not partially replace SVIDs or bundles. Valid complete X.509
+  responses replace trust even when selection fails or the selected SVID is
+  expired. Selection and bundles share one authoritative revision; a configured
+  picker never falls back to an old or default identity.
+- `PermissionDenied` and `NoIdentityIssued` on a monitored material RPC withdraw
+  only that RPC's material, including at stream establishment and reconnect.
+  Only a valid complete response reauthorizes it; byte-identical recovery advances
+  the revision and notifies consumers. EOF, `Unavailable`, malformed updates,
+  and transport recovery alone do not change permission. Independent JWT issuance
+  success or failure cannot alter the bundle stream's permission.
+- Source health and coalescing update notifications distinguish initial readiness,
+  unchanged re-delivery, rotation, withdrawal/recovery, and terminal closure.
+  Immutable source observations expose revision, permission, usability, and final
+  material independently of terminal status. Previously acquired credentials are
+  caller-owned; reacquire a source observation for current authorization.
 - Source freshness is operational as well as cryptographic: callers should use
   source health/update APIs and must not assume a cached value remains current
   after shutdown or a prolonged endpoint failure.
@@ -145,6 +156,22 @@ trust anchor is outside the protection this library can provide.
 - No bundle from another trust domain is used as a fallback. Missing material,
   malformed identities, lock/cache failures that prevent safe validation, and
   unsupported algorithms fail closed.
+
+- Both resolvers and verifiers load converted TLS material first and then acquire
+  the coherent atomic source snapshot. That source load is the material acquisition
+  linearization point. An acquisition after publication of revision N cannot use
+  converted revision N-1, even while the existing watcher is stalled. Each
+  converted revision is Ready or Blocked; conversion failure replaces old Ready
+  material with Blocked, and verifier caches cannot bypass the availability check.
+- Terminal source or TLS watcher closure has an explicit `TerminalSourcePolicy`.
+  `RetainFinal` (compatibility default) permits only the final permitted,
+  successfully converted, usable revision. `FailClosed` denies new acquisitions
+  when refresh ends. Neither policy restores withdrawal, pending revisions, or
+  conversion failures. Temporary transport outages are not terminal closure.
+- Existing connections and material acquisitions preceding publication are not
+  retroactively reauthorized or revoked. Session resumption remains disabled by
+  default. Customizers that re-enable resumption or replace security callbacks
+  can bypass new certificate verification and own those resulting guarantees.
 
 ## Assumptions and non-goals
 
@@ -169,6 +196,6 @@ The normative references are the SPIFFE
 [X.509-SVID](https://github.com/spiffe/spiffe/blob/main/standards/X509-SVID.md),
 [JWT-SVID](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md),
 [Trust Domain and Bundle](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Trust_Domain_and_Bundle.md),
-and [Workload API](https://github.com/spiffe/spiffe/blob/main/standards/SPIFFE_Workload_API.md)
+and [Workload API](https://github.com/spiffe/spiffe/blob/f97c46dfd0ff0d4e412cce5c73846a9ca32a99a2/standards/SPIFFE_Workload_API.md)
 specifications. Where this implementation deliberately applies a stricter rule,
 such as requiring JWT `kid`, the public API documentation calls it out.

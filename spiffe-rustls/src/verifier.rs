@@ -294,11 +294,11 @@ where
 /// - keep verifiers testable without spawning a watcher/task
 /// - decouple verifiers from a specific watcher implementation
 pub(crate) trait MaterialProvider: Send + Sync {
-    fn current_material(&self) -> Arc<MaterialSnapshot>;
+    fn current_material(&self) -> Result<Arc<MaterialSnapshot>>;
 }
 
 impl MaterialProvider for MaterialWatcher {
-    fn current_material(&self) -> Arc<MaterialSnapshot> {
+    fn current_material(&self) -> Result<Arc<MaterialSnapshot>> {
         self.current()
     }
 }
@@ -540,7 +540,7 @@ impl SpiffeServerCertVerifier {
         &self,
         trust_domain: &spiffe::TrustDomain,
     ) -> Result<ServerVerifierCacheValue> {
-        let snap = self.provider.current_material();
+        let snap = self.provider.current_material()?;
         let r#gen = snap.generation;
 
         let td = trust_domain.clone();
@@ -749,7 +749,9 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        let snap = self.provider.current_material();
+        let Ok(snap) = self.provider.current_material() else {
+            return Vec::new();
+        };
 
         advertised_verify_schemes(
             "server verifier",
@@ -795,7 +797,7 @@ impl SpiffeClientCertVerifier {
         &self,
         trust_domain: &spiffe::TrustDomain,
     ) -> Result<Arc<dyn rustls::server::danger::ClientCertVerifier>> {
-        let snap = self.provider.current_material();
+        let snap = self.provider.current_material()?;
         let r#gen = snap.generation;
 
         let td = trust_domain.clone();
@@ -985,7 +987,9 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        let snap = self.provider.current_material();
+        let Ok(snap) = self.provider.current_material() else {
+            return Vec::new();
+        };
 
         advertised_verify_schemes(
             "client verifier",
@@ -1255,8 +1259,8 @@ mod tests {
     struct StaticMaterial(Arc<MaterialSnapshot>);
 
     impl MaterialProvider for StaticMaterial {
-        fn current_material(&self) -> Arc<MaterialSnapshot> {
-            Arc::clone(&self.0)
+        fn current_material(&self) -> Result<Arc<MaterialSnapshot>> {
+            Ok(Arc::clone(&self.0))
         }
     }
 
@@ -2107,8 +2111,10 @@ mod tests {
         #[derive(Clone)]
         struct MutableMaterial(Arc<Mutex<Arc<MaterialSnapshot>>>);
         impl MaterialProvider for MutableMaterial {
-            fn current_material(&self) -> Arc<MaterialSnapshot> {
-                lock_mutex(&self.0).unwrap().clone()
+            fn current_material(&self) -> Result<Arc<MaterialSnapshot>> {
+                let material = lock_mutex(&self.0)
+                    .map_err(|()| Error::Internal("test mutex poisoned".into()))?;
+                Ok(Arc::clone(&material))
             }
         }
 
@@ -2158,8 +2164,10 @@ mod tests {
     struct MutableMaterial(Arc<Mutex<Arc<MaterialSnapshot>>>);
 
     impl MaterialProvider for MutableMaterial {
-        fn current_material(&self) -> Arc<MaterialSnapshot> {
-            lock_mutex(&self.0).unwrap().clone()
+        fn current_material(&self) -> Result<Arc<MaterialSnapshot>> {
+            let material =
+                lock_mutex(&self.0).map_err(|()| Error::Internal("test mutex poisoned".into()))?;
+            Ok(Arc::clone(&material))
         }
     }
 

@@ -86,6 +86,7 @@ pub(super) async fn try_connect_stream(
     metrics: Option<&dyn MetricsRecorder>,
     phase: StreamPhase,
     supervisor_id: Option<u64>,
+    source: Option<&Inner>,
 ) -> Result<
     impl futures::Stream<Item = Result<JwtBundleSet, WorkloadApiError>> + Send + 'static + use<>,
     WorkloadApiError,
@@ -113,6 +114,11 @@ pub(super) async fn try_connect_stream(
             Ok(s)
         }
         Err(e) => {
+            // Publish permission before logging or invoking application metrics callbacks.
+            if let Some(source) = source {
+                source.withdraw(&e);
+            }
+
             // Handle "no identity issued" as a distinct transient state
             if matches!(e, WorkloadApiError::NoIdentityIssued) {
                 let error_kind = ErrorKey::NoIdentityIssued;
@@ -246,6 +252,7 @@ async fn try_sync_once(
         metrics,
         StreamPhase::InitialSync,
         None,
+        None,
     )
     .await
     {
@@ -332,6 +339,7 @@ impl Inner {
                 self.metrics(),
                 StreamPhase::Supervisor,
                 Some(supervisor_id),
+                Some(self),
             )
             .await
             {
@@ -460,6 +468,7 @@ impl Inner {
                     }
                 }
                 Some(Err(e)) => {
+                    self.withdraw(&e);
                     warn!("Workload API stream error; reconnecting: id={supervisor_id}, error={e}");
                     self.record_error(MetricsErrorKind::StreamError);
                     return StreamResult {

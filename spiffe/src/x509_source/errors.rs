@@ -24,17 +24,17 @@ pub enum X509SourceError {
     /// This can occur when:
     /// - The picker rejects all available SVIDs
     /// - No default SVID is available and no picker is configured
-    /// - The selected SVID already appears expired according to the local wall clock,
-    ///   even though the Workload API delivered it as the current update. This is a
-    ///   deliberate, conservative check: the update (SVID and any trust bundles it
-    ///   carries) is rejected wholesale, and the previously accepted SVID and bundles
-    ///   keep being served/verified against. Because this check is driven by the local
-    ///   clock, a host whose clock is meaningfully ahead of the Workload API's agent can
-    ///   reject every subsequent rotation this way, indefinitely — if this is suspected,
-    ///   check for clock skew on this host. A `WARN`-level log is emitted specifically
-    ///   for this expiry case (see the crate's `tracing`/`logging` features).
+    /// - The selected SVID is expired or the local clock is unavailable
+    ///
+    /// Initial synchronization requires a usable identity. Later complete updates
+    /// still replace trust bundles even when this error prevents identity acquisition.
+    /// If expiry is unexpected, check the host's clock for skew.
     #[error("no suitable svid found")]
     NoSuitableSvid,
+
+    /// The monitored material RPC denied permission. Recovery requires a valid complete response.
+    #[error("material withdrawn: {0}")]
+    Withdrawn(#[source] std::sync::Arc<WorkloadApiError>),
 
     /// The source was closed.
     #[error("source is closed")]

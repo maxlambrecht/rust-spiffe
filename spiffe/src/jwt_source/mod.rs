@@ -14,6 +14,12 @@
 //! Use [`JwtSource::updated`] to subscribe to bundle change notifications, and [`JwtSource::shutdown`]
 //! to stop background tasks.
 //!
+//! Permission denial on the monitored bundle RPC withdraws bundles until a valid complete
+//! bundle response reauthorizes it. Temporary transport failures and rejected updates retain
+//! accepted permission. Denial of an independent JWT issuance request only fails that request;
+//! successful issuance cannot reauthorize the bundle stream. [`JwtSource::state`] exposes the
+//! coherent revision, permission, bundle material, and terminal status.
+//!
 //! Primary types are re-exported at the crate root. For advanced configuration types
 //! (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`), import from this module.
 //!
@@ -50,4 +56,4 @@ mod types;
 pub use builder::{JwtSourceBuilder, ReconnectConfig, ResourceLimits};
 pub use errors::{JwtSourceError, LimitKind, MetricsErrorKind};
 pub use metrics::MetricsRecorder;
-pub use source::{JwtSource, JwtSourceUpdates};
+pub use source::{JwtSource, JwtSourceState, JwtSourceUpdates};

@@ -119,30 +119,10 @@ pub(super) fn select_svid(
     }
 }
 
-/// Validates an X.509 context for acceptability (limits and SVID selection).
+/// Validates initial readiness: resource limits and a selectable unexpired identity.
 ///
-/// This is the single authoritative function for context validation used in both
-/// initial sync and steady-state updates. It ensures consistent validation logic
-/// and correct metric recording.
-///
-/// # Expiry gate and clock skew
-///
-/// An update is rejected (as [`X509SourceError::NoSuitableSvid`]) if the selected SVID
-/// already appears expired according to the local wall clock, even though such an
-/// update was accepted and delivered by the Workload API. This is a deliberate,
-/// conservative divergence from delivering whatever the Workload API provides: we
-/// never want to serve or verify against material we can't currently attest is valid.
-///
-/// The rejection is wholesale: any trust bundles carried by the same update are
-/// discarded along with the SVID, and the previously accepted snapshot (SVID +
-/// bundles) is retained and keeps being served/verified against.
-///
-/// Because the check is driven by the local clock, a host whose clock is
-/// meaningfully ahead of the Workload API's agent can reject every subsequent
-/// rotation this way, indefinitely (`is_healthy()` reports `false` and rejected
-/// updates are counted via [`MetricsErrorKind::NoSuitableSvid`]; a `WARN`-level log
-/// is also emitted for this specific case). If updates are being rejected as expired
-/// but the SVID should still be valid, check for clock skew on this host.
+/// Steady-state publication validates limits independently of selection and expiry,
+/// so local identity usability cannot retain superseded trust bundles.
 pub(super) fn validate_context(
     ctx: &X509Context,
     picker: Option<&dyn SvidPicker>,
@@ -156,14 +136,9 @@ pub(super) fn validate_context(
     match select_svid(ctx, picker) {
         Some(svid) if selected_svid_is_not_expired(&svid) => Ok(svid),
         Some(svid) => {
-            // Distinct from "picker/default selection matched nothing": selection succeeded,
-            // but the resulting SVID already looks expired by the local wall clock. This is
-            // operationally different (see the clock-skew note above), so it gets its own
-            // always-on WARN in addition to the shared NoSuitableSvid metric/error.
             crate::prelude::warn!(
-                "x509 source: rejecting update, selected SVID (spiffe_id={}, expiry_unix={}) \
-                 already expired per local clock; retaining previous SVID and trust bundles. \
-                 If this SVID should still be valid, check for clock skew on this host",
+                "x509 source: initial identity (spiffe_id={}, expiry_unix={}) is unavailable \
+                 per local clock; check for clock skew if it should still be valid",
                 svid.spiffe_id(),
                 svid.expiry_unix(),
             );
@@ -188,7 +163,7 @@ fn selected_svid_is_not_expired(svid: &X509Svid) -> bool {
         .ok()
         .flatten();
 
-    now.is_none_or(|now| svid.expiry_unix() > now)
+    now.is_some_and(|now| svid.expiry_unix() > now)
 }
 
 #[cfg(test)]

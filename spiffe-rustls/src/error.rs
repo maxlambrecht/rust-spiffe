@@ -12,8 +12,8 @@ pub enum Error {
     #[error("x509 source has no current SVID")]
     NoSvid,
 
-    /// The `X509Source` is closed or cancelled.
-    #[error("x509 source is closed")]
+    /// The source or its TLS material watcher is closed or cancelled.
+    #[error("x509 source or TLS material watcher is closed")]
     SourceClosed,
 
     /// The `X509Source` currently has no bundle for the requested trust domain.
@@ -66,6 +66,19 @@ pub enum Error {
     /// An error from the underlying `X509Source`.
     #[error("x509 source error: {0}")]
     Source(#[from] spiffe::x509_source::X509SourceError),
+
+    /// An accepted source revision has not yet been converted. Old trust is blocked.
+    #[error("source revision {source_revision} is pending (TLS applied {applied_revision})")]
+    PendingRevision {
+        /// Current authoritative revision.
+        source_revision: u64,
+        /// Latest converted revision.
+        applied_revision: u64,
+    },
+
+    /// Current revision could not become usable TLS material; includes the conversion cause.
+    #[error("TLS material blocked: {0}")]
+    MaterialUnavailable(#[source] std::sync::Arc<Self>),
 
     /// Internal error.
     #[error("internal: {0}")]

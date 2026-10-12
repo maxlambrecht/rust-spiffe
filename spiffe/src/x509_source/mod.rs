@@ -14,6 +14,14 @@
 //! Use [`X509Source::updated`] to subscribe to change notifications, and [`X509Source::shutdown`]
 //! to stop background tasks.
 //!
+//! Permission denial (`PermissionDenied` or `NoIdentityIssued`) on the monitored RPC
+//! withdraws its SVIDs and bundles until a valid complete response reauthorizes it.
+//! Temporary transport failures and malformed/over-limit updates retain accepted permission.
+//! Complete responses replace trust even when the picker selects nothing or its SVID is
+//! expired. The picker never falls back. Use [`X509Source::state`] for a coherent revision,
+//! context, selected identity, withdrawal reason, and terminal status. Source getters reject
+//! terminal closure; the final observation lets integrations choose a terminal policy.
+//!
 //! Primary types are re-exported at the crate root. For advanced configuration types
 //! (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`), import from this module.
 //!
@@ -50,5 +58,5 @@ mod types;
 pub use builder::{ReconnectConfig, ResourceLimits, X509SourceBuilder};
 pub use errors::{LimitKind, MetricsErrorKind, X509SourceError};
 pub use metrics::MetricsRecorder;
-pub use source::{X509Source, X509SourceUpdates};
+pub use source::{X509Source, X509SourceState, X509SourceUpdates};
 pub use types::SvidPicker;

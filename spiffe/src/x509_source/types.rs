@@ -11,7 +11,9 @@ use std::sync::Arc;
 /// a new X.509 context is received from the Workload API.
 /// Implementations must not panic.
 /// Implementations must be deterministic for a given slice of SVIDs, because the selected
-/// SVID expiry is cached per snapshot for health checks.
+/// selection and expiry are cached with that context. Returning `None` or an out-of-range
+/// index makes the identity unavailable; the source never falls back to another SVID.
+/// Valid trust updates are still published when selection fails.
 ///
 /// # Example
 ///
