@@ -150,6 +150,12 @@ trust anchor is outside the protection this library can provide.
 - rustls performs certificate path, signature, and validity-time verification
   using that trust-domain bundle. DNS/IP hostname validation is intentionally
   not used for SPIFFE authentication.
+- A non-anchor intermediate whose `KeyUsage` extension is present must include
+  `keyCertSign` in a unique, minimal DER encoding. Malformed or duplicate
+  `KeyUsage` makes that intermediate ineligible. Missing `KeyUsage` remains
+  accepted, the extension need not be critical, and trust anchors are not
+  filtered. A path that still verifies without the ineligible intermediates is
+  accepted; otherwise verification fails before authorization.
 - SPIFFE leaf constraints are checked in addition to the cryptographic chain.
   Authorization runs only after chain validation succeeds, and an authorizer
   mismatch fails the handshake.

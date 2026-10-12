@@ -7,6 +7,8 @@
 - Both certificate resolvers and verifiers synchronously check the current source revision and permission. Accepted trust replacements block superseded TLS generations immediately, including while conversion is pending. Conversion failures publish Blocked material instead of retaining old roots or verifier caches; valid later revisions recover.
 - Identity and bundles now come from the same source observation. Missing/expired selections, withdrawal, unusable roots, and key conversion failures block new acquisitions without changing signature, SPIFFE identity, trust-domain, or authorization policy.
 - Builders preserve source error detail (including withdrawal and unusable selection) instead of flattening source getter failures to `NoSvid`; terminal sources return `SourceClosed`.
+- Fixed issuer `KeyUsage` validation in both TLS peer-verification directions: non-anchor issuers with present `KeyUsage` must have a correctly encoded, unique extension containing `keyCertSign`. Restricted or malformed candidates are excluded and the existing rustls path verifier searches the remaining candidates before authorization. Valid alternative paths, missing/noncritical issuer `KeyUsage`, and explicit trust-anchor semantics are preserved. Deployments relying solely on restricted or malformed issuers must reissue those certificates. Original verification failures and rustls certificate-error mappings are preserved; if exclusions leave no usable path, rustls normally reports `UnknownIssuer`.
+- Issuer extension OIDs are checked for minimal, terminated DER encoding before looking up `KeyUsage`, preventing a malformed KU identifier from being treated as an absent extension.
 
 ### Added
 

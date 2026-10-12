@@ -432,6 +432,13 @@ Authorization is applied **after** TLS verification succeeds, ensuring cryptogra
 * The default trust-domain policy accepts any trust domain present in the source bundle set
 * The default authorizer accepts any authenticated SPIFFE ID from any trust domain accepted by the configured trust-domain policy. By default, this means every trust domain in the source bundle set.
 * Authorization runs **after** cryptographic verification
+* Every non-anchor issuer in an accepted path must permit certificate signing when
+  `KeyUsage` is present. Malformed or duplicate `KeyUsage` makes an issuer ineligible.
+  Missing `KeyUsage` remains accepted under RFC 5280 path-validation policy; the
+  extension need not be critical. Unused restricted certificates do not invalidate
+  a permitted alternative path, and explicit trust anchors retain their existing semantics.
+  Issuer extension OIDs must use valid DER so a malformed KU identifier cannot be
+  mistaken for an absent extension.
 * Material updates are atomic; new handshakes use fresh material
 
 ## License
