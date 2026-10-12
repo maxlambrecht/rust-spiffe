@@ -123,7 +123,7 @@ make all
 # Run full CI checks locally (includes MSRV verification)
 make ci
 
-# Run integration tests (requires SPIRE setup)
+# Run integration tests (requires SPIRE setup; spiffe-rustls uses ring and AWS-LC)
 make integration-tests
 ```
 

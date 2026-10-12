@@ -281,6 +281,95 @@ fn leaf_constraint_check(
     Ok(())
 }
 
+/// Whether an issuer candidate's `KeyUsage` permits certificate signing.
+/// Missing KU remains eligible under RFC 5280 section 6.1.4(n). Parsing failures
+/// and duplicate extensions must never be interpreted as missing KU.
+fn issuer_allows_certificate_signing(issuer: &CertificateDer<'_>) -> bool {
+    use x509_parser::nom::Parser as _;
+
+    // Only decode the extension envelopes: the deep parser discards inner DER
+    // remainders and parses unrelated extensions we do not need here.
+    let Ok((remaining, cert)) = x509_parser::certificate::X509CertificateParser::new()
+        .with_deep_parse_extensions(false)
+        .parse(issuer.as_ref())
+    else {
+        return false;
+    };
+    if !remaining.is_empty() {
+        return false;
+    }
+    // OIDs are compared as raw bytes by x509-parser. Validate their DER before
+    // lookup so a nonminimal encoding of the KU OID cannot masquerade as absent.
+    if cert
+        .extensions()
+        .iter()
+        .any(|extension| !extension_oid_is_der(extension.oid.as_bytes()))
+    {
+        return false;
+    }
+
+    match cert.get_extension_unique(&oid_registry::OID_X509_EXT_KEY_USAGE) {
+        Ok(None) => true,
+        Ok(Some(extension)) => key_usage_allows_certificate_signing(extension.value),
+        Err(_) => false,
+    }
+}
+
+/// OID subidentifiers must use minimal, terminated base-128 encoding.
+fn extension_oid_is_der(value: &[u8]) -> bool {
+    let mut at_start = true;
+    for octet in value {
+        if at_start && *octet == 0x80 {
+            return false;
+        }
+        at_start = octet & 0x80 == 0;
+    }
+    !value.is_empty() && at_start
+}
+
+/// Complete DER decoding of the RFC 5280 `KeyUsage` named BIT STRING (bits 0..8).
+/// DER omits trailing zero named bits, leaving exactly one or two data octets.
+/// Matching the complete encoding also rejects constructed/indefinite encodings,
+/// nonminimal lengths, invalid unused bits/padding, undefined bits, and trailing DER.
+fn key_usage_allows_certificate_signing(value: &[u8]) -> bool {
+    let flags = match value {
+        [0x03, 0x02, unused, flags]
+            if *unused < 8 && flags.trailing_zeros() == u32::from(*unused) =>
+        {
+            *flags
+        }
+        // Only decipherOnly (bit 8) can occupy the second data octet.
+        [0x03, 0x03, 0x07, flags, 0x80] => *flags,
+        _ => return false,
+    };
+    flags & 0x04 != 0 // keyCertSign is bit 5, counted from the high bit.
+}
+
+/// Exclude ineligible peer issuer candidates, preserving order and borrowing DER.
+/// Returns None without allocating a candidate list when every candidate is
+/// eligible. Anchors are separate trusted inputs and are never filtered here.
+fn eligible_intermediates<'a>(
+    intermediates: &'a [CertificateDer<'_>],
+) -> Option<Vec<CertificateDer<'a>>> {
+    let mut eligible: Option<Vec<CertificateDer<'a>>> = None;
+    for (index, cert) in intermediates.iter().enumerate() {
+        if issuer_allows_certificate_signing(cert) {
+            if let Some(eligible) = &mut eligible {
+                eligible.push(CertificateDer::from(cert.as_ref()));
+            }
+        } else {
+            eligible.get_or_insert_with(|| {
+                intermediates
+                    .iter()
+                    .take(index)
+                    .map(|cert| CertificateDer::from(cert.as_ref()))
+                    .collect()
+            });
+        }
+    }
+    eligible
+}
+
 fn other_err<E>(e: E) -> rustls::Error
 where
     E: std::error::Error + Send + Sync + 'static,
@@ -711,6 +800,11 @@ impl rustls::client::danger::ServerCertVerifier for SpiffeServerCertVerifier {
         // identity check. Use rustls's chain-only webpki helper so path validation is explicit and
         // cannot be masked by any future change in rustls name-check error ordering.
         let ok = verify_server_cert_chain(&verifier, end_entity, intermediates, now)?;
+        // Preserve original failures (including search budgets), then let rustls
+        // search all remaining paths with the same roots, algorithms, and time.
+        if let Some(eligible) = eligible_intermediates(intermediates) {
+            verify_server_cert_chain(&verifier, end_entity, &eligible, now)?;
+        }
 
         // Step 6: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
@@ -949,6 +1043,9 @@ impl rustls::server::danger::ClientCertVerifier for SpiffeClientCertVerifier {
 
         // Step 5: Verify certificate chain cryptographically
         let ok = inner.verify_client_cert(end_entity, intermediates, now)?;
+        if let Some(eligible) = eligible_intermediates(intermediates) {
+            inner.verify_client_cert(end_entity, &eligible, now)?;
+        }
 
         // Step 6: Apply authorization (only after cryptographic verification succeeds)
         if !self.authorizer.authorize(&spiffe_id) {
@@ -1078,6 +1175,10 @@ fn advertised_verify_schemes(
 fn join_trust_domains<'a, I: Iterator<Item = &'a spiffe::TrustDomain>>(tds: I) -> String {
     tds.map(ToString::to_string).collect::<Vec<_>>().join(", ")
 }
+
+#[cfg(test)]
+#[path = "verifier/issuer_key_usage_tests.rs"]
+mod issuer_key_usage_tests;
 
 #[cfg(test)]
 mod tests {

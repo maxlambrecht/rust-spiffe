@@ -382,6 +382,7 @@ integration-tests:
 	@set -euo pipefail; \
 	$(CARGO) test $(LOCKED) --manifest-path $(SPIFFE_MANIFEST) --no-default-features --features $(SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES) -- --ignored; \
 	$(CARGO) test $(LOCKED) --manifest-path $(SPIFFE_RUSTLS_MANIFEST) -- --ignored; \
+	$(CARGO) test $(LOCKED) --manifest-path $(SPIFFE_RUSTLS_MANIFEST) --no-default-features --features aws-lc-rs -- --ignored; \
 	$(CARGO) test $(LOCKED) --manifest-path $(SPIFFE_RUSTLS_TOKIO_MANIFEST) -- --ignored; \
 	$(CARGO) test $(LOCKED) --manifest-path $(SPIRE_API_MANIFEST) -- --ignored
 
