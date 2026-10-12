@@ -1,6 +1,6 @@
 use super::builder::{ReconnectConfig, ResourceLimits};
 use super::errors::{MetricsErrorKind, X509SourceError};
-use super::limits::{select_svid, validate_context};
+use super::limits::{select_svid, validate_limits_and_record_metric};
 use super::metrics::MetricsRecorder;
 use super::supervisor::initial_sync_with_retry;
 use crate::bundle::BundleSource;
@@ -21,7 +21,6 @@ use tokio::sync::{watch, Mutex};
 use tokio::task::JoinHandle;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-#[cfg(test)]
 use crate::WorkloadApiError;
 
 /// Handle for receiving update notifications from an [`X509Source`].
@@ -148,9 +147,8 @@ impl X509SourceUpdates {
 /// - Handles SVID and bundle rotation transparently
 /// - Reconnects with exponential backoff on transient failures
 /// - Validates resource limits before publishing updates
-/// - Rejects updates whose selected SVID already appears expired by the local wall
-///   clock, retaining the previously accepted SVID and trust bundles instead
-///   (see [`X509SourceError::NoSuitableSvid`] for the clock-skew implications of this)
+/// - Publishes valid complete trust even without a usable selected SVID
+/// - Withdraws permission until a valid complete response reauthorizes its material RPC
 ///
 /// Use [`X509Source::shutdown`] or [`X509Source::shutdown_configured`] to stop background tasks.
 ///
@@ -160,13 +158,72 @@ pub struct X509Source {
     _shutdown_guard: Arc<DropGuard>,
 }
 
-struct Snapshot {
+/// One coherent authoritative X.509 observation, including final state after closure.
+///
+/// The revision changes on accepted material changes, withdrawal, and recovery. Closure
+/// is separate: `context()` and `svid()` describe final permission, while source getters
+/// additionally reject closure. Previously acquired credentials remain caller-owned.
+#[derive(Clone, Debug)]
+pub struct X509SourceState {
     ctx: Arc<X509Context>,
+    selected: Option<Arc<X509Svid>>,
     expiry_unix: i64,
+    revision: u64,
+    withdrawal: Option<Arc<WorkloadApiError>>,
+    closed: bool,
 }
 
+impl X509SourceState {
+    /// Authoritative material revision (initial synchronization is revision zero).
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+    /// Whether refresh has permanently ended or shutdown was requested.
+    pub const fn is_closed(&self) -> bool {
+        self.closed
+    }
+    /// Permission error that withdrew this material RPC, if any.
+    pub const fn withdrawal(&self) -> Option<&Arc<WorkloadApiError>> {
+        self.withdrawal.as_ref()
+    }
+    /// Current permitted context, independent of local identity selectability and closure.
+    ///
+    /// # Errors
+    /// Returns `Withdrawn` until a valid complete response reauthorizes the RPC.
+    pub fn context(&self) -> Result<Arc<X509Context>, X509SourceError> {
+        self.assert_permitted()?;
+        Ok(Arc::clone(&self.ctx))
+    }
+    /// Picker-selected identity, if permitted and unexpired at acquisition time.
+    ///
+    /// # Errors
+    /// Returns `Withdrawn` or `NoSuitableSvid`. An unavailable wall clock fails closed.
+    pub fn svid(&self) -> Result<Arc<X509Svid>, X509SourceError> {
+        self.svid_at(unix_timestamp_now())
+    }
+    fn svid_at(&self, now: Option<i64>) -> Result<Arc<X509Svid>, X509SourceError> {
+        self.assert_permitted()?;
+        if now.is_none_or(|now| self.expiry_unix <= now) {
+            return Err(X509SourceError::NoSuitableSvid);
+        }
+        self.selected.clone().ok_or(X509SourceError::NoSuitableSvid)
+    }
+    /// Whether this observation currently permits a usable local identity.
+    pub fn is_usable(&self) -> bool {
+        self.svid().is_ok()
+    }
+    fn assert_permitted(&self) -> Result<(), X509SourceError> {
+        if let Some(reason) = &self.withdrawal {
+            return Err(X509SourceError::Withdrawn(Arc::clone(reason)));
+        }
+        Ok(())
+    }
+}
+
+type Snapshot = X509SourceState;
+
 pub(super) struct Inner {
-    // Atomically replaced, last-known-good X.509 context and selected SVID expiry.
+    // Atomically replaced context, cached selection, permission, and revision.
     snapshot: ArcSwap<Snapshot>,
 
     // Policy for selecting an SVID when multiple are present.
@@ -284,14 +341,15 @@ impl X509Source {
     /// Returns a handle for receiving update notifications.
     ///
     /// The handle yields a monotonically increasing sequence number on each
-    /// successful update to the X.509 context. This can be used to detect when
+    /// authoritative material change, withdrawal, or recovery. This can be used to detect when
     /// the context has changed without polling.
     ///
     /// **Note:** The initial sequence number is 0. Notifications are sent when the selected
     /// SVID or the order-insensitive SVID/bundle material changes. Reordering non-selected
     /// SVIDs or bundle authorities does not notify. The initial sync does not trigger a
     /// notification, and neither do re-deliveries of unchanged material (e.g. on reconnect
-    /// after a dropped stream or agent restart) — only genuine rotations advance the sequence.
+    /// after a dropped stream or agent restart). A byte-identical valid response following
+    /// withdrawal restores permission and advances the sequence.
     ///
     /// # Examples
     ///
@@ -364,7 +422,12 @@ impl X509Source {
             return false;
         };
 
-        self.inner.snapshot.load().expiry_unix > now
+        {
+            let snapshot = self.inner.snapshot.load();
+            snapshot.withdrawal.is_none()
+                && snapshot.selected.is_some()
+                && snapshot.expiry_unix > now
+        }
     }
 
     /// Returns the current X.509 context (SVID + bundles) as a single value.
@@ -375,7 +438,18 @@ impl X509Source {
     /// cannot be constructed.
     pub fn x509_context(&self) -> Result<Arc<X509Context>, X509SourceError> {
         self.assert_open()?;
-        Ok(Arc::clone(&self.inner.snapshot.load().ctx))
+        self.state().context()
+    }
+
+    /// Acquires one coherent security view. The atomic snapshot load is the material
+    /// acquisition linearization point. This accessor also works after terminal closure
+    /// so consumers can apply an explicit final-material policy without resurrecting trust.
+    /// The returned observation is immutable; reacquire it for current authorization.
+    pub fn state(&self) -> X509SourceState {
+        let mut state = self.inner.snapshot.load_full().as_ref().clone();
+        state.closed =
+            self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled();
+        state
     }
 
     /// Returns the current X.509 SVID selected by the picker (or default).
@@ -385,12 +459,7 @@ impl X509Source {
     /// Returns [`X509SourceError`] if the source is closed or no SVID is available.
     pub fn svid(&self) -> Result<Arc<X509Svid>, X509SourceError> {
         self.assert_open()?;
-
-        let snapshot = self.inner.snapshot.load();
-        select_svid(&snapshot.ctx, self.inner.svid_picker.as_deref()).ok_or_else(|| {
-            self.inner.record_error(MetricsErrorKind::NoSuitableSvid);
-            X509SourceError::NoSuitableSvid
-        })
+        self.state().svid()
     }
 
     /// Returns the current SVID, or `None` if unavailable.
@@ -428,7 +497,7 @@ impl X509Source {
     /// Returns [`X509SourceError`] if the source is closed.
     pub fn bundle_set(&self) -> Result<Arc<X509BundleSet>, X509SourceError> {
         self.assert_open()?;
-        Ok(Arc::clone(self.inner.snapshot.load().ctx.bundle_set()))
+        Ok(Arc::clone(self.state().context()?.bundle_set()))
     }
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
@@ -587,6 +656,10 @@ impl X509Source {
         let snapshot = Arc::new(Snapshot {
             ctx: initial_ctx,
             expiry_unix: selected_svid.expiry_unix(),
+            selected: Some(selected_svid),
+            revision: 0,
+            withdrawal: None,
+            closed: false,
         });
 
         let inner = Arc::new(Inner {
@@ -608,8 +681,10 @@ impl X509Source {
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
         let guard_inner = Arc::clone(&task_inner);
+        let terminate_on_drop = SupervisorTerminationGuard { inner: guard_inner };
         let handle = tokio::spawn(async move {
-            let _terminate_on_drop = SupervisorTerminationGuard::new(guard_inner);
+            let _terminate_on_drop = terminate_on_drop;
+            task_inner.supervisor_running.store(true, Ordering::Release);
             task_inner.run_update_supervisor(token).await;
         });
 
@@ -642,11 +717,15 @@ impl X509Source {
 
         let make_client: ClientFactory =
             Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
-        let selected_svid_expires_at_unix =
-            select_svid(&initial_ctx, svid_picker.as_deref()).map_or(0, |svid| svid.expiry_unix());
+        let selected = select_svid(&initial_ctx, svid_picker.as_deref());
+        let selected_svid_expires_at_unix = selected.as_ref().map_or(0, |svid| svid.expiry_unix());
         let snapshot = Arc::new(Snapshot {
+            selected,
             ctx: initial_ctx,
             expiry_unix: selected_svid_expires_at_unix,
+            revision: 0,
+            withdrawal: None,
+            closed: false,
         });
 
         let inner = Inner {
@@ -683,6 +762,7 @@ struct SupervisorTerminationGuard {
     inner: Arc<Inner>,
 }
 
+#[cfg(test)]
 impl SupervisorTerminationGuard {
     fn new(inner: Arc<Inner>) -> Self {
         inner.supervisor_running.store(true, Ordering::Release);
@@ -730,70 +810,73 @@ impl Inner {
         &self,
         new_ctx: Arc<X509Context>,
     ) -> Result<ApplyUpdateResult, X509SourceError> {
-        // validate_and_select() already records limit-specific metrics and NoSuitableSvid.
-        // We only record UpdateRejected here if validation fails, and the supervisor loop
-        // should NOT record it again to avoid double-counting.
-        match self.validate_and_select(&new_ctx) {
-            Ok(svid) => {
-                // The Workload API re-delivers the current context as the first item on every
-                // new stream (initial sync, reconnect after agent restart, dropped stream, etc.).
-                // Skip the store/notify/record when the incoming material matches what we already
-                // hold, so `updated()` only fires for actual rotations, matching its docs.
-                // Comparison preserves the selected SVID while otherwise ignoring SVID list
-                // order and bundle authority order. Reconnect may reshuffle non-selected SVIDs
-                // or authorities without a genuine rotation, but a reorder that changes the
-                // default or picker-selected SVID is observable and must be applied.
-                if same_material_for_update(
-                    self.snapshot.load().ctx.as_ref(),
-                    new_ctx.as_ref(),
-                    self.svid_picker.as_deref(),
-                    svid.as_ref(),
-                ) {
-                    return Ok(ApplyUpdateResult::Unchanged);
-                }
-                self.snapshot.store(Arc::new(Snapshot {
-                    ctx: new_ctx,
-                    expiry_unix: svid.expiry_unix(),
-                }));
-                self.notify_update();
-                self.record_update();
-                Ok(ApplyUpdateResult::Applied)
-            }
-            Err(e) => {
-                // Record UpdateRejected for any validation failure (limit metrics already recorded in validate_and_select).
-                self.record_error(MetricsErrorKind::UpdateRejected);
-                Err(e)
-            }
+        if let Err(e) =
+            validate_limits_and_record_metric(&new_ctx, self.limits, self.metrics.as_deref())
+        {
+            self.record_error(MetricsErrorKind::UpdateRejected);
+            return Err(e);
         }
+        // Empty mandatory SVID lists are rejected; an empty optional federation is removal.
+        if new_ctx.svids().is_empty() {
+            self.record_error(MetricsErrorKind::UpdateRejected);
+            return Err(X509SourceError::Source(WorkloadApiError::EmptyResponse));
+        }
+        let selected = select_svid(&new_ctx, self.svid_picker.as_deref());
+        let current = self.snapshot.load_full();
+        if current.withdrawal.is_none()
+            && current.selected == selected
+            && same_context_material(&current.ctx, &new_ctx)
+        {
+            return Ok(ApplyUpdateResult::Unchanged);
+        }
+        self.snapshot.store(Arc::new(Snapshot {
+            expiry_unix: selected.as_ref().map_or(0, |svid| svid.expiry_unix()),
+            ctx: new_ctx,
+            selected,
+            revision: current.revision + 1,
+            withdrawal: None,
+            closed: false,
+        }));
+        self.notify_update();
+        self.record_update();
+        Ok(ApplyUpdateResult::Applied)
+    }
+
+    pub(super) fn withdraw(&self, error: &WorkloadApiError) {
+        let reason = match error {
+            WorkloadApiError::PermissionDenied(message) => {
+                WorkloadApiError::PermissionDenied(message.clone())
+            }
+            WorkloadApiError::NoIdentityIssued => WorkloadApiError::NoIdentityIssued,
+            _ => return,
+        };
+        let current = self.snapshot.load_full();
+        if current.withdrawal.is_some() {
+            return;
+        }
+        let mut withdrawn = current.as_ref().clone();
+        withdrawn.revision += 1;
+        withdrawn.withdrawal = Some(Arc::new(reason));
+        self.snapshot.store(Arc::new(withdrawn));
+        self.notify_update();
     }
 
     pub(super) fn notify_update(&self) {
         let next = self.update_seq.fetch_add(1, Ordering::Relaxed) + 1;
         let _prev = self.update_tx.send_replace(next);
     }
-
-    pub(super) fn validate_and_select(
-        &self,
-        ctx: &X509Context,
-    ) -> Result<Arc<X509Svid>, X509SourceError> {
-        validate_context(
-            ctx,
-            self.svid_picker.as_deref(),
-            self.limits,
-            self.metrics.as_deref(),
-        )
-    }
 }
 
 /// Returns true when two contexts select the same SVID and carry the same SVID multiset and
 /// bundle set.
 ///
-/// Used by `apply_update` so reconnect re-delivery that only reshuffles non-selected SVIDs or
-/// bundle authority order does not bump `updated()`. A reorder that changes the default or
-/// picker-selected SVID remains material.
+/// Exercises the update equality rules in tests: re-delivery that only reshuffles
+/// non-selected SVIDs or bundle authority order is unchanged. A reorder that changes
+/// the default or picker-selected SVID remains material.
 ///
 /// SVID equality includes the full certificate chain: intermediate differences are treated as
 /// material changes because TLS presentation uses the complete chain.
+#[cfg(test)]
 fn same_material_for_update(
     current: &X509Context,
     incoming: &X509Context,
@@ -804,6 +887,10 @@ fn same_material_for_update(
     {
         return false;
     }
+    same_context_material(current, incoming)
+}
+
+fn same_context_material(current: &X509Context, incoming: &X509Context) -> bool {
     if !bundle_set_equal_for_update(current.bundle_set(), incoming.bundle_set()) {
         return false;
     }
@@ -904,8 +991,7 @@ impl BundleSource for X509Source {
         trust_domain: &TrustDomain,
     ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
         self.assert_open()?;
-        let snapshot = self.inner.snapshot.load();
-        Ok(snapshot.ctx.bundle_set().get(trust_domain))
+        Ok(self.state().context()?.bundle_set().get(trust_domain))
     }
 }
 
@@ -1062,8 +1148,8 @@ mod tests {
     fn set_selected_svid_expiry_for_test(source: &X509Source, expiry_unix: i64) {
         let snapshot = source.inner.snapshot.load();
         source.inner.snapshot.store(Arc::new(Snapshot {
-            ctx: Arc::clone(&snapshot.ctx),
             expiry_unix,
+            ..snapshot.as_ref().clone()
         }));
     }
 
@@ -1988,12 +2074,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_update_rejects_expired_svid_and_retains_previous_bundles() {
-        // The expiry gate rejects the whole update - including any bundles it carries -
-        // when the selected SVID already appears expired. Retention of the previous
-        // SVID and bundles is the load-bearing safety property here: subscribers must
-        // keep seeing the last-known-good material rather than losing their trust
-        // bundles just because a later, unusable update arrived.
+    fn test_apply_update_accepts_trust_removal_with_expired_selected_svid() {
         use super::super::builder::{ReconnectConfig, ResourceLimits};
         use crate::workload_api::x509_context::X509Context;
         use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Svid};
@@ -2029,21 +2110,20 @@ mod tests {
         new_bundle_set.add_bundle(X509Bundle::new(new_trust_domain.clone()));
         let expired_ctx = Arc::new(X509Context::new([expired_svid], Arc::new(new_bundle_set)));
 
-        let result = source.inner.apply_update(expired_ctx);
-        assert!(matches!(result, Err(X509SourceError::NoSuitableSvid)));
-
-        // The previous SVID is still being served.
-        let retained_ctx = source.x509_context().unwrap();
-        assert_eq!(retained_ctx.svids(), initial_ctx.svids());
-
-        // The previous trust bundle is retained; the fresh bundle from the rejected
-        // update was never applied.
-        let retained_bundles = source.bundle_set().unwrap();
-        assert!(retained_bundles.get(&good_trust_domain).is_some());
-        assert!(retained_bundles.get(&new_trust_domain).is_none());
-
-        // No notification was sent for the rejected update.
-        assert_eq!(source.updated().last(), 0);
+        let result = source.inner.apply_update(Arc::clone(&expired_ctx));
+        assert_eq!(result.unwrap(), ApplyUpdateResult::Applied);
+        assert!(matches!(
+            source.svid(),
+            Err(X509SourceError::NoSuitableSvid)
+        ));
+        assert_eq!(
+            source.x509_context().unwrap().as_ref(),
+            expired_ctx.as_ref()
+        );
+        let current_bundles = source.bundle_set().unwrap();
+        assert!(current_bundles.get(&good_trust_domain).is_none());
+        assert!(current_bundles.get(&new_trust_domain).is_some());
+        assert_eq!(source.updated().last(), 1);
     }
 
     #[test]
@@ -2175,5 +2255,90 @@ mod tests {
         assert_eq!(mixed.max_svids, Some(50));
         assert_eq!(mixed.max_bundles, None);
         assert_eq!(mixed.max_bundle_der_bytes, Some(1024 * 1024));
+    }
+    #[test]
+    fn picker_failure_publishes_current_trust_without_identity_fallback() {
+        let initial = test_x509_context();
+        let mut initial_svids = initial.svids().to_vec();
+        initial_svids.push(Arc::clone(initial.svids().first().unwrap()));
+        let source = X509Source::new_for_test(
+            Arc::new(X509Context::new(
+                initial_svids,
+                Arc::new(X509BundleSet::new()),
+            )),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            Some(Box::new(IndexPicker(1))),
+        );
+        source.svid().unwrap();
+        let incoming = initial;
+        assert_eq!(
+            source.inner.apply_update(Arc::clone(&incoming)).unwrap(),
+            ApplyUpdateResult::Applied
+        );
+        source.svid().unwrap_err();
+        assert_eq!(source.x509_context().unwrap().as_ref(), incoming.as_ref());
+        assert_eq!(source.updated().last(), 1);
+    }
+    #[test]
+    fn coherent_state_retains_its_identity_and_bundles_across_publications() {
+        let (full, leaf) = full_and_leaf_only_svids();
+        let mut bundles = X509BundleSet::new();
+        bundles.add_bundle(
+            X509Bundle::parse_from_der(
+                TrustDomain::new("example.org").unwrap(),
+                include_bytes!("../../tests/testdata/bundle/x509/cert1.der"),
+            )
+            .unwrap(),
+        );
+        let initial = Arc::new(X509Context::new(
+            vec![Arc::clone(&full), Arc::clone(&leaf)],
+            Arc::new(bundles),
+        ));
+        let source = X509Source::new_for_test(
+            Arc::clone(&initial),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            Some(Box::new(IndexPicker(1))),
+        );
+        let before = source.state();
+        let incoming = Arc::new(X509Context::new(
+            vec![Arc::clone(&leaf), Arc::clone(&full)],
+            Arc::new(X509BundleSet::new()),
+        ));
+        source.inner.apply_update(Arc::clone(&incoming)).unwrap();
+        let after = source.state();
+        for (state, expected, revision) in [(&before, &initial, 0), (&after, &incoming, 1)] {
+            let context = state.context().unwrap();
+            assert_eq!(context.as_ref(), expected.as_ref());
+            assert_eq!(state.svid().unwrap(), *context.svids().get(1).unwrap());
+            assert_eq!(state.revision(), revision);
+        }
+        assert!(!before.context().unwrap().bundle_set().is_empty());
+        assert!(after.context().unwrap().bundle_set().is_empty());
+    }
+
+    #[test]
+    fn state_expiry_and_unavailable_clock_affect_identity_without_reverting_trust() {
+        let source = X509Source::new_for_test(
+            test_x509_context(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            None,
+        );
+        let state = source.state();
+        state.svid_at(Some(state.expiry_unix - 1)).unwrap();
+        assert!(matches!(
+            state.svid_at(Some(state.expiry_unix)),
+            Err(X509SourceError::NoSuitableSvid)
+        ));
+        assert!(matches!(
+            state.svid_at(None),
+            Err(X509SourceError::NoSuitableSvid)
+        ));
+        state.context().unwrap();
     }
 }

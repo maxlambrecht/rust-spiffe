@@ -49,6 +49,47 @@ See “Trust Domain Policy” below for details.
 
 ---
 
+## Material updates and terminal policy
+
+Both certificate resolvers and both verifiers acquire one coherent source
+revision. Valid trust removal takes effect at source publication. Each acquisition
+loads converted material first, then the atomic source snapshot: this second load
+is its linearization point. If that source revision is newer, the acquisition
+fails while conversion is pending. Conversion failures publish a Blocked revision,
+so old roots and cached verifiers cannot continue authorizing new acquisitions.
+Valid later material restores availability. Ordinary transport outages and
+rejected updates retain the accepted revision.
+
+Terminal closure has an explicit policy on both builders. `RetainFinal` is the
+compatibility default: it retains only the final permitted, successfully converted
+revision, while that identity remains usable. `FailClosed` rejects new acquisitions
+when the source closes or its TLS watcher terminates. Neither policy resurrects
+withdrawn, pending, expired, or failed material.
+
+```rust
+use spiffe_rustls::{mtls_client, TerminalSourcePolicy};
+
+let source = spiffe::X509Source::new().await?;
+let (config, mut status) = mtls_client(source)
+    .terminal_source_policy(TerminalSourcePolicy::FailClosed)
+    .build_with_status()?;
+let observation = status.current();
+// observation: source_revision, applied_revision, available, refreshing, error
+status.changed().await?; // conversion/termination acknowledgment; changes coalesce
+```
+
+`current()` enforces availability immediately; `changed()` acknowledges watcher
+publication, so a stalled watcher can delay notifications without allowing old
+trust. `refreshing` describes lifecycle, not current connectivity or bounded
+response age. A status subscription retains the source for revision checks, but
+does not keep the TLS watcher alive after its configuration is dropped. Drop the
+subscription to release its source reference. Existing connections and already acquired credentials
+are not retroactively revoked. Session resumption remains disabled by default;
+customizers that override resumption or replace security callbacks own those
+resulting guarantees.
+
+---
+
 ## Federation
 
 When SPIFFE federation is configured, the Workload API delivers trust bundles for multiple

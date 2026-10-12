@@ -81,6 +81,7 @@ pub struct ServerConfigBuilder {
     authorizer: Arc<dyn Authorizer>,
     trust_domain_policy: TrustDomainPolicy,
     alpn_protocols: Vec<Vec<u8>>,
+    terminal_source_policy: crate::TerminalSourcePolicy,
     config_customizer: Option<ServerConfigCustomizer>,
 }
 
@@ -92,6 +93,7 @@ impl std::fmt::Debug for ServerConfigBuilder {
             .field("trust_domain_policy", &self.trust_domain_policy)
             .field("alpn_protocols", &self.alpn_protocols)
             .field("config_customizer", &self.config_customizer.is_some())
+            .field("terminal_source_policy", &self.terminal_source_policy)
             .finish()
     }
 }
@@ -121,6 +123,7 @@ impl ServerConfigBuilder {
             trust_domain_policy: TrustDomainPolicy::default(),
             alpn_protocols: Vec::new(),
             config_customizer: None,
+            terminal_source_policy: crate::TerminalSourcePolicy::default(),
         }
     }
 
@@ -259,9 +262,26 @@ impl ServerConfigBuilder {
     /// * rustls crypto providers are not installed,
     /// * or the material watcher cannot be initialized.
     pub fn build(self) -> Result<ServerConfig> {
+        self.build_with_status().map(|(config, _)| config)
+    }
+
+    /// Sets behavior after terminal source/watcher closure. Defaults to `RetainFinal`.
+    /// Neither policy permits withdrawal, failed conversion, or superseded trust.
+    #[must_use]
+    pub const fn terminal_source_policy(mut self, policy: crate::TerminalSourcePolicy) -> Self {
+        self.terminal_source_policy = policy;
+        self
+    }
+
+    /// Builds a configuration and a read-only material/refresh status subscription.
+    ///
+    /// # Errors
+    /// Returns the same initialization errors as [`Self::build`].
+    pub fn build_with_status(self) -> Result<(ServerConfig, crate::TlsStatus)> {
         crate::crypto::ensure_crypto_provider_installed();
 
-        let watcher = MaterialWatcher::spawn(self.source)?;
+        let watcher = MaterialWatcher::spawn(self.source, self.terminal_source_policy)?;
+        let status = watcher.status();
 
         let resolver: Arc<dyn ResolvesServerCert> =
             Arc::new(resolve_server::SpiffeServerCertResolver {
@@ -295,11 +315,11 @@ impl ServerConfigBuilder {
             customizer(&mut cfg);
         }
 
-        Ok(cfg)
+        Ok((cfg, status))
     }
 }
 
-mod resolve_server {
+pub(crate) mod resolve_server {
     use crate::resolve::MaterialWatcher;
     use rustls::server::ResolvesServerCert;
     use rustls::sign::CertifiedKey;
@@ -315,7 +335,10 @@ mod resolve_server {
             &self,
             _client_hello: rustls::server::ClientHello<'_>,
         ) -> Option<Arc<CertifiedKey>> {
-            Some(Arc::clone(&self.watcher.current().certified_key))
+            self.watcher
+                .current()
+                .ok()
+                .map(|material| Arc::clone(&material.certified_key))
         }
     }
 }

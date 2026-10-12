@@ -33,6 +33,15 @@ log = { version = "0.4", optional = true }
 tracing = { version = "0.1", optional = true }
 
 [dev-dependencies]
+# Exercise TLS 1.2 callbacks when consumers opt into rustls TLS 1.2 support.
+rustls = { version = "0.23", default-features = false, features = ["tls12"] }
+# Wire-compatible local Workload API for source-to-TLS security regressions.
+spiffe = { version = "0.19", path = "../spiffe", features = ["jwt-source"] }
+tonic = { version = "0.14", default-features = false, features = ["transport", "codegen"] }
+tonic-prost = "0.14"
+prost = "0.14"
+futures = { version = "0.3", default-features = false }
+tower = { version = "0.5", features = ["util"] }
 anyhow = "1"
 env_logger = "0.11"
 tokio = { version = "1", default-features = false, features = [

@@ -118,6 +118,20 @@ let bundle = source
     .ok_or("missing bundle")?;
 ```
 
+A valid complete response replaces the trust view even if the configured picker
+cannot select an SVID or the selected SVID is expired. Identity acquisition then
+returns `NoSuitableSvid`; it never falls back to an old or default identity.
+`source.state()` obtains one immutable revision containing the matching identity
+and context, its withdrawal reason, and terminal status. Reacquire the state for
+current authorization.
+
+`PermissionDenied` and `NoIdentityIssued` on the monitored material RPC withdraw
+its cached material until a valid complete response reauthorizes it. A
+byte-identical recovery response notifies consumers. EOF, `Unavailable`, reconnect,
+and rejected malformed/over-limit updates retain previously accepted permission.
+Shutdown is terminal and distinct from withdrawal. Already acquired `Arc`
+credentials remain owned by their callers.
+
 For most X.509-based workloads, `X509Source` provides a higher-level API.
 
 ---
@@ -129,6 +143,10 @@ For most X.509-based workloads, `X509Source` provides a higher-level API.
 It maintains a locally cached, automatically refreshed view of JWT bundles,
 handling reconnections and rotations transparently. JWT SVIDs are fetched on-demand
 with specific audiences.
+Permission denial on its bundle stream withdraws JWT bundles with the same
+recovery contract. An independently denied JWT issuance request does not withdraw
+bundles or X.509 material, and issuance success cannot restore withdrawn bundles.
+
 
 ```rust
 use spiffe::{BundleSource, TrustDomain, JwtSource};

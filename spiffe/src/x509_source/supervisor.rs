@@ -87,6 +87,7 @@ pub(super) async fn try_connect_stream(
     metrics: Option<&dyn MetricsRecorder>,
     phase: StreamPhase,
     supervisor_id: Option<u64>,
+    source: Option<&Inner>,
 ) -> Result<
     impl futures::Stream<Item = Result<X509Context, WorkloadApiError>> + Send + 'static + use<>,
     WorkloadApiError,
@@ -114,6 +115,11 @@ pub(super) async fn try_connect_stream(
             Ok(s)
         }
         Err(e) => {
+            // Publish permission before logging or invoking application metrics callbacks.
+            if let Some(source) = source {
+                source.withdraw(&e);
+            }
+
             // Handle "no identity issued" as a distinct transient state
             if matches!(e, WorkloadApiError::NoIdentityIssued) {
                 let error_kind = ErrorKey::NoIdentityIssued;
@@ -260,6 +266,7 @@ async fn try_sync_once(
         metrics,
         StreamPhase::InitialSync,
         None,
+        None,
     )
     .await
     {
@@ -347,6 +354,7 @@ impl Inner {
                 self.metrics(),
                 StreamPhase::Supervisor,
                 Some(supervisor_id),
+                Some(self),
             )
             .await
             {
@@ -476,6 +484,7 @@ impl Inner {
                     }
                 }
                 Some(Err(e)) => {
+                    self.withdraw(&e);
                     warn!(
                         "Workload API stream error; reconnecting: id={}, error={}",
                         supervisor_id, e
@@ -700,5 +709,59 @@ mod tests {
 
         assert_eq!(source.x509_context().unwrap().as_ref(), recovered.as_ref());
         assert_eq!(source.updated().last(), 1);
+    }
+    #[tokio::test]
+    async fn permission_denial_withdraws_until_valid_identical_reauthorization() {
+        for denial in [
+            WorkloadApiError::PermissionDenied("denied".into()),
+            WorkloadApiError::NoIdentityIssued,
+        ] {
+            let initial =
+                context_with_bundle(include_bytes!("../../tests/testdata/bundle/x509/cert1.der"));
+            let source = X509Source::new_for_test(
+                Arc::clone(&initial),
+                ReconnectConfig::default(),
+                ResourceLimits::default(),
+                None,
+                None,
+            );
+            let mut updates = source.updated();
+            let cancel = CancellationToken::new();
+            let mut stream = futures::stream::iter([Err(denial)]);
+            source
+                .inner_for_test()
+                .process_stream_updates(&mut stream, &cancel, 1)
+                .await;
+            assert!(
+                source.svid().is_err(),
+                "denial must withdraw cached identity"
+            );
+            assert!(
+                source.bundle_set().is_err(),
+                "denial must withdraw response trust"
+            );
+            assert_eq!(updates.changed().await.unwrap(), 1);
+            let mut malformed = futures::stream::iter([Err(WorkloadApiError::EmptyResponse)]);
+            source
+                .inner_for_test()
+                .process_stream_updates(&mut malformed, &cancel, 2)
+                .await;
+            source.svid().unwrap_err();
+            let mut unavailable = futures::stream::iter([Err(WorkloadApiError::from_status(
+                tonic::Status::unavailable("retry"),
+            ))]);
+            source
+                .inner_for_test()
+                .process_stream_updates(&mut unavailable, &cancel, 3)
+                .await;
+            source.svid().unwrap_err();
+            let mut recovery = futures::stream::iter([Ok(initial.as_ref().clone())]);
+            source
+                .inner_for_test()
+                .process_stream_updates(&mut recovery, &cancel, 4)
+                .await;
+            assert_eq!(updates.changed().await.unwrap(), 2);
+            assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+        }
     }
 }

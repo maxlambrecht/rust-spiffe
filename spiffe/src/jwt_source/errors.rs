@@ -27,6 +27,10 @@ pub enum JwtSourceError {
     #[error("failed to fetch jwt svid: {0}")]
     FetchJwtSvid(WorkloadApiError),
 
+    /// The monitored material RPC denied permission. Recovery requires a valid complete response.
+    #[error("material withdrawn: {0}")]
+    Withdrawn(#[source] std::sync::Arc<WorkloadApiError>),
+
     /// The source was closed.
     #[error("source is closed")]
     Closed,

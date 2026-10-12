@@ -92,6 +92,13 @@ pub(super) fn validate_bundle_set(
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
 ) -> Result<(), JwtSourceError> {
+    if bundle_set.is_empty() {
+        return Err(JwtSourceError::Source(
+            crate::WorkloadApiError::MissingRequiredField {
+                field: "JWTBundlesResponse.bundles",
+            },
+        ));
+    }
     // Validate limits and record specific limit metrics if exceeded.
     validate_limits_and_record_metric(bundle_set, limits, metrics)?;
 

@@ -25,6 +25,15 @@
 //! For outbound TLS, peer identity is the SPIFFE ID in the URI SAN, not the TLS server name.
 //! Connecting to `localhost` or an IP is supported even when the X.509-SVID has no matching DNS SAN.
 //!
+//! Accepted source revisions immediately gate both resolvers and verifiers. New material
+//! acquisitions fail while conversion is pending or blocked; old verifier caches cannot
+//! authorize a superseded revision. Temporary transport failures retain accepted material.
+//! [`TerminalSourcePolicy::RetainFinal`] is the default after terminal closure;
+//! [`TerminalSourcePolicy::FailClosed`] denies new acquisitions when refresh ends.
+//! Withdrawal always blocks under either policy. Builders' `build_with_status` methods
+//! expose revision, availability, conversion errors, and refresh lifecycle status.
+//! Existing connections and previously acquired credentials are not revoked.
+//!
 //! ## Feature flags
 //!
 //! Exactly **one** `rustls` crypto provider must be enabled:
@@ -70,6 +79,7 @@ pub use client::ClientConfigBuilder;
 pub use error::{AuthorizerConfigError, Error, Result};
 pub use policy::TrustDomainPolicy;
 pub use policy::TrustDomainPolicy::{AllowList, AnyInBundleSet, LocalOnly};
+pub use resolve::{TerminalSourcePolicy, TlsStatus, TlsStatusSnapshot};
 pub use server::ServerConfigBuilder;
 pub use spiffe::{SpiffeId, TrustDomain};
 

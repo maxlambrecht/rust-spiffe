@@ -155,9 +155,50 @@ pub struct JwtSource {
     _shutdown_guard: Arc<DropGuard>,
 }
 
+/// Coherent JWT bundle permission and revision, independent of JWT issuance RPCs.
+#[derive(Clone, Debug)]
+pub struct JwtSourceState {
+    bundles: Arc<JwtBundleSet>,
+    revision: u64,
+    withdrawal: Option<Arc<WorkloadApiError>>,
+    closed: bool,
+}
+impl JwtSourceState {
+    /// Authoritative bundle revision (initial synchronization is revision zero).
+    pub const fn revision(&self) -> u64 {
+        self.revision
+    }
+    /// Whether refresh has permanently ended or shutdown was requested.
+    pub const fn is_closed(&self) -> bool {
+        self.closed
+    }
+    /// Permission error withdrawing the bundle RPC, if any.
+    pub const fn withdrawal(&self) -> Option<&Arc<WorkloadApiError>> {
+        self.withdrawal.as_ref()
+    }
+    /// Current permitted bundles, including after terminal closure.
+    ///
+    /// # Errors
+    /// Returns `Withdrawn` until a valid complete bundle response reauthorizes the RPC.
+    pub fn bundle_set(&self) -> Result<Arc<JwtBundleSet>, JwtSourceError> {
+        if let Some(reason) = &self.withdrawal {
+            return Err(JwtSourceError::Withdrawn(Arc::clone(reason)));
+        }
+        Ok(Arc::clone(&self.bundles))
+    }
+    /// Whether this view permits bundles containing at least one authority.
+    pub fn is_usable(&self) -> bool {
+        self.withdrawal.is_none()
+            && self
+                .bundles
+                .iter()
+                .any(|(_, b)| b.jwt_authorities().next().is_some())
+    }
+}
+
 pub(super) struct Inner {
-    // Atomically replaced, last-known-good JWT bundle set.
-    bundle_set: ArcSwap<JwtBundleSet>,
+    // Atomically replaced JWT bundles, permission, and revision.
+    snapshot: ArcSwap<JwtSourceState>,
     limits: ResourceLimits,
 
     // Cached client for on-demand SVID fetching (recreated on failure).
@@ -246,7 +287,7 @@ impl Inner {
 impl Debug for Inner {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JwtSource")
-            .field("bundle_set", &"<ArcSwap<JwtBundleSet>>")
+            .field("snapshot", &"<ArcSwap<JwtSourceState>>")
             .field(
                 "cached_client",
                 &"<ArcSwap<Option<Arc<WorkloadApiClient>>>>",
@@ -317,14 +358,15 @@ impl JwtSource {
     /// Returns a handle for receiving update notifications.
     ///
     /// The handle yields a monotonically increasing sequence number on each
-    /// successful update to the JWT bundle set. This can be used to detect when
+    /// authoritative bundle change, withdrawal, or recovery. This can be used to detect when
     /// the bundle set has changed without polling.
     ///
-    /// **Note:** The initial sequence number is 0. Notifications are only sent
-    /// when the received JWT bundle set actually differs from the currently held one.
+    /// **Note:** The initial sequence number is 0. Notifications are sent for changed
+    /// bundle material, permission withdrawal, and recovery.
     /// The initial sync does not trigger a notification, and neither do re-deliveries
     /// of an unchanged bundle set (e.g. on reconnect after a dropped stream or agent
-    /// restart) — only genuine rotations advance the sequence.
+    /// restart). A byte-identical valid response after withdrawal restores permission
+    /// and advances the sequence.
     ///
     /// # Examples
     ///
@@ -395,11 +437,16 @@ impl JwtSource {
             return false;
         }
 
-        let bundle_set = self.inner.bundle_set.load();
-        let has_jwt_signing_key = bundle_set
-            .iter()
-            .any(|(_td, b)| b.jwt_authorities().next().is_some());
-        has_jwt_signing_key
+        self.state().is_usable()
+    }
+
+    /// Acquires a coherent bundle permission/revision observation, including final state.
+    /// This immutable observation remains caller-owned; reacquire for current authorization.
+    pub fn state(&self) -> JwtSourceState {
+        let mut state = self.inner.snapshot.load_full().as_ref().clone();
+        state.closed =
+            self.inner.closed.load(Ordering::Acquire) || self.inner.cancel.is_cancelled();
+        state
     }
 
     /// Returns the current JWT bundle set.
@@ -409,7 +456,7 @@ impl JwtSource {
     /// Returns a [`JwtSourceError`] if the source is closed.
     pub fn bundle_set(&self) -> Result<Arc<JwtBundleSet>, JwtSourceError> {
         self.assert_open()?;
-        Ok(self.inner.bundle_set.load_full())
+        self.state().bundle_set()
     }
 
     /// Returns the current bundle for the trust domain, or `None` if unavailable.
@@ -673,7 +720,12 @@ impl JwtSource {
         } = parts;
 
         let inner = Arc::new(Inner {
-            bundle_set: ArcSwap::from(initial_bundle_set),
+            snapshot: ArcSwap::from_pointee(JwtSourceState {
+                bundles: initial_bundle_set,
+                revision: 0,
+                withdrawal: None,
+                closed: false,
+            }),
             cached_client: ArcSwap::from(Arc::new(None)),
             client_creation_mutex: Mutex::new(()),
             reconnect,
@@ -692,8 +744,10 @@ impl JwtSource {
         let task_inner = Arc::clone(&inner);
         let token = task_inner.cancel.clone();
         let guard_inner = Arc::clone(&task_inner);
+        let terminate_on_drop = SupervisorTerminationGuard { inner: guard_inner };
         let handle = tokio::spawn(async move {
-            let _terminate_on_drop = SupervisorTerminationGuard::new(guard_inner);
+            let _terminate_on_drop = terminate_on_drop;
+            task_inner.supervisor_running.store(true, Ordering::Release);
             task_inner.run_update_supervisor(token).await;
         });
 
@@ -799,7 +853,12 @@ impl JwtSource {
         let shutdown_guard = Arc::new(cancel.clone().drop_guard());
 
         let inner = Inner {
-            bundle_set: ArcSwap::from(initial_bundle_set),
+            snapshot: ArcSwap::from_pointee(JwtSourceState {
+                bundles: initial_bundle_set,
+                revision: 0,
+                withdrawal: None,
+                closed: false,
+            }),
             cached_client: ArcSwap::from(Arc::new(None)),
             client_creation_mutex: Mutex::new(()),
             reconnect,
@@ -833,6 +892,7 @@ struct SupervisorTerminationGuard {
     inner: Arc<Inner>,
 }
 
+#[cfg(test)]
 impl SupervisorTerminationGuard {
     fn new(inner: Arc<Inner>) -> Self {
         inner.supervisor_running.store(true, Ordering::Release);
@@ -883,13 +943,21 @@ impl Inner {
                 // The Workload API re-delivers the current bundle set as the first item on
                 // every new stream (initial sync, reconnect after agent restart, dropped
                 // stream, etc.). Skip the store/notify/record when the incoming bundle set is
-                // identical to what we already hold, so `updated()` only fires for actual
-                // rotations, matching its docs. This also avoids spurious cache invalidation
+                // identical to what we already hold and remains permitted. Withdrawal
+                // recovery is observable even with identical bytes. This also avoids spurious cache invalidation
                 // for consumers who flush JWKS-derived caches on bundle change.
-                if self.bundle_set.load().as_ref() == new_bundle_set.as_ref() {
+                let current = self.snapshot.load_full();
+                if current.withdrawal.is_none()
+                    && current.bundles.as_ref() == new_bundle_set.as_ref()
+                {
                     return Ok(ApplyUpdateResult::Unchanged);
                 }
-                self.bundle_set.store(new_bundle_set);
+                self.snapshot.store(Arc::new(JwtSourceState {
+                    bundles: new_bundle_set,
+                    revision: current.revision + 1,
+                    withdrawal: None,
+                    closed: false,
+                }));
                 self.notify_update();
                 self.record_update();
                 Ok(ApplyUpdateResult::Applied)
@@ -900,6 +968,25 @@ impl Inner {
                 Err(e)
             }
         }
+    }
+
+    pub(super) fn withdraw(&self, error: &WorkloadApiError) {
+        let reason = match error {
+            WorkloadApiError::PermissionDenied(message) => {
+                WorkloadApiError::PermissionDenied(message.clone())
+            }
+            WorkloadApiError::NoIdentityIssued => WorkloadApiError::NoIdentityIssued,
+            _ => return,
+        };
+        let current = self.snapshot.load_full();
+        if current.withdrawal.is_some() {
+            return;
+        }
+        let mut withdrawn = current.as_ref().clone();
+        withdrawn.revision += 1;
+        withdrawn.withdrawal = Some(Arc::new(reason));
+        self.snapshot.store(Arc::new(withdrawn));
+        self.notify_update();
     }
 
     pub(super) fn notify_update(&self) {
@@ -945,8 +1032,7 @@ impl BundleSource for JwtSource {
         trust_domain: &TrustDomain,
     ) -> Result<Option<Arc<Self::Item>>, Self::Error> {
         self.assert_open()?;
-        let bundle_set = self.inner.bundle_set.load();
-        Ok(bundle_set.get(trust_domain))
+        Ok(self.state().bundle_set()?.get(trust_domain))
     }
 }
 
@@ -2041,5 +2127,48 @@ mod tests {
 
         assert_eq!(mixed.max_bundles, Some(50));
         assert_eq!(mixed.max_bundle_jwks_bytes, None);
+    }
+    #[tokio::test]
+    async fn issuance_denial_does_not_withdraw_bundles_and_issuance_cannot_reauthorize_them() {
+        let test = source_with_fetch_outcomes(vec![
+            FetchOutcome::PermissionDenied("ID A denied"),
+            FetchOutcome::Ok,
+            FetchOutcome::Ok,
+        ]);
+        let source = &test.source;
+        source.fetch_jwt_svid(["aud1"]).await.unwrap_err();
+        source.bundle_set().unwrap();
+        assert_eq!(source.state().revision(), 0);
+        source.fetch_jwt_svid(["aud1"]).await.unwrap();
+        source.inner.withdraw(&WorkloadApiError::NoIdentityIssued);
+        source.fetch_jwt_svid(["aud1"]).await.unwrap();
+        source.bundle_set().unwrap_err();
+        assert_eq!(
+            source.inner.apply_update(create_test_bundle_set()).unwrap(),
+            ApplyUpdateResult::Applied
+        );
+        source.bundle_set().unwrap();
+    }
+
+    #[test]
+    fn bundle_withdrawal_is_sticky_through_invalid_updates_and_closure() {
+        let source = JwtSource::new_for_test(
+            create_test_bundle_set(),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        source
+            .inner
+            .withdraw(&WorkloadApiError::PermissionDenied("denied".into()));
+        assert_eq!(source.state().revision(), 1);
+        source
+            .inner
+            .apply_update(Arc::new(JwtBundleSet::new()))
+            .unwrap_err();
+        source.bundle_set().unwrap_err();
+        source.inner.cancel.cancel();
+        assert!(source.state().is_closed());
+        source.state().bundle_set().unwrap_err();
     }
 }

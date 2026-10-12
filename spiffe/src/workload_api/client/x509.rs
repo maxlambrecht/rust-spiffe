@@ -258,6 +258,16 @@ impl WorkloadApiClient {
         response: X509svidResponse,
     ) -> Result<X509Context, WorkloadApiError> {
         Self::validate_required_x509_svid_fields(&response)?;
+        if response.svids.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVIDResponse.svids",
+            });
+        }
+        if response.svids.iter().any(|svid| svid.spiffe_id.is_empty()) {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVID.spiffe_id",
+            });
+        }
 
         let mut svids: Vec<Arc<X509Svid>> = Vec::new();
         let mut bundle_set = X509BundleSet::new();
@@ -392,5 +402,25 @@ mod tests {
             .expect("empty federated bundle should remain present in the complete update");
 
         assert_eq!(bundle.authorities(), []);
+    }
+    #[test]
+    fn x509_context_rejects_missing_required_identity_metadata_and_svids() {
+        let mut entry = x509_svid(include_bytes!(
+            "../../../tests/testdata/bundle/x509/cert1.der"
+        ));
+        entry.spiffe_id.clear();
+        for (svids, field) in [
+            (vec![], "X509SVIDResponse.svids"),
+            (vec![entry], "X509SVID.spiffe_id"),
+        ] {
+            let response = X509svidResponse {
+                svids,
+                ..Default::default()
+            };
+            assert!(
+                matches!(WorkloadApiClient::parse_x509_context_from_grpc_response(response),
+                Err(WorkloadApiError::MissingRequiredField { field: actual }) if actual == field)
+            );
+        }
     }
 }
