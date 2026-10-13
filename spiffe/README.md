@@ -391,6 +391,29 @@ When enabled, [`JwtSvid::parse_and_validate`] performs JWT-SVID validation:
   (empty audience arrays are rejected)
 - **`sub` claim**: must be present and parse as a valid SPIFFE ID
 - **`kid` header**: must be present and match a key in the bundle
+- **Trusted JWK metadata**: explicit `alg` must match the token; EC curve labels
+  and coordinate widths must match ES256/P-256 or ES384/P-384. Explicit `use`
+  must be `sig` or `jwt-svid`. Explicit `key_ops` must be a non-null array of
+  distinct strings that includes `verify`, and must not declare known encryption
+  or derivation operations alongside an explicit signature purpose.
+- **RSA authorities**: `n` and `e` must use canonical unpadded Base64urlUInt
+  encoding without leading zero octets; the actual modulus must have at least
+  2048 significant bits, as required by [RFC 7518](https://www.rfc-editor.org/rfc/rfc7518.html#section-3.3).
+
+Optional JWK `alg`, `use`, and `key_ops` may be omitted for purpose-selected JWT
+bundles. Additional operations, including unknown extension operations, remain
+supported when `verify` is present; they do not grant additional verification
+permissions. Without explicit RSA `alg`, a key may verify multiple supported
+RSA algorithms. This does not provide the complete single-algorithm-per-key
+binding required by [RFC 8725](https://www.rfc-editor.org/rfc/rfc8725.html#section-3.1);
+provision explicit trusted `alg` metadata to constrain it.
+
+These checks run after exact subject-domain and `kid` selection. Failure does
+not try another authority. `JwtAuthority` and `JwtBundle` parsing/storage remain
+flexible, retain unknown JWK extensions, and preserve last-entry replacement
+for duplicate key IDs. Duplicate JSON members still normalize to their last
+value. Full SPIFFE bundles must still be filtered for JWT purposes before
+being passed to the purpose-specific JWKS parser.
 
 Temporal checks share one `SystemTime` observation at nanosecond precision with
 zero clock skew. `exp` remains required integer seconds. A present `nbf` must be
@@ -426,8 +449,13 @@ Enables **offline JWT-SVID verification** using **AWS-LC** via `aws-lc-rs`.
 * Mutually exclusive with `jwt-verify-rust-crypto`
 
 Header, temporal, audience, and trust-domain policies are the same as
-`jwt-verify-rust-crypto`. Cryptographic key-material acceptance can differ between
-backends, including RSA size and encoding limits.
+`jwt-verify-rust-crypto`. Both backends enforce the same trusted JWK metadata,
+EC curve, canonical RSA encoding, and 2048-bit minimum policies. Cryptographic
+key validity and capacity limits remain backend-specific: with the locked
+dependencies, RustCrypto accepts RSA moduli up to 4096 bits and AWS-LC up to
+8192 bits. A valid 5120-bit authority is therefore accepted by AWS-LC and
+rejected by RustCrypto. No shared maximum is imposed. ES512 remains unavailable
+for offline verification with either backend.
 
 ---
 
