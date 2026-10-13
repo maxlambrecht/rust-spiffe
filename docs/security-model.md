@@ -98,6 +98,23 @@ trust anchor is outside the protection this library can provide.
 - Workload API JWKS input is a purpose-specific JWT bundle. JWKs must have a
   `kid`; cryptographic key validity is checked by the verification backend when
   the key is used.
+- After exact domain/`kid` selection, offline verification enforces explicit JWK
+  `alg`, `use`, and `key_ops` restrictions. `alg` must match the token; `use`
+  must be `sig` or `jwt-svid`; operations must be distinct strings and include
+  `verify`. Known encryption/derivation operations cannot accompany an explicit
+  signature purpose. Other operations, including extensions, remain supported
+  alongside `verify`. EC curve labels and coordinate widths must agree with
+  ES256/P-256 or ES384/P-384; backend point/signature checks remain authoritative.
+- RSA verification authorities require canonical unpadded Base64urlUInt `n/e`
+  without leading zero octets and an actual modulus of at least 2048 bits.
+  Both backends share this floor, while their locked upper capacity differs:
+  RustCrypto permits up to 4096 bits, AWS-LC up to 8192 bits.
+- Optional JWK `alg/use/key_ops` omissions remain supported. RSA keys without
+  `alg` are not bound to one algorithm under RFC 8725; explicit trusted `alg`
+  metadata is necessary to obtain that restriction. General JWK storage is not
+  a verification guarantee and remains permissive. Duplicate JSON fields still
+  normalize to their last value; duplicate `kid` insertion still replaces the
+  previous authority. No failed authority is rescued by another key or domain.
 
 ### Workload API responses and rotation
 

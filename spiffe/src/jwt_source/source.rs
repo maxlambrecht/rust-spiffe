@@ -968,6 +968,65 @@ mod tests {
         }
     }
 
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[test]
+    #[expect(clippy::indexing_slicing, reason = "reviewed signed fixture JSON")]
+    fn jwt_authority_policy_preserves_source_bundle_withdrawal() {
+        use crate::{JwtSvid, JwtSvidError};
+        use serde_json::{json, Value};
+
+        let fixtures: Vec<Value> = serde_json::from_str(include_str!(
+            "../../tests/testdata/jwt/authority-policy.json"
+        ))
+        .unwrap();
+        let fixture = fixtures
+            .iter()
+            .find(|row| row["name"] == "ec_ES256")
+            .unwrap();
+        let token = fixture["token"].as_str().unwrap();
+        let domain = TrustDomain::new("example.org").unwrap();
+        let mut bundle = JwtBundle::new(domain.clone());
+        bundle
+            .add_jwk_authority_json(&serde_json::to_vec(&fixture["jwk"]).unwrap())
+            .unwrap();
+        let initial: JwtBundleSet = std::iter::once(bundle.clone()).collect();
+        let source = JwtSource::new_for_test(
+            Arc::new(initial.clone()),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+        );
+        JwtSvid::parse_and_validate(token, &source, &["receiver"]).unwrap();
+
+        let withdrawn: JwtBundleSet = std::iter::once(JwtBundle::new(domain)).collect();
+        source.inner.apply_update(Arc::new(withdrawn)).unwrap();
+        assert!(matches!(
+            JwtSvid::parse_and_validate(token, &source, &["receiver"]),
+            Err(JwtSvidError::AuthorityNotFound(_))
+        ));
+        assert!(!source.is_healthy());
+        assert_eq!(source.updated().last(), 1);
+
+        let mut incompatible = fixture["jwk"].clone();
+        incompatible["key_ops"] = json!(["sign"]);
+        bundle
+            .add_jwk_authority_json(&serde_json::to_vec(&incompatible).unwrap())
+            .unwrap();
+        source
+            .inner
+            .apply_update(Arc::new(std::iter::once(bundle).collect()))
+            .unwrap();
+        assert!(matches!(
+            JwtSvid::parse_and_validate(token, &source, &["receiver"]),
+            Err(JwtSvidError::AuthorityVerificationNotPermitted)
+        ));
+        assert_eq!(source.updated().last(), 2);
+
+        source.inner.apply_update(Arc::new(initial)).unwrap();
+        JwtSvid::parse_and_validate(token, &source, &["receiver"]).unwrap();
+        assert_eq!(source.updated().last(), 3);
+    }
+
     fn jwk_with_kid(kid: &str) -> JwtAuthority {
         let json = format!(
             r#"{{

@@ -43,6 +43,10 @@ impl JwtAuthority {
     /// - the JWK does not contain a `kid` field, or the field is not a string.
     ///
     /// Note: Cryptographic validity of the key material is **not** checked here.
+    /// [`crate::JwtSvid::parse_and_validate`] checks the selected authority's
+    /// metadata, public component encoding, and RSA strength when verifying a
+    /// token. Storing an authority does not establish that it can be used for
+    /// verification.
     pub fn from_jwk_json(jwk_json: &[u8]) -> Result<Self, JwtBundleError> {
         let value: Value = serde_json::from_slice(jwk_json)
             .map_err(|source| JwtBundleError::Deserialize(JsonError::new(source)))?;

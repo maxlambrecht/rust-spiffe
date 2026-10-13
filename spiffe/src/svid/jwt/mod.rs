@@ -38,6 +38,9 @@ use crate::bundle::BundleSource;
 use jsonwebtoken::{DecodingKey, Validation};
 
 #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+mod authority;
+
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 mod verification;
 
 /// The kind of failure encountered during offline JWT verification.
@@ -278,6 +281,51 @@ pub enum JwtSvidError {
     #[error("cannot parse authority JWK JSON: {0}")]
     InvalidAuthorityJwk(#[source] JsonError),
 
+    /// A required JWK field is absent, incorrectly typed, unsupported, or inconsistent.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("invalid authority JWK metadata: {0}")]
+    InvalidAuthorityMetadata(&'static str),
+
+    /// The selected authority explicitly restricts verification to another algorithm.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("authority JWK algorithm {authority:?} does not match token algorithm {token:?}")]
+    AuthorityAlgorithmMismatch {
+        /// Algorithm declared by the trusted authority.
+        authority: JwtAlg,
+        /// Algorithm requested by the token.
+        token: JwtAlg,
+    },
+
+    /// The explicit JWK purpose does not authorize JWT signature verification.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("authority JWK purpose does not authorize JWT verification")]
+    UnsupportedAuthorityPurpose,
+
+    /// The explicit JWK operations do not include verification permission.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("authority JWK key_ops does not permit verification")]
+    AuthorityVerificationNotPermitted,
+
+    /// The declared EC curve does not match the token's verification algorithm.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("authority JWK curve does not match token algorithm {0:?}")]
+    AuthorityCurveMismatch(JwtAlg),
+
+    /// A public component has invalid encoding or shape; no component bytes are included.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("invalid authority JWK public component: {0}")]
+    InvalidAuthorityKeyComponent(&'static str),
+
+    /// An RSA component contains unnecessary leading zero octets.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("noncanonical authority RSA component: {0}")]
+    NonCanonicalRsaComponent(&'static str),
+
+    /// The significant RSA modulus size is below the 2048-bit minimum.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("authority RSA modulus is too weak: {0} bits (minimum 2048)")]
+    WeakRsaAuthority(usize),
+
     /// Offline JWT verification failed.
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     #[error("cannot decode token")]
@@ -404,6 +452,20 @@ impl JwtSvid {
     /// - **Required claims**: `sub`, `aud`, `exp` must be present and valid
     /// - **Algorithm**: Must be supported by the SPIFFE JWT-SVID profile and by
     ///   the configured offline verification backend
+    /// - **Trusted authority**: An explicit JWK `alg` must match the token. EC
+    ///   curves and coordinate widths must match ES256/P-256 or ES384/P-384.
+    ///   Explicit `use` must be `sig` or `jwt-svid`; explicit `key_ops` must be
+    ///   a non-null string array without duplicates and include `verify`.
+    ///   Known encryption/derivation operations conflict with an explicit
+    ///   signature purpose. Other operations do not grant verification.
+    /// - **RSA strength**: Canonical unpadded `Base64urlUInt` `n` and `e`, without
+    ///   leading zero octets, and a significant modulus size of at least 2048 bits
+    ///
+    /// JWK `alg`, `use`, and `key_ops` may be omitted. In particular, an RSA key
+    /// without `alg` is not bound to a single algorithm; provision explicit
+    /// trusted `alg` metadata when that restriction is required. Backend key
+    /// validity and capacity checks still apply: the locked `RustCrypto` backend
+    /// permits RSA up to 4096 bits, while AWS-LC permits up to 8192 bits.
     ///
     /// Both temporal checks use one observation of [`std::time::SystemTime`] with
     /// nanosecond precision and no clock-skew leeway. A pre-epoch or out-of-range
@@ -427,6 +489,8 @@ impl JwtSvid {
     /// - required headers/claims are missing or invalid (e.g. `kid`, `sub`, `exp`),
     /// - the token uses an unsupported signature algorithm,
     /// - the trust domain bundle or authority (`kid`) cannot be found,
+    /// - the selected authority has invalid or incompatible metadata, malformed
+    ///   public components, noncanonical RSA integers, or a weak RSA modulus,
     /// - the signature verification fails,
     /// - the token is expired or not yet active, or its audience does not match,
     /// - a present `nbf` is malformed or outside the supported precision/range,
@@ -496,8 +560,11 @@ impl JwtSvid {
         let aud: Vec<&str> = expected_audience.iter().map(AsRef::as_ref).collect();
         validation.set_audience(&aud);
 
-        // Convert stored authority JSON to a jsonwebtoken Jwk, then to DecodingKey.
-        let jwk: Jwk = serde_json::from_slice(jwt_authority.jwk_json())
+        // Check the exact selected authority before backend conversion discards metadata.
+        let jwk_json: serde_json::Value = serde_json::from_slice(jwt_authority.jwk_json())
+            .map_err(|source| JwtSvidError::InvalidAuthorityJwk(JsonError::new(source)))?;
+        authority::validate(&jwk_json, untrusted.alg)?;
+        let jwk: Jwk = serde_json::from_value(jwk_json)
             .map_err(|source| JwtSvidError::InvalidAuthorityJwk(JsonError::new(source)))?;
         let dec_key = DecodingKey::from_jwk(&jwk)
             .map_err(|source| JwtSvidError::InvalidToken(JwtVerificationError::new(source)))?;
@@ -1209,7 +1276,7 @@ mod test {
     }
 
     #[test]
-    fn unusable_authority_retains_diagnostics_without_a_key_classification() {
+    fn unusable_authority_classifies_invalid_public_component() {
         let kid = "unusable-authority";
         let (_, encoding_key) = new_es256_authority_and_encoding_key(kid);
         let token = generate_token(
@@ -1229,15 +1296,17 @@ mod test {
         let err =
             JwtSvid::parse_and_validate(&token, &bundle_source_with(authority), &["audience"])
                 .unwrap_err();
-        let JwtSvidError::InvalidToken(error) = err else {
-            panic!("unusable authority should return a verification error");
-        };
-        assert_eq!(error.kind(), JwtVerificationErrorKind::Other);
-        let displayed = error.to_string();
+        assert!(matches!(
+            err,
+            JwtSvidError::InvalidAuthorityKeyComponent("x")
+        ));
+        let displayed = err.to_string();
         assert_ne!(displayed, "");
-        if let Some(cause) = std::error::Error::source(&error) {
-            assert_ne!(cause.to_string(), displayed);
-        }
+        assert!(displayed.contains('x'));
+        assert!(
+            !displayed.contains('!'),
+            "component contents must not enter diagnostics"
+        );
     }
 
     fn generate_token(
@@ -1495,7 +1564,13 @@ mod test {
 
         let err = JwtSvid::parse_and_validate(&token, &bundle_source, &["audience"]).unwrap_err();
         assert!(
-            matches!(err, JwtSvidError::InvalidToken(_)),
+            matches!(
+                err,
+                JwtSvidError::AuthorityAlgorithmMismatch {
+                    authority: JwtAlg::RS256,
+                    token: JwtAlg::ES256,
+                }
+            ),
             "ES256 token must not verify against an RSA bundle key; got {err:?}"
         );
     }
