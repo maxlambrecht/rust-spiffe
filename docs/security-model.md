@@ -76,9 +76,25 @@ trust anchor is outside the protection this library can provide.
   ID's trust domain, selects the authority by `kid`, restricts the algorithm,
   verifies the signature, requires an expected audience, and rejects expired
   tokens. A missing trust-domain bundle or signing key fails closed.
-- Offline validation does not currently validate `iat`, `nbf`, or `iss`, and
-  applies no clock-skew leeway. Applications must not treat unvalidated custom
-  claims as authorization facts.
+- Offline verification permits only `alg`, required `kid`, and optional `typ`
+  in the JOSE header. Present `typ` must be the string `JWT` or `JOSE`. Null,
+  duplicate fields, and every additional header parameter (including `crit`,
+  `b64`, and key references) reject. Parse-only APIs retain their permissive
+  optional-header handling.
+- Offline temporal validation uses one `SystemTime` observation at nanosecond
+  precision with zero clock skew: `now < exp` and, when present, `now >= nbf`.
+  Equality with expiration rejects; equality with activation accepts, as defined
+  by [RFC 7519 sections 4.1.4–4.1.5](https://www.rfc-editor.org/rfc/rfc7519.html#section-4.1.4).
+  `exp` remains required integer seconds. A present `nbf` must be a JSON number
+  exactly representable as nanoseconds in years -9999 through 9999; negative
+  dates, decimals, and exponent notation are supported. Nonzero sub-nanosecond
+  precision, exponents outside the signed 32-bit range, and out-of-range dates
+  reject. A pre-epoch or out-of-range verification clock fails closed.
+  jsonwebtoken still verifies the signature, required expiration presence, and
+  audience; its temporal checks are disabled to avoid a second clock and rounding.
+- Offline validation does not validate `iat` or `iss`. Additional private claims
+  remain permitted. Applications must agree on their semantics before using them
+  as authorization facts. Workload API token parsing adds no local temporal policy.
 - Workload API JWKS input is a purpose-specific JWT bundle. JWKs must have a
   `kid`; cryptographic key validity is checked by the verification backend when
   the key is used.

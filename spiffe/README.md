@@ -383,14 +383,27 @@ Enables **offline JWT-SVID verification** using a **pure Rust cryptography backe
 When enabled, [`JwtSvid::parse_and_validate`] performs JWT-SVID validation:
 
 - **Signature verification** using keys from the trust domain's JWT bundle
-- **`exp` claim**: tokens must not be expired
+- **`exp` claim**: requires `now < exp`; equality is expired
+- **`nbf` claim**: optional; when present, requires `now >= nbf`
+- **JOSE headers**: only `alg`, required `kid`, and optional string `typ`
+  (`JWT` or `JOSE`); null `typ`, duplicates, and all extra fields reject
 - **`aud` claim**: must intersect the `expected_audience` parameter
   (empty audience arrays are rejected)
 - **`sub` claim**: must be present and parse as a valid SPIFFE ID
 - **`kid` header**: must be present and match a key in the bundle
 
-Note: `nbf`, `iat`, and `iss` claims are not validated. See the
-[`JwtSvid::parse_and_validate`] documentation for complete details.
+Temporal checks share one `SystemTime` observation at nanosecond precision with
+zero clock skew. `exp` remains required integer seconds. A present `nbf` must be
+a JSON number exactly representable as nanoseconds in years -9999 through 9999
+(-377705116800 through 253402300799.999999999 Unix seconds). Negative dates,
+decimals, and exponent notation are supported; nonzero sub-nanosecond precision,
+exponents outside the signed 32-bit range, and out-of-range values reject safely.
+A pre-epoch or out-of-range verification clock fails closed.
+
+`iat` and `iss` remain unchecked, and additional private payload claims remain
+permitted. These header and temporal policies apply only to offline verification;
+`parse_insecure`, `FromStr`, and Workload API token parsing retain their behavior.
+See [`JwtSvid::parse_and_validate`] for complete details.
 
 ```rust
 use spiffe::{BundleSource, JwtBundle, JwtSvid};
@@ -412,8 +425,9 @@ Enables **offline JWT-SVID verification** using **AWS-LC** via `aws-lc-rs`.
 * Alternative cryptography backend
 * Mutually exclusive with `jwt-verify-rust-crypto`
 
-Validation semantics are identical to `jwt-verify-rust-crypto`; only the cryptographic
-backend differs.
+Header, temporal, audience, and trust-domain policies are the same as
+`jwt-verify-rust-crypto`. Cryptographic key-material acceptance can differ between
+backends, including RSA size and encoding limits.
 
 ---
 

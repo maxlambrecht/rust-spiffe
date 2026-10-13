@@ -135,8 +135,9 @@ broker-api = ["dep:tonic", "dep:tonic-prost", "dep:prost", "dep:prost-types"]
 
 # --- JWT signature verification backends (select exactly one) ---
 
-jwt-verify-rust-crypto = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/rust_crypto"]
-jwt-verify-aws-lc-rs = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/aws_lc_rs"]
+# Raw NumericDate text avoids floating-point rounding during temporal validation.
+jwt-verify-rust-crypto = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/rust_crypto", "serde_json/raw_value"]
+jwt-verify-aws-lc-rs = ["jwt", "dep:jsonwebtoken", "jsonwebtoken/aws_lc_rs", "serde_json/raw_value"]
 
 # --- Observability backends (optional) ---
 
