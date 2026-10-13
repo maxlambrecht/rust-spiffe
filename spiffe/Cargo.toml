@@ -68,7 +68,7 @@ p256 = { version = "0.14", features = ["pkcs8"] }
 # Test/util
 base64ct = "1"
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "test-util", "io-util"] }
 
 # Used in tests to validate DER bytes are parseable as OpenSSL X.509 certificates.
 openssl = { version = "0.10", features = ["vendored"] }
@@ -120,11 +120,11 @@ workload-api = ["workload-api-x509", "workload-api-jwt"]
 
 # X.509 watcher/caching API built on the Workload API.
 # Depends on the X.509-only Workload API bundle to avoid pulling in JWT dependencies.
-x509-source = ["workload-api-x509"]
+x509-source = ["workload-api-x509", "futures/std"]
 
 # JWT watcher/caching API built on the Workload API.
 # Depends on the JWT-only Workload API bundle to avoid pulling in X.509 dependencies.
-jwt-source = ["workload-api-jwt"]
+jwt-source = ["workload-api-jwt", "futures/std"]
 
 # --- SPIFFE Broker API (experimental) ---
 

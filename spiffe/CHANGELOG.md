@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- X.509 and JWT source supervisors now cancel pending client creation and stream setup. Cancellation does not count as a reconnect or setup error.
+- Source shutdown retains shared join ownership across cancelled, concurrent, and repeated callers. Graceful deadlines now request abort and then join before returning `ShutdownTimeout`; they do not bound synchronous callbacks or destructors. Dropping the last public handle also requests abort without blocking.
+
 ### Security
 
 - **JwtSvid offline verification:** Enforce a present `nbf` without rounding the NumericDate value and reject `exp == now`. Both checks share one nanosecond clock observation with zero skew. `nbf` remains optional and supports negative dates, decimals, and exponent notation exactly representable at nanosecond precision in years -9999 through 9999; other types, finer nonzero precision, exponents outside the signed 32-bit range, and out-of-range dates reject. `exp` remains required integer seconds. The dependency still checks signatures, required expiration presence, and audiences; local checks own temporal decisions.

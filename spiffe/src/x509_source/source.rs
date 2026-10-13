@@ -7,6 +7,7 @@ use crate::bundle::BundleSource;
 use crate::cert::Certificate;
 use crate::prelude::warn;
 use crate::svid::SvidSource;
+use crate::workload_api::supervisor_common::{SourceOwner, SupervisorTask};
 use crate::workload_api::x509_context::X509Context;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
 use crate::{TrustDomain, X509Bundle, X509BundleSet, X509SourceBuilder, X509Svid};
@@ -16,10 +17,10 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::{watch, Mutex};
-use tokio::task::JoinHandle;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 
 use crate::WorkloadApiError;
 
@@ -150,12 +151,12 @@ impl X509SourceUpdates {
 /// - Publishes valid complete trust even without a usable selected SVID
 /// - Withdraws permission until a valid complete response reauthorizes its material RPC
 ///
-/// Use [`X509Source::shutdown`] or [`X509Source::shutdown_configured`] to stop background tasks.
+/// Use [`X509Source::shutdown`] or [`X509Source::shutdown_configured`] to stop the supervisor.
 ///
 #[derive(Clone, Debug)]
 pub struct X509Source {
     inner: Arc<Inner>,
-    _shutdown_guard: Arc<DropGuard>,
+    _shutdown_guard: Arc<SourceOwner>,
 }
 
 /// One coherent authoritative X.509 observation, including final state after closure.
@@ -246,7 +247,7 @@ pub(super) struct Inner {
     update_tx: watch::Sender<u64>,
 
     // Supervisor task handle (joined/aborted at shutdown).
-    supervisor: Mutex<Option<JoinHandle<()>>>,
+    supervisor: OnceLock<SupervisorTask>,
 }
 
 impl Inner {
@@ -285,7 +286,7 @@ impl Debug for Inner {
             .field("cancel", &self.cancel)
             .field("update_seq", &self.update_seq)
             .field("update_tx", &"<watch::Sender<u64>>")
-            .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
+            .field("supervisor", &"<OnceLock<SupervisorTask>>")
             .finish()
     }
 }
@@ -529,45 +530,58 @@ impl X509Source {
         self.bundle_for_trust_domain(td).ok().flatten()
     }
 
-    /// Cancels background tasks and waits for termination.
+    /// Requests cancellation and waits for the source supervisor to terminate.
     ///
-    /// This method is idempotent. Calling it multiple times is safe and has no
-    /// additional effect after the first invocation.
+    /// The first poll closes admission and requests cancellation. Dropping this
+    /// shutdown future preserves that request and the source's join ownership.
+    /// Concurrent and repeated callers all observe actual supervisor completion.
     ///
-    /// The shutdown request is best-effort. Background tasks are signaled to stop
-    /// and awaited before returning.
+    /// This can wait indefinitely if cleanup cannot finish. For a graceful
+    /// deadline followed by abort and join, use [`X509Source::shutdown_with_timeout`]
+    /// or [`X509Source::shutdown_configured`].
     ///
-    /// **Note:** This method may wait indefinitely if background tasks don't respond.
-    /// For production use, use [`X509Source::shutdown_with_timeout`] or
-    /// [`X509Source::shutdown_configured`].
+    /// Completion covers the source supervisor, including destruction of its
+    /// directly owned futures. It does not join dependency-owned transport workers.
     pub async fn shutdown(&self) {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        self.inner.cancel.cancel();
-
-        if let Some(handle) = self.inner.supervisor.lock().await.take() {
-            if let Err(e) = handle.await {
-                warn!("Error joining supervisor task during shutdown: error={e}");
-                self.inner
-                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
-            }
-        }
+        self.join_supervisor(None).await;
     }
 
-    /// Cancels background tasks and waits for termination with a timeout.
+    async fn join_supervisor(&self, timeout: Option<Duration>) -> bool {
+        self.inner.closed.store(true, Ordering::Release);
+        self.inner.cancel.cancel();
+        // Production builds install the task synchronously before returning a source.
+        // Test-only sources may intentionally have no supervisor.
+        let Some(task) = self.inner.supervisor.get() else {
+            return false;
+        };
+        let (outcome, timed_out) = task.join(timeout).await;
+        if !timed_out && task.report_failure_once(outcome) {
+            warn!("Error joining supervisor task during shutdown: {outcome:?}");
+            self.inner
+                .record_error(MetricsErrorKind::SupervisorJoinFailed);
+        }
+        if timed_out {
+            warn!("Shutdown grace expired; supervisor aborted and joined");
+        }
+        timed_out
+    }
+
+    /// Requests cancellation, then aborts and joins after a graceful deadline.
     ///
-    /// This method attempts graceful shutdown first: it signals cancellation and
-    /// waits up to `timeout` for the supervisor task to complete. If the timeout
-    /// is exceeded, the task is forcefully aborted.
+    /// Each caller has its own `timeout`. When its grace period expires, it
+    /// requests abort and continues waiting for actual supervisor completion.
+    /// Another caller can observe that completion within its own grace period
+    /// and return `Ok(())`. Repeated calls after completion return promptly.
     ///
-    /// This method is idempotent. Calling it multiple times is safe and has no
-    /// additional effect after the first invocation.
+    /// Dropping a shutdown future never loses join ownership. The grace period
+    /// is not an absolute wall-clock bound: abort cannot preempt synchronous
+    /// callbacks or destructors, and this method waits for them to finish.
     ///
     /// # Errors
     ///
-    /// Returns [`X509SourceError::ShutdownTimeout`] if graceful shutdown does not
-    /// complete within the timeout and the task must be aborted.
+    /// Returns [`X509SourceError::ShutdownTimeout`] after joining if this caller's
+    /// grace period expired. Supervisor panic counts as termination under the
+    /// existing error contract.
     ///
     /// # Examples
     ///
@@ -582,41 +596,23 @@ impl X509Source {
     /// # }
     /// ```
     pub async fn shutdown_with_timeout(&self, timeout: Duration) -> Result<(), X509SourceError> {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        self.inner.cancel.cancel();
-
-        let Some(mut handle) = self.inner.supervisor.lock().await.take() else {
-            return Ok(());
-        };
-
-        match tokio::time::timeout(timeout, &mut handle).await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => {
-                warn!("Error joining supervisor task during shutdown: error={e}");
-                self.inner
-                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
-                Ok(())
-            }
-            Err(_) => {
-                warn!("Shutdown timeout exceeded; aborting supervisor task");
-                handle.abort();
-                // Wait for the abort to take effect
-                let _unused: Result<_, _> = handle.await;
-                Err(X509SourceError::ShutdownTimeout)
-            }
+        if self.join_supervisor(Some(timeout)).await {
+            Err(X509SourceError::ShutdownTimeout)
+        } else {
+            Ok(())
         }
     }
 
-    /// Cancels background tasks and waits for termination using the configured timeout.
+    /// Shuts down the supervisor using the builder's graceful deadline.
     ///
-    /// Uses the timeout configured in the builder.
-    /// If no timeout was configured, this method will wait indefinitely (same as `shutdown()`).
+    /// The default is 30 seconds. With `None`, this waits indefinitely, like
+    /// [`X509Source::shutdown`]. With `Some`, it has the same abort-then-join and
+    /// cancellation guarantees as [`X509Source::shutdown_with_timeout`].
     ///
     /// # Errors
     ///
-    /// Returns [`X509SourceError::ShutdownTimeout`] if the configured shutdown timeout is exceeded.
+    /// Returns [`X509SourceError::ShutdownTimeout`] after joining if this caller's
+    /// configured grace period expired.
     pub async fn shutdown_configured(&self) -> Result<(), X509SourceError> {
         if let Some(timeout) = self.inner.shutdown_timeout {
             self.shutdown_with_timeout(timeout).await
@@ -641,7 +637,7 @@ impl X509Source {
 
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
 
         let initial_sync = initial_sync_with_retry(
             &make_client,
@@ -675,7 +671,7 @@ impl X509Source {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            supervisor: Mutex::new(None),
+            supervisor: OnceLock::new(),
         });
 
         let task_inner = Arc::clone(&inner);
@@ -688,7 +684,10 @@ impl X509Source {
             task_inner.run_update_supervisor(token).await;
         });
 
-        *inner.supervisor.lock().await = Some(handle);
+        let task = SupervisorTask::new(handle);
+        shutdown_guard.install_abort(task.abort_handle());
+        let installed = inner.supervisor.set(task);
+        debug_assert!(installed.is_ok(), "source supervisor installed only once");
 
         Ok(Self {
             inner,
@@ -713,7 +712,7 @@ impl X509Source {
 
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
 
         let make_client: ClientFactory =
             Arc::new(|| Box::pin(async move { Err(WorkloadApiError::EmptyResponse) }));
@@ -741,7 +740,7 @@ impl X509Source {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            supervisor: Mutex::new(None),
+            supervisor: OnceLock::new(),
         };
 
         Self {
@@ -2341,4 +2340,80 @@ mod tests {
         ));
         state.context().unwrap();
     }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::workload_api::lifecycle_test_support::*;
+    use crate::WorkloadApiClient;
+    use tokio::sync::oneshot;
+
+    type Source = X509Source;
+    type SourceError = X509SourceError;
+
+    async fn build(factory: Factory, timeout: Option<Duration>) -> Source {
+        Source::builder()
+            .client_factory(factory)
+            .shutdown_timeout(timeout)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    fn observer(source: &Source) -> tokio::task::AbortHandle {
+        source.inner.supervisor.get().unwrap().abort_handle()
+    }
+
+    fn controlled(
+        timeout: Option<Duration>,
+    ) -> (Source, oneshot::Sender<()>, oneshot::Receiver<()>) {
+        controlled_with_metrics(timeout, None)
+    }
+
+    #[expect(
+        clippy::used_underscore_binding,
+        reason = "Test fixture installs abort permission in the public-owner drop guard"
+    )]
+    fn controlled_with_metrics(
+        timeout: Option<Duration>,
+        metrics: Option<Arc<dyn MetricsRecorder>>,
+    ) -> (Source, oneshot::Sender<()>, oneshot::Receiver<()>) {
+        let svid = Arc::new(
+            X509Svid::parse_from_der(
+                include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der"),
+                include_bytes!("../../tests/testdata/svid/x509/1-key.der"),
+            )
+            .unwrap(),
+        );
+        let mut source = Source::new_for_test(
+            Arc::new(X509Context::new([svid], Arc::new(X509BundleSet::new()))),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            metrics,
+            None,
+        );
+        Arc::get_mut(&mut source.inner).unwrap().shutdown_timeout = timeout;
+        let (release, released) = oneshot::channel();
+        let (dropped, destroyed) = oneshot::channel();
+        let guard = SupervisorTerminationGuard {
+            inner: Arc::clone(&source.inner),
+        };
+        let drop = OnDrop(Some(dropped));
+        let task = tokio::spawn(async move {
+            let _guard = guard;
+            let _drop = drop;
+            let _result = released.await;
+        });
+        let task = SupervisorTask::new(task);
+        source._shutdown_guard.install_abort(task.abort_handle());
+        source.inner.supervisor.set(task).unwrap();
+        (source, release, destroyed)
+    }
+
+    fn restore(source: &Source, initial: &Arc<Snapshot>) {
+        source.inner.apply_update(Arc::clone(&initial.ctx)).unwrap();
+    }
+
+    include!("../workload_api/source_lifecycle_tests.rs");
 }

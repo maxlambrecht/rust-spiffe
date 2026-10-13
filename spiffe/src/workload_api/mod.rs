@@ -19,6 +19,8 @@ pub(crate) mod pb {
         include!("pb/workload.rs");
     }
 }
+#[cfg(all(test, any(feature = "jwt-source", feature = "x509-source")))]
+pub(crate) mod lifecycle_test_support;
 #[cfg(any(feature = "jwt-source", feature = "x509-source"))]
 pub(crate) mod supervisor_common;
 

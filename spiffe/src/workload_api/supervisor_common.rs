@@ -3,9 +3,107 @@
 //! This module contains reusable components for managing Workload API connections,
 //! error tracking, and backoff policies.
 
+use futures::future::{Map, Shared};
+use futures::FutureExt as _;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::OnceLock;
 use std::time::Duration;
+use tokio::task::{AbortHandle, JoinError, JoinHandle};
 use tokio::time::sleep;
 use tokio_util::sync::CancellationToken;
+
+/// Public-owner cleanup is independent of the supervisor's references to Inner.
+#[derive(Debug)]
+pub(crate) struct SourceOwner {
+    cancel: CancellationToken,
+    abort: OnceLock<AbortHandle>,
+}
+
+impl SourceOwner {
+    pub(crate) const fn new(cancel: CancellationToken) -> Self {
+        Self {
+            cancel,
+            abort: OnceLock::new(),
+        }
+    }
+
+    /// Installed synchronously after spawn, before another build await or public return.
+    pub(crate) fn install_abort(&self, abort: AbortHandle) {
+        let installed = self.abort.set(abort);
+        debug_assert!(installed.is_ok(), "source supervisor installed only once");
+    }
+}
+
+impl Drop for SourceOwner {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        if let Some(abort) = self.abort.get() {
+            abort.abort();
+        }
+    }
+}
+
+/// Compact joined outcome; does not retain a supervisor panic payload or Inner.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum JoinOutcome {
+    Finished,
+    Cancelled,
+    Panicked,
+}
+
+fn join_outcome(result: Result<(), JoinError>) -> JoinOutcome {
+    match result {
+        Ok(()) => JoinOutcome::Finished,
+        Err(error) if error.is_panic() => JoinOutcome::Panicked,
+        Err(_) => JoinOutcome::Cancelled,
+    }
+}
+
+type JoinCompletion = Shared<Map<JoinHandle<()>, fn(Result<(), JoinError>) -> JoinOutcome>>;
+
+/// Durable ownership of the single source supervisor, independent of shutdown waiters.
+#[derive(Debug)]
+pub(crate) struct SupervisorTask {
+    completion: JoinCompletion,
+    abort: AbortHandle,
+    failure_reported: AtomicBool,
+}
+
+impl SupervisorTask {
+    pub(crate) fn new(handle: JoinHandle<()>) -> Self {
+        let map_outcome: fn(Result<(), JoinError>) -> JoinOutcome = join_outcome;
+        Self {
+            abort: handle.abort_handle(),
+            completion: handle.map(map_outcome).shared(),
+            failure_reported: AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn abort_handle(&self) -> AbortHandle {
+        self.abort.clone()
+    }
+
+    /// The boolean records only this caller's grace expiry. Even after abort,
+    /// returning requires observation of the actual joined task completion.
+    pub(crate) async fn join(&self, timeout: Option<Duration>) -> (JoinOutcome, bool) {
+        if let Some(timeout) = timeout {
+            // Tokio timeout polls completion before the deadline, including zero grace.
+            if let Ok(outcome) = tokio::time::timeout(timeout, self.completion.clone()).await {
+                return (outcome, false);
+            }
+            self.abort.abort();
+            (self.completion.clone().await, true)
+        } else {
+            (self.completion.clone().await, false)
+        }
+    }
+
+    /// Claim diagnostics only after Shared has persisted completion. No callback
+    /// runs in its mapper or while a lifecycle lock is held.
+    pub(crate) fn report_failure_once(&self, outcome: JoinOutcome) -> bool {
+        outcome != JoinOutcome::Finished && !self.failure_reported.swap(true, Ordering::AcqRel)
+    }
+}
 
 /// Supervisor policy: maximum number of consecutive identical errors before suppressing WARN logs.
 ///
