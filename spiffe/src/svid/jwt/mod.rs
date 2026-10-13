@@ -37,6 +37,9 @@ use crate::bundle::BundleSource;
 #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
 use jsonwebtoken::{DecodingKey, Validation};
 
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+mod verification;
+
 /// The kind of failure encountered during offline JWT verification.
 ///
 /// Verification reports the first failure encountered. A token may have other
@@ -47,6 +50,8 @@ use jsonwebtoken::{DecodingKey, Validation};
 pub enum JwtVerificationErrorKind {
     /// The token has expired.
     Expired,
+    /// The token's not-before time has not been reached.
+    NotYetValid,
     /// The token audience does not match the expected audience.
     AudienceMismatch,
     /// The signature does not verify with the selected authority.
@@ -82,6 +87,7 @@ impl JwtVerificationError {
 
         match self.source.kind() {
             ErrorKind::ExpiredSignature => JwtVerificationErrorKind::Expired,
+            ErrorKind::ImmatureSignature => JwtVerificationErrorKind::NotYetValid,
             ErrorKind::InvalidAudience => JwtVerificationErrorKind::AudienceMismatch,
             ErrorKind::InvalidSignature => JwtVerificationErrorKind::InvalidSignature,
             _ => JwtVerificationErrorKind::Other,
@@ -232,6 +238,21 @@ pub enum JwtSvidError {
     #[error("malformed jwt token: invalid json")]
     InvalidJson(#[source] JsonError),
 
+    /// The offline JOSE header contains unsupported fields or invalid field types.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("invalid JWT-SVID JOSE header")]
+    InvalidJoseHeader(#[source] JsonError),
+
+    /// A present `nbf` is not a supported `NumericDate`.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("invalid token not-before ('nbf') claim")]
+    InvalidNotBefore,
+
+    /// The verification clock is before the Unix epoch or outside the supported range.
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    #[error("JWT verification clock is outside the supported range")]
+    InvalidVerificationTime,
+
     /// Cannot find a JWT bundle for the trust domain, to validate the token signature.
     #[error("cannot find JWT bundle for trust domain: {0}")]
     BundleNotFound(TrustDomain),
@@ -355,7 +376,10 @@ impl JwtSvid {
     /// - required headers/claims are missing or invalid (`kid`, `sub`, `aud`, `exp`),
     /// - the `sub` claim is not a valid SPIFFE ID,
     /// - the `alg` header is not supported,
-    /// - the optional `typ` header is present but not `JWT` or `JOSE`.
+    /// - a non-null `typ` header is present but not `JWT` or `JOSE`.
+    ///
+    /// This parse-only path treats `typ: null` as omission and ignores additional
+    /// headers and optional claims. Offline verification applies a stricter policy.
     pub fn parse_insecure(token: &str) -> Result<Self, JwtSvidError> {
         Self::from_str(token)
     }
@@ -363,7 +387,8 @@ impl JwtSvid {
     /// Parses and validates `token` offline:
     /// - verifies the signature using the provided bundle source,
     /// - validates the audience against `expected_audience`,
-    /// - validates expiration (`exp`).
+    /// - validates expiration (`exp`) and a present not-before claim (`nbf`),
+    /// - rejects unsupported JOSE header fields and semantics.
     ///
     /// Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`).
     ///
@@ -371,17 +396,29 @@ impl JwtSvid {
     ///
     /// This method validates:
     /// - **Signature**: Verified using the JWT authority from the bundle
-    /// - **Expiration (`exp`)**: Token must not be expired (no clock skew leeway)
+    /// - **Expiration (`exp`)**: Requires `now < exp`; equality is expired
+    /// - **Not before (`nbf`)**: Optional; when present, requires `now >= nbf`
+    /// - **JOSE header**: Only `alg`, required `kid`, and optional `typ` are allowed.
+    ///   Present `typ` must be the string `JWT` or `JOSE`; null and duplicates reject
     /// - **Audience (`aud`)**: Must match one of the values in `expected_audience`
     /// - **Required claims**: `sub`, `aud`, `exp` must be present and valid
     /// - **Algorithm**: Must be supported by the SPIFFE JWT-SVID profile and by
     ///   the configured offline verification backend
     ///
+    /// Both temporal checks use one observation of [`std::time::SystemTime`] with
+    /// nanosecond precision and no clock-skew leeway. A pre-epoch or out-of-range
+    /// clock fails closed. `exp` retains its required integer-seconds representation.
+    /// A present `nbf` must be a JSON number exactly representable as nanoseconds
+    /// in the inclusive range -377705116800 through 253402300799.999999999 seconds
+    /// since the Unix epoch (years -9999 through 9999). Negative dates, decimals,
+    /// and exponent notation are supported; nonzero sub-nanosecond precision and
+    /// exponents outside the signed 32-bit range reject rather than round.
+    ///
     /// This method does **not** validate:
     /// - **Issued at (`iat`)**: Not checked
-    /// - **Not before (`nbf`)**: Not checked
     /// - **Issuer (`iss`)**: Not checked (trust domain is derived from `sub`)
-    /// - **Clock skew**: No leeway is applied to expiration checks
+    ///
+    /// Additional private payload claims remain permitted.
     ///
     /// # Errors
     ///
@@ -391,7 +428,10 @@ impl JwtSvid {
     /// - the token uses an unsupported signature algorithm,
     /// - the trust domain bundle or authority (`kid`) cannot be found,
     /// - the signature verification fails,
-    /// - the token is expired, or the audience does not match `expected_audience`,
+    /// - the token is expired or not yet active, or its audience does not match,
+    /// - a present `nbf` is malformed or outside the supported precision/range,
+    /// - the JOSE header contains unsupported fields or invalid field types,
+    /// - the verification clock cannot be represented safely,
     /// - the bundle source returns an error while fetching bundles.
     #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
     pub fn parse_and_validate<B, T>(
@@ -404,12 +444,35 @@ impl JwtSvid {
         B::Error: std::error::Error + Send + Sync + 'static,
         T: AsRef<str> + fmt::Debug,
     {
+        Self::parse_and_validate_with_clock(
+            token,
+            bundle_source,
+            expected_audience,
+            std::time::SystemTime::now,
+        )
+    }
+
+    #[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+    fn parse_and_validate_with_clock<B, T>(
+        token: &str,
+        bundle_source: &B,
+        expected_audience: &[T],
+        clock: impl FnOnce() -> std::time::SystemTime,
+    ) -> Result<Self, JwtSvidError>
+    where
+        B: BundleSource<Item = JwtBundle>,
+        B::Error: std::error::Error + Send + Sync + 'static,
+        T: AsRef<str> + fmt::Debug,
+    {
         use jsonwebtoken::jwk::Jwk;
 
+        let now = verification::clock_timestamp(clock())?;
         // Parse untrusted token to extract trust domain, kid, and alg.
         // Note: The `aud` claim size limit is enforced during Claims deserialization,
         // rejecting oversized arrays before signature verification and other expensive processing.
-        let untrusted = Self::parse_insecure(token)?;
+        let (untrusted, claims_json) = Self::parse_with_header(token, verification::parse_header)?;
+        let not_before = verification::parse_not_before(&claims_json)?;
+        drop(claims_json);
 
         let jw_alg = untrusted
             .alg
@@ -423,7 +486,11 @@ impl JwtSvid {
         )?;
 
         let mut validation = Validation::new(jw_alg);
-        validation.validate_exp = true;
+        // Structural Claims deserialization requires a valid integer exp.
+        // Keep the backend's required-exp and audience checks, but perform both
+        // temporal comparisons locally against the single captured clock.
+        validation.validate_exp = false;
+        validation.validate_nbf = false;
         validation.leeway = 0;
 
         let aud: Vec<&str> = expected_audience.iter().map(AsRef::as_ref).collect();
@@ -435,10 +502,11 @@ impl JwtSvid {
         let dec_key = DecodingKey::from_jwk(&jwk)
             .map_err(|source| JwtSvidError::InvalidToken(JwtVerificationError::new(source)))?;
 
-        // Perform a validating decode (signature, exp, aud).
+        // Authenticate the original bytes and validate required exp and aud.
         jsonwebtoken::decode::<Claims>(token, &dec_key, &validation)
             .map_err(|source| JwtSvidError::InvalidToken(JwtVerificationError::new(source)))?;
 
+        verification::validate_times(untrusted.expiry, not_before, now)?;
         Ok(untrusted)
     }
 
@@ -519,11 +587,29 @@ impl JwtSvid {
     }
 }
 
+#[cfg(test)]
+#[cfg(any(feature = "jwt-verify-rust-crypto", feature = "jwt-verify-aws-lc-rs"))]
+mod verification_tests;
+
 impl FromStr for JwtSvid {
     type Err = JwtSvidError;
 
     /// Creates a new [`JwtSvid`] from `token` without signature verification.
     fn from_str(token: &str) -> Result<Self, Self::Err> {
+        Self::parse_with_header(token, |json| {
+            serde_json::from_slice(json)
+                .map_err(|source| JwtSvidError::InvalidJson(JsonError::new(source)))
+        })
+        .map(|(svid, _)| svid)
+    }
+}
+
+impl JwtSvid {
+    // Retain the bounded decoded claims for the verification-only nbf parser.
+    fn parse_with_header(
+        token: &str,
+        parse_header: impl FnOnce(&[u8]) -> Result<Header, JwtSvidError>,
+    ) -> Result<(Self, Vec<u8>), JwtSvidError> {
         // Split JWT parts.
         let mut it = token.split('.');
         let header_b64 = it.next().ok_or(JwtSvidError::InvalidJwtFormat)?;
@@ -536,8 +622,7 @@ impl FromStr for JwtSvid {
         let header_json = decode_b64url_to_vec(header_b64)?;
         let claims_json = decode_b64url_to_vec(claims_b64)?;
 
-        let header: Header = serde_json::from_slice(&header_json)
-            .map_err(|source| JwtSvidError::InvalidJson(JsonError::new(source)))?;
+        let header = parse_header(&header_json)?;
         let claims: Claims = serde_json::from_slice(&claims_json)
             .map_err(|source| JwtSvidError::InvalidJson(JsonError::new(source)))?;
 
@@ -561,15 +646,18 @@ impl FromStr for JwtSvid {
         let expiry = OffsetDateTime::from_unix_timestamp(claims.exp)
             .map_err(|time::error::ComponentRange { .. }| JwtSvidError::InvalidExpiration)?;
 
-        Ok(Self {
-            spiffe_id,
-            hint: None,
-            expiry,
-            claims,
-            kid,
-            alg,
-            token: Token::from(token),
-        })
+        Ok((
+            Self {
+                spiffe_id,
+                hint: None,
+                expiry,
+                claims,
+                kid,
+                alg,
+                token: Token::from(token),
+            },
+            claims_json,
+        ))
     }
 }
 
@@ -746,6 +834,17 @@ mod tests {
 
         let svid = JwtSvid::parse_insecure(&token).unwrap();
         assert_eq!(svid.audience(), &["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn parse_only_preserves_optional_claim_and_header_handling() {
+        let token = mk_token(
+            r#"{"alg":"ES256","kid":"k1","typ":null,"b64":true,"private":{}}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295,"nbf":null,"private":{"roles":["reader"]}}"#,
+        );
+        JwtSvid::parse_insecure(&token).unwrap();
+        JwtSvid::from_workload_api_token(&token).unwrap();
+        token.parse::<JwtSvid>().unwrap();
     }
 
     #[test]

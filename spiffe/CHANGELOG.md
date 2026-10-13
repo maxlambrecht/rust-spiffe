@@ -2,9 +2,15 @@
 
 ## [Unreleased]
 
+### Security
+
+- **JwtSvid offline verification (RS-009/018):** Enforce a present `nbf` without numeric rounding and reject `exp == now`. Both checks share one nanosecond clock observation with zero skew. `nbf` remains optional and supports negative dates, decimals, and exponent notation exactly representable at nanosecond precision in years -9999 through 9999; other types, finer nonzero precision, exponents outside the signed 32-bit range, and out-of-range dates reject. `exp` remains required integer seconds. The dependency still checks signatures, required expiration presence, and audiences; local checks own temporal decisions.
+- **JwtSvid offline verification (RS-010):** Reject every JOSE header field except `alg`, required `kid`, and optional string `typ` (`JWT` or `JOSE`). Present-null `typ`, wrongly typed fields, duplicates, critical extensions, and key references reject. Parse-only and Workload API token handling, optional private payload claims, and trusted JWK ingestion are unchanged.
+
 ### Added
 
-- `JwtVerificationError::kind()` returns a non-exhaustive `JwtVerificationErrorKind` (`Expired`, `AudienceMismatch`, `InvalidSignature`, or `Other`) for consumer decisions without backend downcasts. Verification semantics and order are unchanged.
+- `JwtVerificationError::kind()` returns a non-exhaustive `JwtVerificationErrorKind` (`Expired`, `NotYetValid`, `AudienceMismatch`, `InvalidSignature`, or `Other`) for consumer decisions without backend downcasts. `Expired` retains its existing classification; `NotYetValid` identifies activation failure.
+- Offline-only `JwtSvidError::InvalidJoseHeader`, `InvalidNotBefore`, and `InvalidVerificationTime` distinguish header policy/type errors, malformed or unsupported present activation dates, and unsafe clock observations. Verification reports the first encountered failure; ordering remains unspecified.
 - `TransportError::status_with_source` preserves a type-erased diagnostic source alongside the authoritative status code and message.
 
 ### Breaking changes
