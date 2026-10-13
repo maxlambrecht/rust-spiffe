@@ -314,14 +314,17 @@ impl Inner {
                 return;
             }
 
-            let Ok(client) = try_create_client(
-                self.make_client(),
-                backoff,
-                &mut error_tracker,
-                self.metrics(),
-            )
-            .await
-            else {
+            let created = tokio::select! {
+                biased;
+                () = cancellation_token.cancelled() => return,
+                result = try_create_client(
+                    self.make_client(),
+                    backoff,
+                    &mut error_tracker,
+                    self.metrics(),
+                ) => result,
+            };
+            let Ok(client) = created else {
                 if self
                     .backoff_and_maybe_cancel(&cancellation_token, backoff)
                     .await
@@ -332,17 +335,23 @@ impl Inner {
                 continue;
             };
 
-            match try_connect_stream(
-                &client,
-                backoff,
-                &mut error_tracker,
-                self.metrics(),
-                StreamPhase::Supervisor,
-                Some(supervisor_id),
-                Some(self),
-            )
-            .await
-            {
+            if cancellation_token.is_cancelled() {
+                return;
+            }
+            let connected = tokio::select! {
+                biased;
+                () = cancellation_token.cancelled() => return,
+                result = try_connect_stream(
+                    &client,
+                    backoff,
+                    &mut error_tracker,
+                    self.metrics(),
+                    StreamPhase::Supervisor,
+                    Some(supervisor_id),
+                    Some(self),
+                ) => result,
+            };
+            match connected {
                 Ok(mut stream) => {
                     let result = self
                         .process_stream_updates(&mut stream, &cancellation_token, supervisor_id)
@@ -397,6 +406,9 @@ impl Inner {
     }
 
     async fn backoff_and_maybe_cancel(&self, token: &CancellationToken, backoff: Duration) -> bool {
+        if token.is_cancelled() {
+            return true;
+        }
         if let Some(metrics) = self.metrics() {
             metrics.record_reconnect();
         }
@@ -418,6 +430,7 @@ impl Inner {
 
         loop {
             let item = tokio::select! {
+                biased;
                 () = cancellation_token.cancelled() => {
                     debug!("Cancellation signal received; stopping update loop");
                     return StreamResult { cancelled: true, had_valid_item };

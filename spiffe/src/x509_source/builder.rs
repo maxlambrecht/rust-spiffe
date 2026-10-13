@@ -303,6 +303,11 @@ impl X509SourceBuilder {
     }
 
     /// Sets a custom client factory.
+    ///
+    /// Supervisor setup may drop the returned future on cancellation. Factories
+    /// must tolerate abandonment and yield during asynchronous work; invoking the
+    /// callback or polling its future must not block synchronously. Tasks spawned
+    /// by a custom factory remain that factory's responsibility.
     #[must_use]
     pub fn client_factory(mut self, factory: ClientFactory) -> Self {
         self.make_client = Some(factory);
@@ -428,11 +433,12 @@ impl X509SourceBuilder {
         self
     }
 
-    /// Sets the shutdown timeout.
+    /// Sets the graceful deadline used by `shutdown_configured()`.
     ///
-    /// When `shutdown_with_timeout()` or `shutdown_configured()` is called, it will wait
-    /// at most this duration for background tasks to complete. If `None`, shutdown will
-    /// wait indefinitely (same as `shutdown()`).
+    /// On expiry, shutdown requests supervisor abort and then waits for actual
+    /// termination. This is not an absolute bound on synchronous callbacks or
+    /// destructors. With `None`, shutdown waits indefinitely, like `shutdown()`.
+    /// An explicit `shutdown_with_timeout()` call uses its own argument.
     ///
     /// Default is 30 seconds.
     ///

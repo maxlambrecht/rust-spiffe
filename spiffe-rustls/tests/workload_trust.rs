@@ -755,6 +755,143 @@ mod probes {
     }
 
     #[tokio::test]
+    async fn interrupted_concurrent_shutdown_preserves_final_tls_revision() {
+        use std::future::Future as _;
+        use std::task::Poll;
+
+        for policy in [
+            spiffe_rustls::TerminalSourcePolicy::RetainFinal,
+            spiffe_rustls::TerminalSourcePolicy::FailClosed,
+        ] {
+            // Denial, failed conversion, recovery from that block, and transient outage.
+            for event in 0..4 {
+                let (source, tx, mut metrics, server) =
+                    source(response(A, KA, CA, "", false), false).await;
+                let mut configs = Configs::new(&source, policy);
+                configs.accept(A, KA); // otherwise valid peers in both roles and TLS versions
+                let mut updates = source.updated();
+                let _previous = tx.send_replace(match event {
+                    0 => Err(tonic::Status::permission_denied("withdrawn")),
+                    3 => Err(tonic::Status::unavailable("temporary")),
+                    _ => Ok(response(A, KB, CB, "", false)),
+                });
+                let revision = if event == 3 {
+                    metric(&mut metrics, "reconnect").await;
+                    configs.accept(A, KA); // outage retains current permission
+                    0
+                } else {
+                    updates.changed().await.unwrap();
+                    configs.reject(A, KA);
+                    if event == 2 {
+                        let _previous = tx.send_replace(Ok(response(B, KB, CB, "", false)));
+                        updates.changed().await.unwrap();
+                        2
+                    } else {
+                        1
+                    }
+                };
+
+                // Poll both callers without scheduling the supervisor in between.
+                // Discard the first join waiter, then drive the retained join from the second.
+                let mut first = Box::pin(source.shutdown());
+                assert!(
+                    std::future::poll_fn(|cx| Poll::Ready(first.as_mut().poll(cx)))
+                        .await
+                        .is_pending()
+                );
+                let mut second = Box::pin(source.shutdown_with_timeout(Duration::from_secs(5)));
+                assert!(
+                    std::future::poll_fn(|cx| Poll::Ready(second.as_mut().poll(cx)))
+                        .await
+                        .is_pending()
+                );
+                drop(first);
+                second.await.unwrap();
+                configs.applied(revision).await;
+                assert!(source.state().is_closed());
+                assert_eq!(source.state().revision(), revision);
+
+                for status in [&configs.client_status, &configs.server_status] {
+                    let final_state = status.current();
+                    assert_eq!(final_state.source_revision, revision);
+                    assert!(!final_state.refreshing);
+                    match event {
+                        0 => assert!(matches!(
+                            final_state.error.as_deref(),
+                            Some(spiffe_rustls::Error::Source(
+                                spiffe::x509_source::X509SourceError::Withdrawn(_)
+                            ))
+                        )),
+                        1 if policy == spiffe_rustls::TerminalSourcePolicy::RetainFinal => {
+                            assert!(matches!(final_state.error.as_deref(), Some(
+                                spiffe_rustls::Error::MaterialUnavailable(cause)
+                            ) if matches!(cause.as_ref(), spiffe_rustls::Error::CertifiedKey(_))));
+                        }
+                        _ if policy == spiffe_rustls::TerminalSourcePolicy::FailClosed => {
+                            assert!(matches!(
+                                final_state.error.as_deref(),
+                                Some(spiffe_rustls::Error::SourceClosed)
+                            ));
+                        }
+                        _ => assert!(final_state.available),
+                    }
+                }
+                if event < 2 || policy == spiffe_rustls::TerminalSourcePolicy::FailClosed {
+                    configs.reject(A, KA);
+                } else if event == 2 {
+                    configs.reject(A, KA);
+                    configs.accept(B, KB); // RetainFinal uses recovered B, never old A
+                } else {
+                    configs.accept(A, KA);
+                }
+                source.shutdown_configured().await.unwrap();
+                server.abort();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn jwt_withdrawal_survives_interrupted_shutdown() {
+        use std::future::Future as _;
+        use std::task::Poll;
+        let initial = JwtBundlesResponse {
+            bundles: HashMap::from([(
+                "spiffe://example.org".into(),
+                br#"{"keys":[{"kid":"a","kty":"EC","crv":"P-256","x":"unused","y":"unused"}]}"#
+                    .to_vec()
+                    .into(),
+            )]),
+        };
+        let (endpoint, tx, server) = serve::<JwtBundlesRequest, _>(initial, false).await;
+        let source = spiffe::JwtSource::builder()
+            .endpoint(endpoint)
+            .build()
+            .await
+            .unwrap();
+        source.bundle_set().unwrap();
+        let mut updates = source.updated();
+        let _previous = tx.send_replace(Err(tonic::Status::permission_denied("withdrawn")));
+        assert_eq!(updates.changed().await.unwrap(), 1);
+        let mut first = Box::pin(source.shutdown());
+        assert!(
+            std::future::poll_fn(|cx| Poll::Ready(first.as_mut().poll(cx)))
+                .await
+                .is_pending()
+        );
+        drop(first);
+        source.shutdown_configured().await.unwrap();
+        let final_state = source.state();
+        assert!(final_state.is_closed());
+        assert_eq!(final_state.revision(), 1);
+        assert!(matches!(
+            final_state.bundle_set(),
+            Err(spiffe::jwt_source::JwtSourceError::Withdrawn(_))
+        ));
+        source.shutdown().await;
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn jwt_bundle_denial_is_scoped_and_identical_response_recovers() {
         for headers in [true, false] {
             for msg in ["denied", "no identity issued"] {

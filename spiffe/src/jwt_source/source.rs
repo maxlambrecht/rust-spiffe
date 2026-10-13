@@ -7,6 +7,7 @@ use super::types::ClientFactory;
 use crate::bundle::BundleSource;
 use crate::prelude::{debug, warn};
 use crate::transport::{GrpcStatusCode, TransportError};
+use crate::workload_api::supervisor_common::{SourceOwner, SupervisorTask};
 use crate::workload_api::WorkloadApiClient;
 use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiError};
 use arc_swap::ArcSwap;
@@ -14,10 +15,10 @@ use std::fmt::Debug;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio::sync::{watch, Mutex};
-use tokio::task::JoinHandle;
-use tokio_util::sync::{CancellationToken, DropGuard};
+use tokio_util::sync::CancellationToken;
 
 /// Handle for receiving update notifications from a [`JwtSource`].
 ///
@@ -147,12 +148,12 @@ impl JwtSourceUpdates {
 /// Unlike X.509 SVIDs which are streamed continuously, JWT SVIDs are fetched on-demand
 /// with specific audiences. Use [`JwtSource::fetch_jwt_svid`] to fetch JWT SVIDs as needed.
 ///
-/// Use [`JwtSource::shutdown`] or [`JwtSource::shutdown_configured`] to stop background tasks.
+/// Use [`JwtSource::shutdown`] or [`JwtSource::shutdown_configured`] to stop the supervisor.
 ///
 #[derive(Clone, Debug)]
 pub struct JwtSource {
     inner: Arc<Inner>,
-    _shutdown_guard: Arc<DropGuard>,
+    _shutdown_guard: Arc<SourceOwner>,
 }
 
 /// Coherent JWT bundle permission and revision, independent of JWT issuance RPCs.
@@ -223,7 +224,7 @@ pub(super) struct Inner {
     update_tx: watch::Sender<u64>,
 
     // Supervisor task handle (joined/aborted at shutdown).
-    supervisor: Mutex<Option<JoinHandle<()>>>,
+    supervisor: OnceLock<SupervisorTask>,
 }
 
 impl Inner {
@@ -309,7 +310,7 @@ impl Debug for Inner {
             .field("cancel", &self.cancel)
             .field("update_seq", &self.update_seq)
             .field("update_tx", &"<watch::Sender<u64>>")
-            .field("supervisor", &"<Mutex<Option<JoinHandle<()>>>>")
+            .field("supervisor", &"<OnceLock<SupervisorTask>>")
             .finish()
     }
 }
@@ -581,45 +582,59 @@ impl JwtSource {
         }
     }
 
-    /// Cancels background tasks and waits for termination.
+    /// Requests cancellation and waits for the source supervisor to terminate.
     ///
-    /// This method is idempotent. Calling it multiple times is safe and has no
-    /// additional effect after the first invocation.
+    /// The first poll closes admission and requests cancellation. Dropping this
+    /// shutdown future preserves that request and the source's join ownership.
+    /// Concurrent and repeated callers all observe actual supervisor completion.
     ///
-    /// The shutdown request is best-effort. Background tasks are signaled to stop
-    /// and awaited before returning.
+    /// This can wait indefinitely if cleanup cannot finish. For a graceful
+    /// deadline followed by abort and join, use [`JwtSource::shutdown_with_timeout`]
+    /// or [`JwtSource::shutdown_configured`].
     ///
-    /// **Note:** This method may wait indefinitely if background tasks don't respond.
-    /// For production use, use [`JwtSource::shutdown_with_timeout`] or
-    /// [`JwtSource::shutdown_configured`].
+    /// Completion covers the source supervisor, including destruction of its
+    /// directly owned futures. It does not join dependency-owned transport workers
+    /// or caller-owned JWT fetches.
     pub async fn shutdown(&self) {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        self.inner.cancel.cancel();
-
-        if let Some(handle) = self.inner.supervisor.lock().await.take() {
-            if let Err(e) = handle.await {
-                warn!("Error joining supervisor task during shutdown: error={e}");
-                self.inner
-                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
-            }
-        }
+        self.join_supervisor(None).await;
     }
 
-    /// Cancels background tasks and waits for termination with a timeout.
+    async fn join_supervisor(&self, timeout: Option<Duration>) -> bool {
+        self.inner.closed.store(true, Ordering::Release);
+        self.inner.cancel.cancel();
+        // Production builds install the task synchronously before returning a source.
+        // Test-only sources may intentionally have no supervisor.
+        let Some(task) = self.inner.supervisor.get() else {
+            return false;
+        };
+        let (outcome, timed_out) = task.join(timeout).await;
+        if !timed_out && task.report_failure_once(outcome) {
+            warn!("Error joining supervisor task during shutdown: {outcome:?}");
+            self.inner
+                .record_error(MetricsErrorKind::SupervisorJoinFailed);
+        }
+        if timed_out {
+            warn!("Shutdown grace expired; supervisor aborted and joined");
+        }
+        timed_out
+    }
+
+    /// Requests cancellation, then aborts and joins after a graceful deadline.
     ///
-    /// This method attempts graceful shutdown first: it signals cancellation and
-    /// waits up to `timeout` for the supervisor task to complete. If the timeout
-    /// is exceeded, the task is forcefully aborted.
+    /// Each caller has its own `timeout`. When its grace period expires, it
+    /// requests abort and continues waiting for actual supervisor completion.
+    /// Another caller can observe that completion within its own grace period
+    /// and return `Ok(())`. Repeated calls after completion return promptly.
     ///
-    /// This method is idempotent. Calling it multiple times is safe and has no
-    /// additional effect after the first invocation.
+    /// Dropping a shutdown future never loses join ownership. The grace period
+    /// is not an absolute wall-clock bound: abort cannot preempt synchronous
+    /// callbacks or destructors, and this method waits for them to finish.
     ///
     /// # Errors
     ///
-    /// Returns [`JwtSourceError::ShutdownTimeout`] if graceful shutdown does not
-    /// complete within the timeout and the task must be aborted.
+    /// Returns [`JwtSourceError::ShutdownTimeout`] after joining if this caller's
+    /// grace period expired. Supervisor panic counts as termination under the
+    /// existing error contract.
     ///
     /// # Examples
     ///
@@ -634,41 +649,23 @@ impl JwtSource {
     /// # }
     /// ```
     pub async fn shutdown_with_timeout(&self, timeout: Duration) -> Result<(), JwtSourceError> {
-        if self.inner.closed.swap(true, Ordering::AcqRel) {
-            return Ok(());
-        }
-        self.inner.cancel.cancel();
-
-        let Some(mut handle) = self.inner.supervisor.lock().await.take() else {
-            return Ok(());
-        };
-
-        match tokio::time::timeout(timeout, &mut handle).await {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => {
-                warn!("Error joining supervisor task during shutdown: error={e}");
-                self.inner
-                    .record_error(MetricsErrorKind::SupervisorJoinFailed);
-                Ok(())
-            }
-            Err(_) => {
-                warn!("Shutdown timeout exceeded; aborting supervisor task");
-                handle.abort();
-                // Wait for the abort to take effect
-                let _unused: Result<_, _> = handle.await;
-                Err(JwtSourceError::ShutdownTimeout)
-            }
+        if self.join_supervisor(Some(timeout)).await {
+            Err(JwtSourceError::ShutdownTimeout)
+        } else {
+            Ok(())
         }
     }
 
-    /// Cancels background tasks and waits for termination using the configured timeout.
+    /// Shuts down the supervisor using the builder's graceful deadline.
     ///
-    /// Uses the timeout configured in the builder.
-    /// If no timeout was configured, this method will wait indefinitely (same as `shutdown()`).
+    /// The default is 30 seconds. With `None`, this waits indefinitely, like
+    /// [`JwtSource::shutdown`]. With `Some`, it has the same abort-then-join and
+    /// cancellation guarantees as [`JwtSource::shutdown_with_timeout`].
     ///
     /// # Errors
     ///
-    /// Returns [`JwtSourceError::ShutdownTimeout`] if the configured shutdown timeout is exceeded.
+    /// Returns [`JwtSourceError::ShutdownTimeout`] after joining if this caller's
+    /// configured grace period expired.
     pub async fn shutdown_configured(&self) -> Result<(), JwtSourceError> {
         if let Some(timeout) = self.inner.shutdown_timeout {
             self.shutdown_with_timeout(timeout).await
@@ -699,12 +696,12 @@ struct BuildParts {
     metrics: Option<Arc<dyn MetricsRecorder>>,
     shutdown_timeout: Option<Duration>,
     cancel: CancellationToken,
-    shutdown_guard: Arc<DropGuard>,
+    shutdown_guard: Arc<SourceOwner>,
     update_tx: watch::Sender<u64>,
 }
 
 impl JwtSource {
-    async fn build_from_synced_bundle_set(
+    fn build_from_synced_bundle_set(
         parts: BuildParts,
         initial_bundle_set: Arc<JwtBundleSet>,
     ) -> Self {
@@ -738,7 +735,7 @@ impl JwtSource {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            supervisor: Mutex::new(None),
+            supervisor: OnceLock::new(),
         });
 
         let task_inner = Arc::clone(&inner);
@@ -751,7 +748,10 @@ impl JwtSource {
             task_inner.run_update_supervisor(token).await;
         });
 
-        *inner.supervisor.lock().await = Some(handle);
+        let task = SupervisorTask::new(handle);
+        shutdown_guard.install_abort(task.abort_handle());
+        let installed = inner.supervisor.set(task);
+        debug_assert!(installed.is_ok(), "source supervisor installed only once");
 
         Self {
             inner,
@@ -770,7 +770,10 @@ impl JwtSource {
         let initial_bundle_set =
             initial_sync_with_timeout(initial_sync, &parts.cancel, initial_sync_timeout).await?;
 
-        Ok(Self::build_from_synced_bundle_set(parts, initial_bundle_set).await)
+        Ok(Self::build_from_synced_bundle_set(
+            parts,
+            initial_bundle_set,
+        ))
     }
 
     pub(super) async fn build_with(
@@ -785,7 +788,7 @@ impl JwtSource {
 
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
         let initial_sync_make_client = Arc::clone(&make_client);
         let initial_sync_cancel = cancel.clone();
         let initial_sync_metrics = metrics.clone();
@@ -850,7 +853,7 @@ impl JwtSource {
 
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
 
         let inner = Inner {
             snapshot: ArcSwap::from_pointee(JwtSourceState {
@@ -871,7 +874,7 @@ impl JwtSource {
             cancel,
             update_seq: AtomicU64::new(0),
             update_tx,
-            supervisor: Mutex::new(None),
+            supervisor: OnceLock::new(),
         };
 
         Self {
@@ -1390,7 +1393,7 @@ mod tests {
     async fn build_with_initial_sync_timeout_does_not_eagerly_create_jwt_client() {
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
-        let shutdown_guard = Arc::new(cancel.clone().drop_guard());
+        let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
         let make_client: ClientFactory = Arc::new(|| {
             Box::pin(async {
                 std::future::pending::<Result<WorkloadApiClient, WorkloadApiError>>().await
@@ -2171,4 +2174,82 @@ mod tests {
         assert!(source.state().is_closed());
         source.state().bundle_set().unwrap_err();
     }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use crate::workload_api::lifecycle_test_support::*;
+    use tokio::sync::oneshot;
+
+    type Source = JwtSource;
+    type SourceError = JwtSourceError;
+
+    async fn build(factory: Factory, timeout: Option<Duration>) -> Source {
+        Source::builder()
+            .client_factory(factory)
+            .shutdown_timeout(timeout)
+            .build()
+            .await
+            .unwrap()
+    }
+
+    fn observer(source: &Source) -> tokio::task::AbortHandle {
+        source.inner.supervisor.get().unwrap().abort_handle()
+    }
+
+    fn controlled(
+        timeout: Option<Duration>,
+    ) -> (Source, oneshot::Sender<()>, oneshot::Receiver<()>) {
+        controlled_with_metrics(timeout, None)
+    }
+
+    #[expect(
+        clippy::used_underscore_binding,
+        reason = "Test fixture installs abort permission in the public-owner drop guard"
+    )]
+    fn controlled_with_metrics(
+        timeout: Option<Duration>,
+        metrics: Option<Arc<dyn MetricsRecorder>>,
+    ) -> (Source, oneshot::Sender<()>, oneshot::Receiver<()>) {
+        let mut bundles = JwtBundleSet::new();
+        bundles.add_bundle(
+            JwtBundle::from_jwt_authorities(
+                TrustDomain::new("example.org").unwrap(),
+                br#"{"keys":[{"kid":"probe","kty":"EC","crv":"P-256","x":"unused","y":"unused"}]}"#,
+            )
+            .unwrap(),
+        );
+        let mut source = Source::new_for_test(
+            Arc::new(bundles),
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            metrics,
+        );
+        Arc::get_mut(&mut source.inner).unwrap().shutdown_timeout = timeout;
+        let (release, released) = oneshot::channel();
+        let (dropped, destroyed) = oneshot::channel();
+        let guard = SupervisorTerminationGuard {
+            inner: Arc::clone(&source.inner),
+        };
+        let drop = OnDrop(Some(dropped));
+        let task = tokio::spawn(async move {
+            let _guard = guard;
+            let _drop = drop;
+            let _result = released.await;
+        });
+        let task = SupervisorTask::new(task);
+        source._shutdown_guard.install_abort(task.abort_handle());
+        source.inner.supervisor.set(task).unwrap();
+        (source, release, destroyed)
+    }
+
+    fn restore(source: &Source, initial: &Arc<JwtSourceState>) {
+        source
+            .inner
+            .apply_update(Arc::clone(&initial.bundles))
+            .unwrap();
+    }
+
+    include!("../workload_api/source_lifecycle_tests.rs");
 }

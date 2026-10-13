@@ -327,6 +327,30 @@ Use this mode when:
 
 ---
 
+## Source shutdown
+
+`X509Source` and `JwtSource` keep join ownership independently of shutdown callers.
+The first poll of a shutdown method closes admission and requests cancellation;
+dropping that future leaves the request in effect. Concurrent or repeated callers
+wait for actual supervisor completion, including destruction of directly owned work.
+
+`shutdown()` waits indefinitely. `shutdown_with_timeout(duration)` gives each caller
+a graceful deadline, then requests abort and joins before returning `ShutdownTimeout`.
+Another caller whose deadline has not expired can return `Ok(())` after the same
+completion. `shutdown_configured()` uses the builder setting, which defaults to
+30 seconds; `None` waits indefinitely. A graceful deadline cannot preempt blocking
+synchronous callbacks or destructors, so the final join can exceed that duration.
+
+Dropping the last public source handle requests cancellation and abort without
+blocking. A remaining clone keeps the source alive. The supervisor's termination
+guard also closes getters and update subscriptions if the task is destroyed before
+its first poll, while preserving the final authoritative material revision.
+
+These guarantees cover the source supervisor. Dependency-owned transport workers,
+already admitted caller-owned JWT fetches, and established TLS connections have
+their own lifetimes. Custom client factories must support future abandonment and
+avoid synchronous blocking.
+
 ## Features
 
 All features are additive and opt-in. The crate has **no default features** (`default = []`).
