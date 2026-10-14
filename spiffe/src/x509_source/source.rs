@@ -2417,3 +2417,13 @@ mod lifecycle_tests {
 
     include!("../workload_api/source_lifecycle_tests.rs");
 }
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{
+        MetricsErrorKind, MetricsRecorder, X509Source as Source, X509SourceError as SourceError,
+    };
+    use crate::workload_api::lifecycle_test_support::Factory;
+    const RPC: &str = "FetchX509SVID";
+    include!("../workload_api/source_startup_tests.rs");
+}

@@ -1,7 +1,8 @@
 use super::errors::X509SourceError;
 use super::metrics::MetricsRecorder;
 use super::source::X509Source;
-use crate::workload_api::WorkloadApiClient;
+use crate::transport::Endpoint;
+use crate::workload_api::{WorkloadApiClient, WorkloadApiError};
 use crate::x509_source::types::{ClientFactory, SvidPicker};
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -186,7 +187,8 @@ impl ResourceLimits {
 ///
 /// Use this when you need explicit configuration (socket path, picker, backoff, resource limits).
 /// By default, `build()` waits until initial synchronization succeeds or returns a
-/// non-retryable error according to the source's existing behavior. Use
+/// terminal startup error. Invalid fixed endpoint syntax, gRPC `INVALID_ARGUMENT`,
+/// and `UNIMPLEMENTED` from the required material RPC fail immediately. Use
 /// [`X509SourceBuilder::initial_sync_timeout`] to opt into bounding only that construction-time
 /// initial sync.
 ///
@@ -214,6 +216,7 @@ pub struct X509SourceBuilder {
     svid_picker: Option<Box<dyn SvidPicker>>,
     reconnect: ReconnectConfig,
     make_client: Option<ClientFactory>,
+    endpoint: Option<Arc<str>>,
     limits: ResourceLimits,
     metrics: Option<Arc<dyn MetricsRecorder>>,
     shutdown_timeout: Option<Duration>,
@@ -228,6 +231,7 @@ impl Debug for X509SourceBuilder {
                 &self.svid_picker.as_ref().map(|_| "<SvidPicker>"),
             )
             .field("reconnect", &self.reconnect)
+            .field("endpoint", &self.endpoint.as_ref().map(|_| "<Endpoint>"))
             .field("limits", &self.limits)
             .field(
                 "make_client",
@@ -268,6 +272,7 @@ impl X509SourceBuilder {
             svid_picker: None,
             reconnect: ReconnectConfig::default(),
             make_client: None,
+            endpoint: None,
             limits: ResourceLimits::default(),
             metrics: None,
             shutdown_timeout: Some(Duration::from_secs(30)),
@@ -277,8 +282,11 @@ impl X509SourceBuilder {
 
     /// Sets the Workload API endpoint.
     ///
-    /// Accepts either a filesystem path (e.g. `/tmp/spire-agent/public/api.sock`)
-    /// or a full URI (e.g. `unix:///tmp/spire-agent/public/api.sock`).
+    /// Accepts a SPIFFE endpoint URI, such as `unix:///tmp/spire-agent/public/api.sock`
+    /// or `tcp://127.0.0.1:8081`. Syntax is checked once by `build()`, before
+    /// connection attempts or initial synchronization. Invalid fixed configuration
+    /// fails immediately; an unavailable valid endpoint is retried with backoff.
+    /// The last call to `endpoint()` or `client_factory()` selects the client setup.
     ///
     /// # Examples
     ///
@@ -291,14 +299,8 @@ impl X509SourceBuilder {
     /// ```
     #[must_use]
     pub fn endpoint(mut self, endpoint: impl AsRef<str>) -> Self {
-        let endpoint: Arc<str> = Arc::from(endpoint.as_ref());
-
-        let factory: ClientFactory = Arc::new(move || {
-            let endpoint = Arc::clone(&endpoint);
-            Box::pin(async move { WorkloadApiClient::connect_to(&endpoint).await })
-        });
-
-        self.make_client = Some(factory);
+        self.endpoint = Some(Arc::from(endpoint.as_ref()));
+        self.make_client = None;
         self
     }
 
@@ -311,6 +313,7 @@ impl X509SourceBuilder {
     #[must_use]
     pub fn client_factory(mut self, factory: ClientFactory) -> Self {
         self.make_client = Some(factory);
+        self.endpoint = None;
         self
     }
 
@@ -460,9 +463,10 @@ impl X509SourceBuilder {
 
     /// Sets an optional timeout for the initial synchronization performed by `build()`.
     ///
-    /// By default this is `None`, preserving the existing behavior: source construction waits
-    /// until initial sync succeeds or returns a non-retryable error according to the source's
-    /// existing retry behavior.
+    /// By default this is `None`: recoverable transport, provisioning, and response
+    /// failures retry until initial sync succeeds. Invalid fixed endpoint syntax,
+    /// gRPC `INVALID_ARGUMENT`, and `UNIMPLEMENTED` from the required material RPC
+    /// return immediately without waiting for this timeout.
     ///
     /// When configured, the timeout bounds only the initial sync performed during source
     /// construction. It does not bound future background reconnects or update retries after the
@@ -494,10 +498,26 @@ impl X509SourceBuilder {
     /// Returns an [`X509SourceError`] if the Workload API endpoint cannot be resolved
     /// or connected to, the initial synchronization fails or times out, or no suitable
     /// X.509 SVID can be selected.
+    /// Invalid fixed endpoint syntax returns `Source(WorkloadApiError::Endpoint(_))`
+    /// before initialization. The required material RPC returning `UNIMPLEMENTED`
+    /// returns `UnsupportedRpc`; the original status remains its diagnostic cause.
+    /// Transient connection and provisioning failures retry, subject to the optional
+    /// initial synchronization timeout. After correcting a terminal failure, build
+    /// a new source.
     pub async fn build(self) -> Result<X509Source, X509SourceError> {
-        let make_client = self.make_client.unwrap_or_else(|| {
-            Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }))
-        });
+        // Only explicit fixed configuration is validated here. Environment discovery
+        // and custom factories retain their existing retry behavior.
+        let make_client: ClientFactory = if let Some(raw) = self.endpoint {
+            let endpoint = Endpoint::parse(&raw).map_err(WorkloadApiError::from)?;
+            Arc::new(move || {
+                let endpoint = endpoint.clone();
+                Box::pin(async move { WorkloadApiClient::connect(endpoint).await })
+            })
+        } else {
+            self.make_client.unwrap_or_else(|| {
+                Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }))
+            })
+        };
 
         X509Source::build_with(
             make_client,

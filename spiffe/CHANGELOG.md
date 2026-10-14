@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- X.509 and JWT source construction now returns `UnsupportedRpc` when its required `FetchX509SVID` or `FetchJWTBundles` RPC returns `UNIMPLEMENTED` in headers or before the first accepted stream item. RPC identity and the original status cause are preserved. Steady-state reconnects retain their existing retry/authorization policy.
+- Explicit fixed source endpoints are parsed once during `build()`, before initialization or transport work. Invalid endpoint syntax now returns its `WorkloadApiError::Endpoint` cause immediately. Valid unavailable endpoints, custom factories, and environment discovery retain retries; builder signatures and optional initial-sync timeouts are unchanged.
+
 - X.509 and JWT source supervisors now cancel pending client creation and stream setup. Cancellation does not count as a reconnect or setup error.
 - Source shutdown retains shared join ownership across cancelled, concurrent, and repeated callers. Graceful deadlines now request abort and then join before returning `ShutdownTimeout`; they do not bound synchronous callbacks or destructors. Dropping the last public handle also requests abort without blocking.
 

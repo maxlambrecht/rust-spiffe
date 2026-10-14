@@ -120,6 +120,15 @@ impl WorkloadApiError {
         )
     }
 
+    #[cfg(any(feature = "x509-source", feature = "jwt-source"))]
+    pub(crate) fn is_unimplemented(&self) -> bool {
+        matches!(
+            self,
+            Self::Transport(TransportError::Status(status))
+                if status.code() == GrpcStatusCode::Unimplemented
+        )
+    }
+
     pub(crate) fn from_status(status: tonic::Status) -> Self {
         if status.code() == tonic::Code::PermissionDenied {
             let msg = status.message();
