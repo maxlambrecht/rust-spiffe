@@ -56,6 +56,17 @@ use spiffe::WorkloadApiClient;
 let client = WorkloadApiClient::connect_env().await?;
 ```
 
+Successful RPC responses are checked for mandatory protocol fields before
+returning material. SVID lists and standalone bundle maps must be nonempty,
+and every SVID entry must include its required wire metadata and material.
+SVID fetches parse every returned entry, including entries after the selected
+default. Missing fields return `WorkloadApiError::MissingRequiredField` with
+the protobuf field path; malformed material retains its parsing error.
+Certificate and JWT payloads remain the source of the parsed identity; no new
+wire/payload identity equality check is applied. Optional hints, CRLs, and
+federation data may be absent. Complete updates still remove omitted federation
+trust, and present empty authority bundles retain their existing behavior.
+
 ---
 
 ## X.509 identities
@@ -284,6 +295,15 @@ Characteristics:
 * No local cryptography required
 * **Does not require any JWT verification feature**
 * Recommended whenever the Workload API is reachable
+
+The client also checks the successful response's required wire identity and
+claims structure. The SPIFFE `sub`, `aud`, and `exp` claims must be present;
+`sub` must be a SPIFFE ID, `aud` a string or nonempty string array, and `exp`
+a finite number. Absent fields return `MissingRequiredField`; malformed claim
+values return `InvalidResponseField`, without including response values in the
+error. Other claims may be omitted or empty. These are response structure checks;
+the agent remains responsible for signatures, audience matching and validity
+times. The returned `JwtSvid` is still parsed from the supplied token.
 
 ---
 

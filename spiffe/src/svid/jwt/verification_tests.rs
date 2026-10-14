@@ -17,6 +17,10 @@ use std::time::{Duration, UNIX_EPOCH};
 const N: i64 = 2_000_000_000;
 const HEADER: &str = r#"{"alg":"ES256","kid":"k1"}"#;
 
+#[cfg(feature = "jwt-source")]
+#[path = "source_regression_tests.rs"]
+mod source_regressions;
+
 struct Fixture {
     key: PKey<Private>,
     bundles: JwtBundleSet,

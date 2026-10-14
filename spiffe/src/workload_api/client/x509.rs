@@ -1,6 +1,6 @@
 use crate::constants::DEFAULT_SVID;
 use crate::workload_api::pb::workload::{
-    X509BundlesRequest, X509BundlesResponse, X509svidRequest, X509svidResponse,
+    X509BundlesRequest, X509BundlesResponse, X509svid, X509svidRequest, X509svidResponse,
 };
 use crate::workload_api::x509_context::X509Context;
 use crate::{
@@ -198,18 +198,14 @@ impl WorkloadApiClient {
         response: &X509svidResponse,
     ) -> Result<X509Svid, WorkloadApiError> {
         Self::validate_required_x509_svid_fields(response)?;
-
-        let svid = response
-            .svids
-            .get(DEFAULT_SVID)
-            .ok_or(WorkloadApiError::EmptyResponse)?;
-
-        X509Svid::parse_from_der_with_hint(
-            svid.x509_svid.as_ref(),
-            svid.x509_svid_key.as_ref(),
-            (!svid.hint.is_empty()).then(|| Arc::<str>::from(svid.hint.as_str())),
-        )
-        .map_err(WorkloadApiError::from)
+        let mut selected = None;
+        for (index, entry) in response.svids.iter().enumerate() {
+            let (svid, _) = Self::parse_x509_svid_entry(entry)?;
+            if index == DEFAULT_SVID {
+                selected = Some(svid);
+            }
+        }
+        selected.ok_or(WorkloadApiError::EmptyResponse)
     }
 
     fn parse_x509_svids_from_grpc_response(
@@ -220,22 +216,18 @@ impl WorkloadApiClient {
         response
             .svids
             .iter()
-            .map(|svid| {
-                let hint = (!svid.hint.is_empty()).then(|| Arc::<str>::from(svid.hint.as_str()));
-
-                X509Svid::parse_from_der_with_hint(
-                    svid.x509_svid.as_ref(),
-                    svid.x509_svid_key.as_ref(),
-                    hint,
-                )
-                .map_err(WorkloadApiError::from)
-            })
+            .map(|svid| Self::parse_x509_svid_entry(svid).map(|(svid, _)| svid))
             .collect()
     }
 
     fn parse_x509_bundle_set_from_grpc_response(
         response: X509BundlesResponse,
     ) -> Result<X509BundleSet, WorkloadApiError> {
+        if response.bundles.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "X509BundlesResponse.bundles",
+            });
+        }
         let bundles: Result<Vec<_>, _> = response
             .bundles
             .into_iter()
@@ -258,35 +250,13 @@ impl WorkloadApiClient {
         response: X509svidResponse,
     ) -> Result<X509Context, WorkloadApiError> {
         Self::validate_required_x509_svid_fields(&response)?;
-        if response.svids.is_empty() {
-            return Err(WorkloadApiError::MissingRequiredField {
-                field: "X509SVIDResponse.svids",
-            });
-        }
-        if response.svids.iter().any(|svid| svid.spiffe_id.is_empty()) {
-            return Err(WorkloadApiError::MissingRequiredField {
-                field: "X509SVID.spiffe_id",
-            });
-        }
 
         let mut svids: Vec<Arc<X509Svid>> = Vec::new();
         let mut bundle_set = X509BundleSet::new();
 
         for svid in response.svids {
-            let hint = (!svid.hint.is_empty()).then(|| Arc::<str>::from(svid.hint.as_str()));
-
-            let x509_svid = X509Svid::parse_from_der_with_hint(
-                svid.x509_svid.as_ref(),
-                svid.x509_svid_key.as_ref(),
-                hint,
-            )
-            .map_err(WorkloadApiError::from)?;
-
-            let trust_domain = x509_svid.spiffe_id().trust_domain().clone();
+            let (x509_svid, bundle) = Self::parse_x509_svid_entry(&svid)?;
             svids.push(Arc::new(x509_svid));
-
-            let bundle = X509Bundle::parse_from_der(trust_domain, svid.bundle.as_ref())
-                .map_err(WorkloadApiError::from)?;
             bundle_set.add_bundle(bundle);
         }
 
@@ -306,20 +276,51 @@ impl WorkloadApiClient {
     fn validate_required_x509_svid_fields(
         response: &X509svidResponse,
     ) -> Result<(), WorkloadApiError> {
+        if response.svids.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "X509SVIDResponse.svids",
+            });
+        }
+        // Retain the existing required-bundle check before other entry checks.
         if response.svids.iter().any(|svid| svid.bundle.is_empty()) {
             return Err(WorkloadApiError::MissingRequiredField {
                 field: "X509SVID.bundle",
             });
         }
 
+        for svid in &response.svids {
+            for (empty, field) in [
+                (svid.spiffe_id.is_empty(), "X509SVID.spiffe_id"),
+                (svid.x509_svid.is_empty(), "X509SVID.x509_svid"),
+                (svid.x509_svid_key.is_empty(), "X509SVID.x509_svid_key"),
+            ] {
+                if empty {
+                    return Err(WorkloadApiError::MissingRequiredField { field });
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    fn parse_x509_svid_entry(svid: &X509svid) -> Result<(X509Svid, X509Bundle), WorkloadApiError> {
+        let hint = (!svid.hint.is_empty()).then(|| Arc::<str>::from(svid.hint.as_str()));
+        let parsed = X509Svid::parse_from_der_with_hint(
+            svid.x509_svid.as_ref(),
+            svid.x509_svid_key.as_ref(),
+            hint,
+        )?;
+        let bundle = X509Bundle::parse_from_der(
+            parsed.spiffe_id().trust_domain().clone(),
+            svid.bundle.as_ref(),
+        )?;
+        Ok((parsed, bundle))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workload_api::pb::workload::X509svid;
     use std::collections::HashMap;
 
     fn x509_svid(bundle: &[u8]) -> X509svid {

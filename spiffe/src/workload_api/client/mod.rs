@@ -7,6 +7,13 @@
 //! A single workload may be issued **multiple SVIDs** by the SPIFFE Workload API. When this
 //! happens, the agent may attach an optional **hint** to each SVID to help distinguish identities.
 //! Hints are **not part of the cryptographic material** and have no security meaning.
+//!
+//! Successful responses must contain the mandatory fields of their RPC contract.
+//! Required defaults return [`WorkloadApiError::MissingRequiredField`]; every SVID
+//! entry is checked before selection. Optional federation data remains optional.
+//! Encoded certificate/token identities remain authoritative. JWT validation
+//! delegates cryptographic verification to the agent and checks its response
+//! structure before parsing the original token.
 
 #[cfg(feature = "x509")]
 mod x509;
@@ -14,6 +21,9 @@ mod x509;
 mod header;
 #[cfg(feature = "jwt")]
 mod jwt;
+
+#[cfg(test)]
+mod response_tests;
 
 use crate::transport::connect;
 use crate::transport::Endpoint;

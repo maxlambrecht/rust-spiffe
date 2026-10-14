@@ -694,6 +694,10 @@ mod tests {
     }
 
     #[tokio::test]
+    #[expect(
+        clippy::used_underscore_binding,
+        reason = "test aborts the retained watcher task at the publication barrier"
+    )]
     async fn stalled_watcher_coalesced_revisions_and_late_subscribers_cannot_use_old_cache() {
         ensure_provider();
         let mut fake = make_fake_source();
@@ -731,8 +735,27 @@ mod tests {
         gate.add_permits(1);
         late.changed().await.unwrap();
         assert_eq!(late.current().applied_revision, 3);
-        handshake(client, peer_server).unwrap();
-        handshake(peer_client, server).unwrap();
+        handshake(Arc::clone(&client), Arc::clone(&peer_server)).unwrap();
+        handshake(Arc::clone(&peer_client), Arc::clone(&server)).unwrap();
+
+        // A stopped watcher must not retain the superseded Ready revision forever.
+        src.notify_update();
+        assert_eq!(late.current().source_revision, 4);
+        assert_eq!(late.current().applied_revision, 3);
+        watcher._guard.task.abort();
+        late.changed().await.unwrap(); // task-drop guard acknowledges watcher termination
+        let stopped = late.current();
+        assert!(!stopped.refreshing);
+        assert!(!stopped.available);
+        assert!(matches!(
+            stopped.error.as_deref(),
+            Some(Error::PendingRevision {
+                source_revision: 4,
+                applied_revision: 3,
+            })
+        ));
+        handshake(client, peer_server).unwrap_err();
+        handshake(peer_client, server).unwrap_err();
     }
 
     #[tokio::test]

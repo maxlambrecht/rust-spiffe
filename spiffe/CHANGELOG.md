@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Workload API clients now reject empty mandatory SVID wire identities, SVID lists, standalone bundle maps, certificate/key/token fields, and missing successful JWT validation identity/claims with `MissingRequiredField`. SVID fetches validate every returned entry, including non-default entries and their local bundles. Successful `ValidateJWTSVID` responses require structurally valid SPIFFE `sub`, `aud`, and `exp` claims; malformed present claims return the new `WorkloadApiError::InvalidResponseField` with only the field path. Parsed identity derivation, agent-side JWT verification, optional federation removal, empty authority bundles, source authorization and retry policies are preserved.
+
 - X.509 and JWT source construction now returns `UnsupportedRpc` when its required `FetchX509SVID` or `FetchJWTBundles` RPC returns `UNIMPLEMENTED` in headers or before the first accepted stream item. RPC identity and the original status cause are preserved. Steady-state reconnects retain their existing retry/authorization policy.
 - Explicit fixed source endpoints are parsed once during `build()`, before initialization or transport work. Invalid endpoint syntax now returns its `WorkloadApiError::Endpoint` cause immediately. Valid unavailable endpoints, custom factories, and environment discovery retain retries; builder signatures and optional initial-sync timeouts are unchanged.
 
