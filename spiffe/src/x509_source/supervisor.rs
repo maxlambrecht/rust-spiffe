@@ -120,6 +120,16 @@ pub(super) async fn try_connect_stream(
                 source.withdraw(&e);
             }
 
+            if phase == StreamPhase::InitialSync
+                && (e.is_invalid_argument() || e.is_unimplemented())
+            {
+                warn!("Initial sync: FetchX509SVID failed; not retrying: error={e}");
+                if let Some(m) = metrics {
+                    m.record_error(MetricsErrorKind::StreamConnect);
+                }
+                return Err(e);
+            }
+
             // Handle "no identity issued" as a distinct transient state
             if matches!(e, WorkloadApiError::NoIdentityIssued) {
                 let error_kind = ErrorKey::NoIdentityIssued;
@@ -201,13 +211,11 @@ pub(super) async fn initial_sync_with_retry(
                 if let Some(m) = metrics {
                     m.record_error(MetricsErrorKind::InitialSyncFailed);
                 }
-                // INVALID_ARGUMENT means the Workload API rejected the request itself
-                // (non-conforming server, a proxy mangling gRPC metadata, protocol
-                // mismatch, etc.). Retrying with backoff would just repeat the same
-                // rejection forever, hanging construction indefinitely unless the caller
-                // opted into `initial_sync_timeout`. Fail fast instead. Steady-state
-                // reconnects (after a successful initial sync) are intentionally left
-                // retrying as before, since we already hold valid material at that point.
+                // Unsupported required RPCs fail only during construction. Steady-state
+                // retries preserve the existing authorization and availability contract.
+                if matches!(e, X509SourceError::UnsupportedRpc(_)) {
+                    return Err(e);
+                }
                 if let X509SourceError::Source(inner) = &e {
                     if inner.is_invalid_argument() {
                         warn!(
@@ -273,7 +281,7 @@ async fn try_sync_once(
         Ok(s) => s,
         Err(e) => {
             // Error already logged and metric recorded by try_connect_stream.
-            return Err(X509SourceError::Source(e));
+            return Err(X509SourceError::initial_rpc_error(e));
         }
     };
 
@@ -288,11 +296,15 @@ async fn try_sync_once(
         }
         Some(Err(e)) => {
             // Record StreamError for stream read errors.
-            warn!("Initial sync: Workload API stream error; will retry: error={e}",);
+            if e.is_invalid_argument() || e.is_unimplemented() {
+                warn!("Initial sync: FetchX509SVID stream error; not retrying: error={e}");
+            } else {
+                warn!("Initial sync: Workload API stream error; will retry: error={e}");
+            }
             if let Some(m) = metrics {
                 m.record_error(MetricsErrorKind::StreamError);
             }
-            Err(X509SourceError::Source(e))
+            Err(X509SourceError::initial_rpc_error(e))
         }
         None => {
             // Record StreamEnded for empty stream.

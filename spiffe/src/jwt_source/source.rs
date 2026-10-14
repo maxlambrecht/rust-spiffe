@@ -2253,3 +2253,13 @@ mod lifecycle_tests {
 
     include!("../workload_api/source_lifecycle_tests.rs");
 }
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{
+        JwtSource as Source, JwtSourceError as SourceError, MetricsErrorKind, MetricsRecorder,
+    };
+    use crate::workload_api::lifecycle_test_support::Factory;
+    const RPC: &str = "FetchJWTBundles";
+    include!("../workload_api/source_startup_tests.rs");
+}

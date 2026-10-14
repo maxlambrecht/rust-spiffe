@@ -11,13 +11,21 @@ pub enum JwtSourceError {
     /// During the initial synchronization performed by [`JwtSource::new`](crate::JwtSource::new)/
     /// [`JwtSourceBuilder::build`](crate::JwtSourceBuilder::build), most underlying
     /// [`WorkloadApiError`]s (e.g. transient connectivity failures, `NoIdentityIssued`)
-    /// are retried with backoff rather than surfaced immediately. The one exception is a
-    /// gRPC `INVALID_ARGUMENT` response (see [`WorkloadApiError::is_invalid_argument`]):
-    /// since retrying would just repeat the same rejection, initial sync fails fast and
-    /// returns this error instead of retrying indefinitely. Steady-state reconnects after
-    /// a successful initial sync are unaffected and continue retrying as before.
+    /// are retried with backoff rather than surfaced immediately. Fixed endpoint syntax
+    /// is validated before synchronization. gRPC `INVALID_ARGUMENT` fails initial sync
+    /// immediately; an unsupported `FetchJWTBundles` returns [`Self::UnsupportedRpc`].
+    /// Steady-state reconnects continue retrying after successful initial sync.
     #[error("jwt source error: {0}")]
     Source(#[from] WorkloadApiError),
+
+    /// The required `FetchJWTBundles` RPC returned gRPC `UNIMPLEMENTED` during initial sync.
+    ///
+    /// Includes failures in response headers or trailers before the first accepted
+    /// item. The original Workload API error, status code, and diagnostic cause are
+    /// retained. Correct the server/profile configuration and build a new source.
+    /// After successful initialization, this status continues to be retried.
+    #[error("required Workload API RPC FetchJWTBundles is unsupported during initial synchronization: {0}")]
+    UnsupportedRpc(#[source] WorkloadApiError),
 
     /// Failed to fetch a JWT SVID.
     ///
@@ -81,6 +89,16 @@ pub enum JwtSourceError {
     /// tasks do not complete within the specified timeout.
     #[error("shutdown timeout exceeded")]
     ShutdownTimeout,
+}
+
+impl JwtSourceError {
+    pub(super) fn initial_rpc_error(error: WorkloadApiError) -> Self {
+        if error.is_unimplemented() {
+            Self::UnsupportedRpc(error)
+        } else {
+            Self::Source(error)
+        }
+    }
 }
 
 /// The kind of resource limit that was exceeded.

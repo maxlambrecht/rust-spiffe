@@ -327,6 +327,40 @@ Use this mode when:
 
 ---
 
+## Source initialization
+
+Both source builders synchronize before returning. A fixed `.endpoint(...)` URI
+is parsed once during `build()`; invalid syntax or unsupported schemes return
+`Source(WorkloadApiError::Endpoint(_))` before any connection attempt. Valid TCP
+endpoints with absent services and Unix endpoints with absent sockets still retry.
+Use a URI such as `unix:/tmp/spire-agent/public/api.sock`, rather than a bare path.
+
+During initial synchronization, `UNIMPLEMENTED` from `FetchX509SVID` or
+`FetchJWTBundles` returns the source-specific `UnsupportedRpc` error. It identifies
+the method and retains the original gRPC error, including its status code and
+cause. This applies to headers and stream trailers before the first accepted
+item, including a subsequent startup attempt. `INVALID_ARGUMENT` retains its
+existing immediate-failure policy. Correct the endpoint or server/profile
+configuration and build a new source after either terminal failure.
+
+`Unavailable`, connection/HTTP2 failures, `DeadlineExceeded`, `PermissionDenied`,
+`NoIdentityIssued`, `Unauthenticated`, `Internal`, `Unknown`, and `Cancelled` remain
+retriable. Rejected malformed/over-limit responses retain their existing rejection
+and retry contract. No retry-count limit or mandatory deadline is introduced;
+`initial_sync_timeout(...)` continues to bound recoverable startup failures.
+Custom factory errors and environment-based discovery retain their existing
+retry behavior; repeated identical errors alone do not establish permanence.
+
+After successful synchronization, `UNIMPLEMENTED` continues to reconnect with
+backoff. It does not withdraw authorized material, restore withdrawn material,
+advance a material revision, or close the source. Source health still describes
+material usability and supervisor liveness, rather than RPC reachability. A server
+upgrade can therefore recover without rebuilding a running source. TLS source
+closure policies and established connection lifetimes are unchanged.
+
+See [Workload API startup policy](../docs/workload-api-startup.md) for the full
+classification and recovery contract.
+
 ## Source shutdown
 
 `X509Source` and `JwtSource` keep join ownership independently of shutdown callers.
