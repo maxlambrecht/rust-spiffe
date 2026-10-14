@@ -5,6 +5,9 @@
 )]
 #[cfg(test)]
 mod probes {
+    mod path_rotation {
+        include!("support/integrated_path_rotation.rs");
+    }
     use futures::Stream;
     use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
     use std::{
@@ -493,6 +496,72 @@ mod probes {
     }
 
     #[tokio::test]
+    async fn missing_required_fields_cannot_reauthorize_withdrawn_tls() {
+        ensure_provider();
+        let initial = response(A, KA, CA, "", false);
+        for field in ["spiffe_id", "svids", "bundle", "key", "certificate"] {
+            let mut malformed = initial.clone();
+            match field {
+                "spiffe_id" => malformed.svids.first_mut().unwrap().spiffe_id.clear(),
+                "svids" => malformed.svids.clear(),
+                "bundle" => {
+                    malformed.svids.first_mut().unwrap().bundle = prost::bytes::Bytes::new();
+                }
+                "key" => {
+                    malformed.svids.first_mut().unwrap().x509_svid_key = prost::bytes::Bytes::new();
+                }
+                _ => malformed.svids.first_mut().unwrap().x509_svid = prost::bytes::Bytes::new(),
+            }
+            let (source, tx, mut metrics, server) = source(initial.clone(), false).await;
+            let mut configs =
+                Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
+            let mut updates = source.updated();
+            configs.accept(A, KA);
+            let _previous = tx.send_replace(Err(tonic::Status::permission_denied("withdrawn")));
+            assert_eq!(updates.changed().await.unwrap(), 1);
+            metric(&mut metrics, "reconnect").await;
+            let _previous = tx.send_replace(Ok(malformed));
+            metric(&mut metrics, "error").await;
+            assert_eq!(source.state().revision(), 1, "missing {field}");
+            assert!(source.state().withdrawal().is_some());
+            configs.reject(A, KA);
+            let _previous = tx.send_replace(Ok(initial.clone()));
+            assert_eq!(updates.changed().await.unwrap(), 2);
+            configs.applied(2).await;
+            configs.accept(A, KA);
+            source.shutdown().await;
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_later_metadata_rejects_trust_replacement_atomically() {
+        ensure_provider();
+        let initial = response(A, KA, CA, "", false);
+        let replacement = response(B, KB, CB, "", false);
+        let mut malformed = replacement.clone();
+        let mut second = initial.svids.first().unwrap().clone();
+        second.spiffe_id.clear();
+        malformed.svids.push(second);
+        let (source, tx, mut metrics, server) = source(initial, false).await;
+        let mut configs = Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
+        let mut updates = source.updated();
+        configs.accept(A, KA);
+        let _previous = tx.send_replace(Ok(malformed));
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 0);
+        configs.accept(A, KA);
+        configs.reject(B, KB);
+        let _previous = tx.send_replace(Ok(replacement));
+        assert_eq!(updates.changed().await.unwrap(), 1);
+        configs.applied(1).await;
+        configs.reject(A, KA);
+        configs.accept(B, KB);
+        source.shutdown().await;
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn transient_and_malformed_updates_retain_authorized_material() {
         ensure_provider();
         // Use independent sources so no earlier transport error can satisfy a later
@@ -887,6 +956,63 @@ mod probes {
             final_state.bundle_set(),
             Err(spiffe::jwt_source::JwtSourceError::Withdrawn(_))
         ));
+        source.shutdown().await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn jwt_required_map_rejection_preserves_withdrawal_and_domain_removal() {
+        // Public P-256 authority from the signed JWT policy corpus, kept local
+        // so this integration target remains self-contained when packaged.
+        let jwks = br#"{"keys":[{"crv":"P-256","kid":"probe","kty":"EC","x":"pf-F3qt3WiBQ2hPjVIp0W8C-ltc7VGCJqW-0sJgoKTI","y":"bsqDObxnMnAkXVbmLLlxinbSRyaLNL-28UWmN5rlg44"}]}"#;
+        let initial = JwtBundlesResponse {
+            bundles: HashMap::from([
+                ("spiffe://example.org".into(), jwks.to_vec().into()),
+                ("spiffe://foreign.example".into(), jwks.to_vec().into()),
+            ]),
+        };
+        let foreign = spiffe::TrustDomain::new("foreign.example").unwrap();
+        let (endpoint, tx, server) = serve::<JwtBundlesRequest, _>(initial.clone(), false).await;
+        let (metrics_tx, mut metrics) = mpsc::unbounded_channel();
+        let source = spiffe::JwtSource::builder()
+            .endpoint(endpoint)
+            .metrics(Arc::new(Metrics(metrics_tx)))
+            .reconnect_backoff(Duration::ZERO, Duration::ZERO)
+            .build()
+            .await
+            .unwrap();
+        let mut updates = source.updated();
+        let _previous = tx.send_replace(Ok(JwtBundlesResponse::default()));
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 0);
+        assert_eq!(source.bundle_set().unwrap().len(), 2);
+        let _previous = tx.send_replace(Err(tonic::Status::permission_denied("withdrawn")));
+        assert_eq!(updates.changed().await.unwrap(), 1);
+        metric(&mut metrics, "reconnect").await;
+        let _previous = tx.send_replace(Ok(JwtBundlesResponse::default()));
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 1);
+        assert!(source.state().withdrawal().is_some());
+        let _previous = tx.send_replace(Ok(initial.clone()));
+        assert_eq!(updates.changed().await.unwrap(), 2);
+        assert_eq!(source.bundle_set().unwrap().len(), 2);
+        let mut removed = initial;
+        removed.bundles.remove("spiffe://foreign.example");
+        let _previous = tx.send_replace(Ok(removed));
+        assert_eq!(updates.changed().await.unwrap(), 3);
+        assert_eq!(source.bundle_set().unwrap().len(), 1);
+        assert!(source.bundle_set().unwrap().get(&foreign).is_none());
+        let empty_authorities = JwtBundlesResponse {
+            bundles: HashMap::from([(
+                "spiffe://example.org".into(),
+                br#"{"keys":[]}"#.to_vec().into(),
+            )]),
+        };
+        let _previous = tx.send_replace(Ok(empty_authorities));
+        assert_eq!(updates.changed().await.unwrap(), 4);
+        assert_eq!(source.bundle_set().unwrap().len(), 1);
+        assert!(!source.is_healthy());
+        assert!(source.state().withdrawal().is_none());
         source.shutdown().await;
         server.abort();
     }

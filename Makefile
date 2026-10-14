@@ -189,6 +189,9 @@ RUSTLS_TOKIO_CI_FEATURES := $(RUSTLS_TOKIO_ALL_FEATURES)
 # SPIRE-backed Workload API integration lane for the spiffe crate.
 SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES := x509-source,jwt-source,jwt,workload-api
 
+# Literal commas split GNU Make call arguments; expand this list after argument parsing.
+SPIFFE_MSRV_FEATURES := x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api
+
 # Release lanes. The primary lane is the supported, docs.rs-published feature
 # set: it is tested in-tree and in the extracted package. Every CI lane is also
 # compile-checked from the extracted package, so a feature-gated file missing
@@ -458,8 +461,8 @@ msrv:
 	$(info ==> spiffe (MSRV))
 	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509)
 	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features transport-grpc)
-	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api)
-	$(call _msrv_doc,$(SPIFFE_MANIFEST),--no-default-features --features x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api)
+	$(call _msrv_test,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_MSRV_FEATURES))
+	$(call _msrv_doc,$(SPIFFE_MANIFEST),--no-default-features --features $(SPIFFE_MSRV_FEATURES))
 
 	$(info ==> spire-api (MSRV))
 	$(call _msrv_test,$(SPIRE_API_MANIFEST),)

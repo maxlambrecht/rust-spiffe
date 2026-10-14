@@ -1,7 +1,7 @@
 use crate::constants::DEFAULT_SVID;
 use crate::workload_api::pb::workload::{
-    JwtBundlesRequest, JwtBundlesResponse, JwtsvidRequest, JwtsvidResponse, ValidateJwtsvidRequest,
-    ValidateJwtsvidResponse,
+    JwtBundlesRequest, JwtBundlesResponse, Jwtsvid, JwtsvidRequest, JwtsvidResponse,
+    ValidateJwtsvidRequest, ValidateJwtsvidResponse,
 };
 use crate::{
     JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, WorkloadApiError,
@@ -61,18 +61,14 @@ impl WorkloadApiClient {
         }
 
         let response = self.fetch_jwt(audience, spiffe_id).await?;
-        let r = response
-            .svids
-            .get(DEFAULT_SVID)
-            .ok_or(WorkloadApiError::EmptyResponse)?;
-
-        let mut svid = JwtSvid::from_str(&r.svid).map_err(WorkloadApiError::JwtSvid)?;
-
-        if !r.hint.is_empty() {
-            svid = svid.with_hint(Arc::<str>::from(r.hint.as_str()));
+        let mut selected = None;
+        for (index, entry) in response.svids.iter().enumerate() {
+            let svid = Self::parse_jwt_svid_entry(entry)?;
+            if index == DEFAULT_SVID {
+                selected = Some(svid);
+            }
         }
-
-        Ok(svid)
+        selected.ok_or(WorkloadApiError::EmptyResponse)
     }
 
     /// Fetches all JWT-SVIDs for the given audience and optional SPIFFE ID.
@@ -99,14 +95,8 @@ impl WorkloadApiClient {
 
         response
             .svids
-            .into_iter()
-            .map(|r| {
-                let mut svid = JwtSvid::from_str(&r.svid).map_err(WorkloadApiError::JwtSvid)?;
-                if !r.hint.is_empty() {
-                    svid = svid.with_hint(Arc::<str>::from(r.hint.as_str()));
-                }
-                Ok(svid)
-            })
+            .iter()
+            .map(Self::parse_jwt_svid_entry)
             .collect()
     }
 
@@ -176,14 +166,18 @@ impl WorkloadApiClient {
     ///
     /// # Errors
     ///
-    /// Returns a [`WorkloadApiError`] if validation fails or the token cannot be parsed.
+    /// Returns a [`WorkloadApiError`] if validation fails, the successful response
+    /// omits mandatory identity/claims or has malformed required claims, or the
+    /// token cannot be parsed. Response structure checks do not perform local
+    /// signature, audience-match, or temporal verification.
     pub async fn validate_jwt_token(
         &self,
         audience: &str,
         jwt_token: &str,
     ) -> Result<JwtSvid, WorkloadApiError> {
         // Validate via the SPIRE agent (security property comes from agent validation)
-        let _unused: ValidateJwtsvidResponse = self.validate_jwt(audience, jwt_token).await?;
+        let response = self.validate_jwt(audience, jwt_token).await?;
+        Self::validate_jwt_response(&response)?;
         // Parse locally for structured access (safe because agent already validated)
         let jwt_svid = JwtSvid::parse_insecure(jwt_token)?;
         Ok(jwt_svid)
@@ -223,6 +217,14 @@ impl WorkloadApiClient {
 }
 
 impl WorkloadApiClient {
+    fn parse_jwt_svid_entry(entry: &Jwtsvid) -> Result<JwtSvid, WorkloadApiError> {
+        let mut svid = JwtSvid::from_str(&entry.svid)?;
+        if !entry.hint.is_empty() {
+            svid = svid.with_hint(Arc::<str>::from(entry.hint.as_str()));
+        }
+        Ok(svid)
+    }
+
     async fn fetch_jwt<I>(
         &self,
         audience: I,
@@ -242,11 +244,27 @@ impl WorkloadApiClient {
 
         let mut client = self.client.clone();
 
-        Ok(client
+        let response = client
             .fetch_jwtsvid(request)
             .await
             .map_err(WorkloadApiError::from_status)?
-            .into_inner())
+            .into_inner();
+        if response.svids.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "JWTSVIDResponse.svids",
+            });
+        }
+        for svid in &response.svids {
+            for (empty, field) in [
+                (svid.spiffe_id.is_empty(), "JWTSVID.spiffe_id"),
+                (svid.svid.is_empty(), "JWTSVID.svid"),
+            ] {
+                if empty {
+                    return Err(WorkloadApiError::MissingRequiredField { field });
+                }
+            }
+        }
+        Ok(response)
     }
 
     async fn validate_jwt(
@@ -269,6 +287,11 @@ impl WorkloadApiClient {
     fn parse_jwt_bundle_set_from_grpc_response(
         response: JwtBundlesResponse,
     ) -> Result<JwtBundleSet, WorkloadApiError> {
+        if response.bundles.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "JWTBundlesResponse.bundles",
+            });
+        }
         let mut bundle_set = JwtBundleSet::new();
 
         for (td, bundle_data) in response.bundles {
@@ -280,5 +303,51 @@ impl WorkloadApiClient {
         }
 
         Ok(bundle_set)
+    }
+
+    fn validate_jwt_response(response: &ValidateJwtsvidResponse) -> Result<(), WorkloadApiError> {
+        use prost_types::value::Kind;
+
+        if response.spiffe_id.is_empty() {
+            return Err(WorkloadApiError::MissingRequiredField {
+                field: "ValidateJWTSVIDResponse.spiffe_id",
+            });
+        }
+        let claims = response
+            .claims
+            .as_ref()
+            .ok_or(WorkloadApiError::MissingRequiredField {
+                field: "ValidateJWTSVIDResponse.claims",
+            })?;
+        // The pinned Workload API contract requires the SPIFFE claims even though
+        // the vendored protobuf comment calls this message field optional.
+        for (name, field) in [
+            ("sub", "ValidateJWTSVIDResponse.claims.sub"),
+            ("aud", "ValidateJWTSVIDResponse.claims.aud"),
+            ("exp", "ValidateJWTSVIDResponse.claims.exp"),
+        ] {
+            let kind = claims
+                .fields
+                .get(name)
+                .and_then(|value| value.kind.as_ref())
+                .ok_or(WorkloadApiError::MissingRequiredField { field })?;
+            let valid = match (name, kind) {
+                ("sub", Kind::StringValue(subject)) => SpiffeId::from_str(subject).is_ok(),
+                ("aud", Kind::StringValue(_)) => true,
+                ("aud", Kind::ListValue(audiences)) => {
+                    !audiences.values.is_empty()
+                        && audiences
+                            .values
+                            .iter()
+                            .all(|value| matches!(value.kind, Some(Kind::StringValue(_))))
+                }
+                ("exp", Kind::NumberValue(expiration)) => expiration.is_finite(),
+                _ => false,
+            };
+            if !valid {
+                return Err(WorkloadApiError::InvalidResponseField { field });
+            }
+        }
+        Ok(())
     }
 }

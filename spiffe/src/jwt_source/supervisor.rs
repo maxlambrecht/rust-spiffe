@@ -492,6 +492,16 @@ impl Inner {
                         }
                     }
                 }
+                Some(Err(WorkloadApiError::MissingRequiredField {
+                    field: "JWTBundlesResponse.bundles",
+                })) => {
+                    // This update used to reach admission as an empty bundle set.
+                    // Preserve its recoverable rejection, metric and stream policy.
+                    if update_rejection_tracker.record_error(ErrorKey::UpdateRejected) {
+                        warn!("Rejected JWT bundle update: missing JWTBundlesResponse.bundles");
+                    }
+                    self.record_error(MetricsErrorKind::UpdateRejected);
+                }
                 Some(Err(e)) => {
                     self.withdraw(&e);
                     warn!("Workload API stream error; reconnecting: id={supervisor_id}, error={e}");
