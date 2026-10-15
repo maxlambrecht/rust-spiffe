@@ -46,7 +46,14 @@ any variant, independently of that variant's KU eligibility or higher path.
 | `leaf-client-eku.der`, `leaf-server-eku.der`                  | Role-specific EKU controls                                                                        |
 | `leaf-blocked-name.der`                                       | SPIFFE identity plus excluded DNS name                                                            |
 
-Tests are in `src/verifier/issuer_key_usage_tests.rs`. Callback cases exercise
+The peer leaf BasicConstraints controls `leaf-no-basic-constraints.der`, `leaf-ca.der`, and
+`leaf-malformed-basic-constraints.der` omit BC, set cA=true, or encode a BOOLEAN
+instead of the BC SEQUENCE. Apart from serial numbers and BC, they are equivalent
+to `leaf-basic-constraints.der` (including the matching key, issuer, and explicit
+serverAuth/clientAuth EKU). The positive control has cA=false.
+
+Tests are in `src/verifier/issuer_key_usage_tests.rs` and its nested
+`leaf_basic_constraints_tests.rs` module. Callback cases exercise
 both actual SPIFFE verifiers. Protocol cases use those verifiers with fixed
 rustls time providers, mandatory client authentication, disabled resumption,
 and an in-memory record pump. Successful peers complete both sides of the

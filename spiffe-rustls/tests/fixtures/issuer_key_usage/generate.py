@@ -16,6 +16,8 @@ from cryptography.x509.oid import NameOID, ObjectIdentifier
 
 OUT = Path(__file__).resolve().parent
 KU = ObjectIdentifier("2.5.29.15")
+BC = ObjectIdentifier("2.5.29.19")
+DEFAULT_BC = object()
 START = datetime(2025, 1, 1, tzinfo=timezone.utc)
 END = datetime(2035, 1, 1, tzinfo=timezone.utc)
 
@@ -57,12 +59,15 @@ def split(data):
 def issue(label, subject, subject_key, issuer, issuer_key, *, ca=True,
           ku=b"\x03\x02\x01\x06", critical=True, path_length=None,
           duplicate=False, nonminimal_oid=False, eku=None, uri="spiffe://example.org/workload",
-          end=END, constraints=None, dns=None):
+          end=END, constraints=None, dns=None, bc=DEFAULT_BC):
     builder = (x509.CertificateBuilder().subject_name(name(subject))
                .issuer_name(name(issuer)).public_key(subject_key.public_key())
                .serial_number(int.from_bytes(sha256(label.encode()).digest()[:16], "big"))
-               .not_valid_before(START).not_valid_after(end)
-               .add_extension(x509.BasicConstraints(ca, path_length), True))
+               .not_valid_before(START).not_valid_after(end))
+    if bc is DEFAULT_BC:
+        builder = builder.add_extension(x509.BasicConstraints(ca, path_length), True)
+    elif bc is not None:
+        builder = builder.add_extension(x509.UnrecognizedExtension(BC, bc), True)
     if ku is not None:
         builder = builder.add_extension(x509.UnrecognizedExtension(KU, ku), critical)
     if not ca:
@@ -144,6 +149,16 @@ issue("issuer-name-constraints", "issuer", issuer, "root", root,
       constraints=x509.NameConstraints(None, [x509.DNSName("blocked.example")]))
 leaf_options = dict(ca=False, ku=b"\x03\x02\x07\x80")
 issue("leaf", "leaf", leaf, "issuer", issuer, **leaf_options)
+# Peer-leaf controls retain the leaf key, identity, KU, validity and issuer.
+peer_leaf_options = dict(**leaf_options,
+    eku=["1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2"])
+issue("leaf-basic-constraints", "leaf", leaf, "issuer", issuer, **peer_leaf_options)
+issue("leaf-no-basic-constraints", "leaf", leaf, "issuer", issuer,
+      bc=None, **peer_leaf_options)
+issue("leaf-ca", "leaf", leaf, "issuer", issuer,
+      bc=b"\x30\x03\x01\x01\xff", **peer_leaf_options)
+issue("leaf-malformed-basic-constraints", "leaf", leaf, "issuer", issuer,
+      bc=b"\x01\x01\x00", **peer_leaf_options)
 issue("leaf-direct", "leaf", leaf, "root", root, **leaf_options)
 issue("leaf-expired", "leaf", leaf, "issuer", issuer,
       end=datetime(2029, 1, 1, tzinfo=timezone.utc), **leaf_options)
