@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- Reject malformed delegated bundle keys and duplicate canonical trust domains in X.509 and JWT bundle fetches and stream updates with `InvalidBundleKey` or `DuplicateTrustDomain`, instead of silently replacing normalized entries, including identical values. X.509 accepts both the SDK protobuf's bare-domain names and the root SPIFFE URIs emitted by released SPIRE agents as an interoperability accommodation, with full key validation. JWT remains root-URI-only. Workload paths and malformed suffixes reject; valid multi-domain/federated responses, empty maps, and empty authority sets remain supported.
 - Redact X.509 private keys and JWT bearer tokens in generated SPIRE credential message `Debug` output, including nested responses. Length-only placeholders retain useful diagnostics without changing public fields or protobuf encoding.
 - Preserve original delegated gRPC statuses and their nested diagnostic causes through the standard error source chain.
 - Update README delegated request examples and dependency versions.

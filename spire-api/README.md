@@ -94,6 +94,25 @@ let x509_bundles = client.fetch_x509_bundles().await?;
 let jwt_bundles = client.fetch_jwt_bundles().await?;
 ```
 
+Delegated X.509 bundle keys accept bare trust-domain names (for example, `example.org`)
+and root SPIFFE IDs with an empty path (for example, `spiffe://example.org`). The
+[SDK protobuf](https://github.com/spiffe/spire-api-sdk/blob/9701b78b4c3c2e22d866220ba16eb9e8da6eea96/proto/spire/api/agent/delegatedidentity/v1/delegatedidentity.proto)
+describes bare names, while released SPIRE agents emit root URIs
+([SPIRE 1.15.2 source](https://github.com/spiffe/spire/blob/v1.15.2/pkg/agent/api/delegatedidentity/v1/service.go#L314)).
+Supporting both formats is an interoperability accommodation: URI-form keys are
+parsed as complete SPIFFE IDs before extracting their trust domain.
+
+JWT bundle keys require root SPIFFE IDs with an empty path; bare names are rejected.
+Both bundle types reject workload paths, trailing slashes, invalid schemes, query/fragment
+suffixes, userinfo/ports, and invalid domain characters.
+Domain names and URI schemes are case-insensitive. Distinct keys that normalize to the
+same trust domain return `DelegatedIdentityError::DuplicateTrustDomain`, even if their
+bundle values are identical; malformed keys return `DelegatedIdentityError::InvalidBundleKey`.
+This includes X.509 bare-name/root-URI aliases such as `example.org` and `spiffe://example.org`.
+Fetches and stream updates reject the entire response instead of silently replacing
+normalized entries. Valid multi-domain and federated responses, empty maps, and
+empty authority sets remain supported.
+
 ### Streaming updates
 
 The client also supports streaming methods for continuous updates:
