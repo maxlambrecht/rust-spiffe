@@ -22,8 +22,8 @@ use crate::selectors::Selector;
 use spiffe::constants::DEFAULT_SVID;
 use spiffe::transport::{Endpoint, GrpcStatusCode, TransportError};
 use spiffe::{
-    JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeIdError, TrustDomain,
-    X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
+    JwtBundle, JwtBundleError, JwtBundleSet, JwtSvid, JwtSvidError, SpiffeId, SpiffeIdError,
+    TrustDomain, X509Bundle, X509BundleError, X509BundleSet, X509Svid, X509SvidError,
 };
 
 use std::str::FromStr as _;
@@ -73,6 +73,20 @@ pub enum DelegatedIdentityError {
     /// Failed to parse a JWT bundle.
     #[error("JWT bundle error: {0}")]
     JwtBundle(#[from] JwtBundleError),
+
+    /// A response map key is not a SPIFFE ID with an empty path or, for X.509, a bare trust-domain name.
+    #[error("invalid delegated bundle key {key:?}")]
+    InvalidBundleKey {
+        /// The response map key that failed validation.
+        key: String,
+    },
+
+    /// Distinct delegated bundle keys resolve to the same canonical trust domain.
+    #[error("duplicate delegated bundle trust domain {trust_domain}")]
+    DuplicateTrustDomain {
+        /// The canonical trust domain shared by the entries.
+        trust_domain: TrustDomain,
+    },
 
     /// Failed to parse a SPIFFE identifier.
     #[error("SPIFFE ID error: {0}")]
@@ -364,6 +378,13 @@ impl DelegatedIdentityClient {
 
     /// Fetches [`X509BundleSet`], that is a set of [`X509Bundle`] keyed by the trust domain to which they belong.
     ///
+    /// Each key in the agent response may be a bare trust-domain name
+    /// (`example.org`) or a SPIFFE ID with an empty path (`spiffe://example.org`).
+    /// The SDK protobuf describes bare names, while released SPIRE agents emit
+    /// SPIFFE IDs. Both forms are accepted. An invalid key, or two keys that
+    /// normalize to the same trust domain, rejects the entire response, even
+    /// when the bundle values are identical.
+    ///
     /// # Errors
     ///
     /// The function returns a variant of [`DelegatedIdentityError`] if there is an error connecting to the Agent Admin API or
@@ -392,6 +413,7 @@ impl DelegatedIdentityClient {
     ///
     /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`X509Bundle`].
     /// The returned stream can be used to asynchronously yield new `X509Bundle` updates as they become available.
+    /// Each update follows the key validation rules of [`Self::fetch_x509_bundles`].
     ///
     /// # Returns
     ///
@@ -469,6 +491,7 @@ impl DelegatedIdentityClient {
     ///
     /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`JwtBundleSet`].
     /// The returned stream can be used to asynchronously yield new `JwtBundleSet` updates as they become available.
+    /// Each update follows the key validation rules of [`Self::fetch_jwt_bundles`].
     ///
     /// # Returns
     ///
@@ -505,6 +528,11 @@ impl DelegatedIdentityClient {
     }
 
     /// Fetches [`JwtBundleSet`] that is a set of [`JwtBundle`] keyed by the trust domain to which they belong.
+    ///
+    /// Each key in the agent response must be a SPIFFE ID with an empty path,
+    /// such as `spiffe://example.org`. Bare trust-domain names are rejected.
+    /// An invalid key, or two keys that normalize to the same trust domain,
+    /// rejects the entire response, even when the bundle values are identical.
     ///
     /// # Errors
     ///
@@ -582,8 +610,20 @@ impl DelegatedIdentityClient {
         let mut bundle_set = JwtBundleSet::new();
 
         for (td, bundle_data) in response.bundles {
-            let trust_domain = TrustDomain::try_from(td)?;
-            let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
+            // The protocol requires a trust domain's SPIFFE ID, not a name or workload ID.
+            let id = SpiffeId::new(&td).map_err(|_invalid_id| {
+                DelegatedIdentityError::InvalidBundleKey { key: td.clone() }
+            })?;
+            if !id.path().is_empty() {
+                return Err(DelegatedIdentityError::InvalidBundleKey { key: td });
+            }
+            let trust_domain = id.trust_domain();
+            if bundle_set.get_ref(trust_domain).is_some() {
+                return Err(DelegatedIdentityError::DuplicateTrustDomain {
+                    trust_domain: trust_domain.clone(),
+                });
+            }
+            let bundle = JwtBundle::from_jwt_authorities(trust_domain.clone(), &bundle_data)
                 .map_err(DelegatedIdentityError::from)?;
             bundle_set.add_bundle(bundle);
         }
@@ -597,7 +637,23 @@ impl DelegatedIdentityClient {
         let mut bundle_set = X509BundleSet::new();
 
         for (td, bundle) in response.ca_certificates {
-            let trust_domain = TrustDomain::try_from(td)?;
+            // Bare names contain no ':'. Anything else must be a SPIFFE ID with an
+            // empty path. TrustDomain::new would accept a SPIFFE URI and discard its path.
+            let trust_domain = if td.contains(':') {
+                let id = SpiffeId::new(&td).map_err(|_invalid_id| {
+                    DelegatedIdentityError::InvalidBundleKey { key: td.clone() }
+                })?;
+                if !id.path().is_empty() {
+                    return Err(DelegatedIdentityError::InvalidBundleKey { key: td });
+                }
+                id.trust_domain().clone()
+            } else {
+                TrustDomain::new(&td)
+                    .map_err(|_invalid_name| DelegatedIdentityError::InvalidBundleKey { key: td })?
+            };
+            if bundle_set.get_ref(&trust_domain).is_some() {
+                return Err(DelegatedIdentityError::DuplicateTrustDomain { trust_domain });
+            }
             let parsed = X509Bundle::parse_from_der(trust_domain, &bundle)
                 .map_err(DelegatedIdentityError::from)?;
             bundle_set.add_bundle(parsed);
