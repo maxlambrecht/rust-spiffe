@@ -22,6 +22,9 @@ macro_rules! fixture {
     };
 }
 
+#[path = "leaf_basic_constraints_tests.rs"]
+mod leaf_basic_constraints_tests;
+
 #[derive(Clone, Copy, Debug)]
 enum Role {
     Server,
@@ -657,7 +660,6 @@ fn handshake(
 
 #[expect(
     clippy::unwrap_in_result,
-    clippy::panic_in_result_fn,
     reason = "Result carries TLS rejections; in-memory I/O and fixture failures fail the test"
 )]
 fn handshake_to(
@@ -709,12 +711,23 @@ fn handshake_to(
         .with_cert_resolver(Arc::new(ServerKey(key(server_chain))));
     server_config.send_tls13_tickets = 0;
     server_config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
-    let mut client = rustls::ClientConnection::new(
-        Arc::new(client_config),
-        ServerName::try_from("localhost").unwrap(),
-    )
-    .unwrap();
-    let mut server = rustls::ServerConnection::new(Arc::new(server_config)).unwrap();
+    complete_handshake(Arc::new(client_config), Arc::new(server_config), version)
+}
+
+#[expect(
+    clippy::unwrap_in_result,
+    clippy::panic_in_result_fn,
+    reason = "Result carries TLS rejections; in-memory I/O and fixture failures fail the test"
+)]
+fn complete_handshake(
+    client_config: Arc<rustls::ClientConfig>,
+    server_config: Arc<rustls::ServerConfig>,
+    version: &'static rustls::SupportedProtocolVersion,
+) -> std::result::Result<(), (Role, rustls::Error)> {
+    let mut client =
+        rustls::ClientConnection::new(client_config, ServerName::try_from("localhost").unwrap())
+            .unwrap();
+    let mut server = rustls::ServerConnection::new(server_config).unwrap();
     for _ in 0..32 {
         let mut bytes = Vec::new();
         client.write_tls(&mut bytes).unwrap();

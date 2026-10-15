@@ -4,6 +4,7 @@
 
 ### Security
 
+- SPIFFE peer verifiers now reject leaf certificates missing `BasicConstraints` with `Error::InvalidLeaf`. Both authentication directions require the extension with `cA=false`; `cA=true` and malformed values remain rejected. This closes a SPIFFE certificate-profile validation gap, not an established trust, signature, or authorization bypass. Custom issuers omitting the extension must correct their certificate profile. Public APIs, issuer/anchor handling, and caller-supplied ordinary rustls verification policies are unchanged.
 - Both certificate resolvers and verifiers synchronously check the current source revision and permission. Accepted trust replacements block superseded TLS generations immediately, including while conversion is pending. Conversion failures publish Blocked material instead of retaining old roots or verifier caches; valid later revisions recover.
 - Identity and bundles now come from the same source observation. Missing/expired selections, withdrawal, unusable roots, and key conversion failures block new acquisitions without changing signature, SPIFFE identity, trust-domain, or authorization policy.
 - Builders preserve source error detail (including withdrawal and unusable selection) instead of flattening source getter failures to `NoSvid`; terminal sources return `SourceClosed`.

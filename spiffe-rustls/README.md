@@ -427,6 +427,15 @@ Authorization is applied **after** TLS verification succeeds, ensuring cryptogra
 
 ## Security Considerations
 
+* Both SPIFFE peer verifiers require the authenticated leaf to carry
+  `BasicConstraints` with `cA=false`, as required by
+  [X.509-SVID §5.2](https://github.com/spiffe/spiffe/blob/f97c46dfd0ff0d4e412cce5c73846a9ca32a99a2/standards/X509-SVID.md#52-leaf-validation).
+  A missing extension now fails with `Error::InvalidLeaf`; `cA=true` and
+  malformed values remain rejected before authorization. This intentional
+  acceptance tightening may require custom issuers to correct their leaf
+  certificate profile. It affects SPIFFE peer verification only; ordinary
+  caller-supplied rustls policies and intermediate/trust-anchor handling are
+  unchanged.
 * Certificates must contain **exactly one** SPIFFE ID URI SAN
 * Trust bundles are sourced exclusively from the Workload API
 * The default trust-domain policy accepts any trust domain present in the source bundle set

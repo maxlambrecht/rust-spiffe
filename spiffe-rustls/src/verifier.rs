@@ -231,15 +231,17 @@ fn extract_spiffe_id_with_cache(
 /// Rejects certificates that must not be used as X509-SVID leaf identities.
 ///
 /// **Specification:** X509-SVID section 3.1 requires leaf SPIFFE IDs to have a
-/// non-root path component. Section 5.2 requires leaf validation to reject
-/// signing-capable certificates (`cA=true`, `keyCertSign`, or `cRLSign`). Section
+/// non-root path component. Section 5.2 requires leaf validation to ensure
+/// a basic constraints extension with `cA=false`, and reject signing-capable
+/// certificates (`cA=true`, `keyCertSign`, or `cRLSign`). Section
 /// 4.3 requires leaf SVIDs to carry a key usage extension with `digitalSignature`
 /// set (and marked critical at issuance); section 5.2 does not restate that
 /// requirement as a validation MUST.
 ///
 /// **Enforced here:** leaf SPIFFE IDs must have a non-root path component, and
-/// signing-capable certificates are rejected. The key usage extension must be
-/// present and must set `digitalSignature`; this aligns peer acceptance with
+/// basic constraints must be present and signing-capable certificates are
+/// rejected. The key usage extension must be present and must set
+/// `digitalSignature`; this aligns peer acceptance with
 /// section 4.3 certificate constraints even though section 5.2 does not explicitly
 /// require checking them at validation time. The critical bit on the extension is
 /// not checked here.
@@ -252,6 +254,16 @@ fn leaf_constraint_check(
 ) -> std::result::Result<(), String> {
     let (_, cert) =
         x509_parser::parse_x509_certificate(leaf.as_ref()).map_err(|e| e.to_string())?;
+
+    // basic_constraints() also returns None for malformed values. Check presence
+    // separately so malformed extensions retain rustls's path-validation error.
+    if cert
+        .get_extension_unique(&oid_registry::OID_X509_EXT_BASIC_CONSTRAINTS)
+        .map_err(|e| e.to_string())?
+        .is_none()
+    {
+        return Err("basic constraints extension is missing".into());
+    }
 
     if let Some(bc) = cert.basic_constraints().map_err(|e| e.to_string())? {
         if bc.value.ca {
