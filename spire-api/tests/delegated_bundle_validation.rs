@@ -15,8 +15,8 @@ mod tests {
     use std::task::{Context, Poll};
     use tonic::codegen::{http, BoxFuture, BoxStream, Service};
 
-    const CA1: &[u8] = include_bytes!("../../spiffe/tests/testdata/bundle/x509/cert1.der");
-    const CA2: &[u8] = include_bytes!("../../spiffe/tests/testdata/bundle/x509/cert2.der");
+    const CA1: &[u8] = include_bytes!("fixtures/delegated_bundle_validation/cert1.der");
+    const CA2: &[u8] = include_bytes!("fixtures/delegated_bundle_validation/cert2.der");
 
     // Real P-256 public keys from the core authority-policy fixture and JwtBundle Rustdoc.
     fn jwks(kid: &str, second_key: bool) -> Bytes {
