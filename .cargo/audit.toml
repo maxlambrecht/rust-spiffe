@@ -4,4 +4,12 @@ ignore = [
     # Present via jsonwebtoken when using rust_crypto backend / RSA algorithms.
     # No upstream fix currently available; monitor advisory status.
     "RUSTSEC-2023-0071",
+    # RUSTSEC-2026-0387: crypto-bigint constant-time operation timing issues.
+    # jsonwebtoken 11.1.0's optional rust_crypto backend requires elliptic-curve
+    # 0.13 / crypto-bigint 0.5.x; no patched compatible release is available.
+    # Temporary risk acceptance, not a fix. The 0.7.x dev-dependency path is
+    # patched in Cargo.lock. Prefer jwt-verify-aws-lc-rs to avoid the 0.5.x path.
+    # Remove this exception once jsonwebtoken permits a patched dependency.
+    # cargo-audit ignores advisory IDs globally, so keep the dev path patched.
+    "RUSTSEC-2026-0387",
 ]
