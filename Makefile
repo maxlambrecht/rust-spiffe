@@ -189,8 +189,9 @@ RUSTLS_TOKIO_CI_FEATURES := $(RUSTLS_TOKIO_ALL_FEATURES)
 # SPIRE-backed Workload API integration lane for the spiffe crate.
 SPIFFE_WORKLOAD_API_INTEGRATION_FEATURES := x509-source,jwt-source,jwt,workload-api
 
-# Literal commas split GNU Make call arguments; expand this list after argument parsing.
+# Literal commas split GNU Make call arguments; expand these lists after argument parsing.
 SPIFFE_MSRV_FEATURES := x509-source,jwt-source,jwt,jwt-verify-rust-crypto,broker-api
+RUSTLS_MSRV_PARKING_LOT_FEATURES := ring,parking-lot
 
 # Release lanes. The primary lane is the supported, docs.rs-published feature
 # set: it is tested in-tree and in the extracted package. Every CI lane is also
@@ -471,6 +472,8 @@ msrv:
 	$(info ==> spiffe-rustls (MSRV))
 	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),)
 	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features aws-lc-rs)
+	# Exercise the optional lock implementation at the declared MSRV.
+	$(call _msrv_test,$(SPIFFE_RUSTLS_MANIFEST),--no-default-features --features $(RUSTLS_MSRV_PARKING_LOT_FEATURES))
 	$(call _msrv_doc,$(SPIFFE_RUSTLS_MANIFEST),)
 
 	$(info ==> spiffe-rustls-tokio (MSRV))
