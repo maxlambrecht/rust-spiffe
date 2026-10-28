@@ -10,7 +10,7 @@ This project values clear APIs, disciplined changes, and a low-noise contributio
 
 ### Prerequisites
 
-- Rust 1.88 or later (see `rust-version` in `Cargo.toml`)
+- Rust 1.95 or later (see `rust-version` in `Cargo.toml`)
 - `make` (for running the test suite)
 - SPIRE agent (for integration tests)
 
@@ -37,6 +37,19 @@ make integration-tests
 # (requires cargo-semver-checks and cargo-deny)
 make release-check CRATE=spiffe
 ```
+
+---
+
+## MSRV Policy
+
+We keep the minimum supported Rust version (MSRV) fixed until a language feature
+or dependency upgrade justifies increasing it. The new minimum should normally
+have been released at least six months earlier.
+
+MSRV increases are announced in each affected crate's changelog and shipped in a
+breaking release: a minor version bump while the crates are pre-1.0, or a major
+version bump after 1.0. The declared minimum is recorded in `Cargo.toml`.
+CI verifies the declared MSRV and latest stable Rust.
 
 ---
 
