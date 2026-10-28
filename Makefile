@@ -28,7 +28,7 @@ LOCKED := --locked
 
 -include make/fuzz.mk
 
-MSRV ?= 1.88.0
+MSRV ?= 1.95.0
 
 SPIFFE_MANIFEST        := spiffe/Cargo.toml
 SPIFFE_RUSTLS_MANIFEST := spiffe-rustls/Cargo.toml
