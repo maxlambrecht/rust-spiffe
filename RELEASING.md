@@ -7,9 +7,10 @@ tag does not publish it.
 
 1. Update the crate version in `Cargo.toml` and update `CHANGELOG.md`.
 2. Update dependent crate requirements or documentation if needed.
-3. From a clean commit, run:
+3. From a clean commit with pinned submodules initialized, run:
 
    ```sh
+   git submodule update --init --recursive
    make release-check CRATE=spiffe
    ```
 
@@ -24,6 +25,9 @@ Valid crate names:
 
 Do not tag an unreviewed branch.
 
+The crate-local LICENSE files are exact distribution copies of the root LICENSE;
+keep them identical and verify that each Cargo package includes its copy.
+
 ## Tag the release
 
 After the release commit is the current `main` tip:
@@ -31,8 +35,8 @@ After the release commit is the current `main` tip:
 ```sh
 git checkout main
 git pull --ff-only
-git tag -a spiffe-0.18.0 -m "spiffe 0.18.0"
-git push origin spiffe-0.18.0
+git tag -a spiffe-0.19.0 -m "spiffe 0.19.0"
+git push origin spiffe-0.19.0
 ```
 
 Valid tag formats:
