@@ -20,6 +20,8 @@ updates:
     # The root manifest owns the workspace and shared lockfile, so this covers
     # every member, including spiffe-rustls-tokio and private tooling/examples.
     directory: /
+    allow:
+      - dependency-type: all
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
