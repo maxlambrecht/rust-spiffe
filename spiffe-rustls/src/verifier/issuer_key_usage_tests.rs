@@ -33,6 +33,10 @@ enum Role {
 
 const ROLES: [Role; 2] = [Role::Server, Role::Client];
 
+#[expect(
+    clippy::duration_suboptimal_units,
+    reason = "the fixed verification time is expressed in Unix timestamp seconds"
+)]
 fn now() -> UnixTime {
     UnixTime::since_unix_epoch(Duration::from_secs(1_893_456_000))
 }

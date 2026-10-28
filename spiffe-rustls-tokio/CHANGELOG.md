@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Breaking changes
+
+- Raise the minimum supported Rust version from 1.88 to 1.95.
+
 ## [0.7.0] - 2026-10-28
 
 ### Breaking changes
