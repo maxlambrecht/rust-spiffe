@@ -48,7 +48,7 @@ jobs:
             | grep -Fx "${FUZZ_TARGET}"
 
       - name: Install cargo-fuzz
-        uses: taiki-e/install-action@26e9283f268b880168bdbd2c545dfcd60ec2c6ab
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32
         with:
           tool: cargo-fuzz@0.13.1
 
