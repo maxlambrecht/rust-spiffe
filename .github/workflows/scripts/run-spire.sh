@@ -2,11 +2,11 @@
 set -euo pipefail
 
 # Constants
-spire_version="1.15.2"
+spire_version="1.16.0"
 spire_folder="spire-${spire_version}"
 spire_archive="${spire_folder}-linux-amd64-musl.tar.gz"
-# Official checksum published with the SPIRE v1.15.2 GitHub release.
-spire_archive_sha256="3874d07ffeb6640bafb9fe6a538de06151f155d5ed2f8e8a51f138d2f51b8105"
+# Official checksum published with the SPIRE v1.16.0 GitHub release.
+spire_archive_sha256="7bcf5e167151a1fc58293768462b44e155ba8784214582aefa6adf18c633d1d5"
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 spire_server_log_file="/tmp/spire-server/server.log"
@@ -21,6 +21,7 @@ spire_agent_workload_socket_path="/tmp/spire-agent/public/api.sock"
 spire_agent_federated_log_file="/tmp/spire-agent-federated/agent.log"
 spire_agent_federated_workload_socket_path="/tmp/spire-agent-federated/public/api.sock"
 
+# Join-token workload aliases used as registration parent IDs, not attested agent IDs.
 agent_id="spiffe://example.org/myagent"
 agent_federated_id="spiffe://example-federated.org/myagent"
 
@@ -117,15 +118,15 @@ wait_for_federation_bundle() {
   local attempts="${4:-90}"
 
   for _ in $(seq 1 "${attempts}"); do
-    if bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" 2>/dev/null | grep -q "${trust_domain}"; then
+    if bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" 2>/dev/null | grep -F "[spiffe://${trust_domain}] CA #" >/dev/null; then
       return 0
     fi
     sleep 1
   done
 
   echo "Timed out waiting for bundle '${trust_domain}' via Workload API (${description})" >&2
-  echo "--- ${description} fetch bundles (unsuppressed) ---" >&2
-  bin/spire-agent api fetch bundles -socketPath "${workload_socket_path}" >&2 || true
+  echo "--- ${description} fetch x509 (unsuppressed) ---" >&2
+  bin/spire-agent api fetch x509 -socketPath "${workload_socket_path}" >&2 || true
   exit 1
 }
 
