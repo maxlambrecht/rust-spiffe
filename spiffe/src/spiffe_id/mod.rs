@@ -926,12 +926,11 @@ mod spiffe_id_tests {
                 );
 
             if expect_ok {
-                let spiffe_id =
-                    SpiffeId::from_segments(trust_domain.clone(), &[seg.as_str()]).unwrap();
+                let spiffe_id = SpiffeId::from_segments(trust_domain, &[seg.as_str()]).unwrap();
                 assert_eq!(spiffe_id.to_string(), format!("spiffe://trustdomain/{seg}"));
             } else {
                 assert_eq!(
-                    SpiffeId::from_segments(trust_domain.clone(), &[seg.as_str()]).unwrap_err(),
+                    SpiffeId::from_segments(trust_domain, &[seg.as_str()]).unwrap_err(),
                     SpiffeIdError::BadPathSegmentChar
                 );
             }

@@ -39,7 +39,7 @@
 
 #![cfg_attr(
     test,
-    expect(unused_crate_dependencies, reason = "used in the integration tests")
+    allow(unused_crate_dependencies, reason = "used in the integration tests")
 )]
 #![allow(
     clippy::multiple_crate_versions,

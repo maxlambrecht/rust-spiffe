@@ -1,6 +1,6 @@
 //! Signed public-API regressions for trusted JWK policy and RSA strength.
 
-#![expect(
+#![allow(
     unused_crate_dependencies,
     reason = "used in other test and library targets"
 )]

@@ -1,5 +1,5 @@
 #![expect(missing_docs, reason = "integration test")]
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(feature = "x509")]
 #[expect(

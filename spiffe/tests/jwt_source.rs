@@ -13,7 +13,7 @@
 //! - Shutdown behavior
 //! - Convenience methods
 
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(feature = "jwt-source")]
 #[expect(

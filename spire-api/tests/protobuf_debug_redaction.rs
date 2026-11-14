@@ -1,6 +1,6 @@
 //! Public-consumer regressions for SPIRE protobuf credential.
 
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(test)]
 mod tests {

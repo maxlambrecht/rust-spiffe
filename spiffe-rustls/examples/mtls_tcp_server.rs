@@ -1,5 +1,5 @@
 #![expect(missing_docs, reason = "example")]
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 use spiffe::{TrustDomain, X509Source};
 use spiffe_rustls::{authorizer, mtls_server, LocalOnly};
