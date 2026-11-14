@@ -28,7 +28,7 @@
 #![expect(clippy::multiple_crate_versions, reason = "transitive")]
 #![cfg_attr(
     test,
-    expect(unused_crate_dependencies, reason = "used in the examples")
+    allow(unused_crate_dependencies, reason = "used in the examples")
 )]
 
 mod acceptor;

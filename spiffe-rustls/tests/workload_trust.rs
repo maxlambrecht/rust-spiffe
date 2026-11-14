@@ -1,5 +1,5 @@
 #![expect(missing_docs, reason = "integration test")]
-#![expect(
+#![allow(
     unused_crate_dependencies,
     reason = "used in library or generated wire module"
 )]

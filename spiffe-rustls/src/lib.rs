@@ -45,7 +45,7 @@
 
 #![cfg_attr(
     test,
-    expect(
+    allow(
         unused_crate_dependencies,
         reason = "dev-dependencies are used by integration tests and examples"
     )

@@ -1,6 +1,6 @@
 //! These tests requires a running SPIRE server and agent with workloads registered (see `scripts/run-spire.sh`).
 
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 #[cfg(test)]
 #[cfg(feature = "workload-api")]

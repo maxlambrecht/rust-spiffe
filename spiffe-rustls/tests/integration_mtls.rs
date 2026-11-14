@@ -7,7 +7,7 @@
     clippy::expect_used,
     reason = "https://github.com/rust-lang/rust-clippy/issues/11119"
 )]
-#![expect(unused_crate_dependencies, reason = "used in the library target")]
+#![allow(unused_crate_dependencies, reason = "used in the library target")]
 
 use rustls::pki_types::ServerName;
 use spiffe::X509Source;
