@@ -29,6 +29,13 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
+      # Dependabot matches crate names, so list known MSRV blockers before the
+      # general groups. parking_lot 0.13 and its companion upgrades need Rust 1.95.
+      msrv-sensitive:
+        patterns:
+          - parking_lot
+          - parking_lot_core
+          - lock_api
       minor-patch:
         update-types: [minor, patch]
       major:
