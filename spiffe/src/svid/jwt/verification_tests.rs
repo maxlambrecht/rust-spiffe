@@ -519,6 +519,10 @@ fn jwt_verification_supported_asymmetric_algorithms() {
 }
 
 #[test]
+#[expect(
+    clippy::duration_suboptimal_units,
+    reason = "the upper clock boundary is expressed in Unix timestamp seconds"
+)]
 fn jwt_temporal_clock_read_once_and_failure() {
     let fixture = Fixture::es256();
     let token = fixture.token(N + 1, Some("2000000000.25"));
