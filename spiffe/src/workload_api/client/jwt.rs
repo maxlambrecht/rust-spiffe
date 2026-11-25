@@ -1,11 +1,10 @@
+use super::normalize_bundle_keys;
 use crate::constants::DEFAULT_SVID;
 use crate::workload_api::pb::workload::{
     JwtBundlesRequest, JwtBundlesResponse, Jwtsvid, JwtsvidRequest, JwtsvidResponse,
     ValidateJwtsvidRequest, ValidateJwtsvidResponse,
 };
-use crate::{
-    JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiClient, WorkloadApiError,
-};
+use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, WorkloadApiClient, WorkloadApiError};
 use futures::{Stream, StreamExt as _};
 use std::str::FromStr as _;
 use std::sync::Arc;
@@ -287,15 +286,15 @@ impl WorkloadApiClient {
     fn parse_jwt_bundle_set_from_grpc_response(
         response: JwtBundlesResponse,
     ) -> Result<JwtBundleSet, WorkloadApiError> {
+        let field = "JWTBundlesResponse.bundles";
         if response.bundles.is_empty() {
-            return Err(WorkloadApiError::MissingRequiredField {
-                field: "JWTBundlesResponse.bundles",
-            });
+            return Err(WorkloadApiError::MissingRequiredField { field });
         }
+
+        let bundles = normalize_bundle_keys(response.bundles, field)?;
         let mut bundle_set = JwtBundleSet::new();
 
-        for (td, bundle_data) in response.bundles {
-            let trust_domain = TrustDomain::try_from(td)?;
+        for (trust_domain, bundle_data) in bundles {
             let bundle = JwtBundle::from_jwt_authorities(trust_domain, &bundle_data)
                 .map_err(WorkloadApiError::from)?;
 

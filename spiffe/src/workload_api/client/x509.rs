@@ -1,11 +1,10 @@
+use super::normalize_bundle_keys;
 use crate::constants::DEFAULT_SVID;
 use crate::workload_api::pb::workload::{
     X509BundlesRequest, X509BundlesResponse, X509svid, X509svidRequest, X509svidResponse,
 };
 use crate::workload_api::x509_context::X509Context;
-use crate::{
-    TrustDomain, WorkloadApiClient, WorkloadApiError, X509Bundle, X509BundleSet, X509Svid,
-};
+use crate::{WorkloadApiClient, WorkloadApiError, X509Bundle, X509BundleSet, X509Svid};
 use futures::{Stream, StreamExt as _};
 use std::sync::Arc;
 
@@ -223,23 +222,15 @@ impl WorkloadApiClient {
     fn parse_x509_bundle_set_from_grpc_response(
         response: X509BundlesResponse,
     ) -> Result<X509BundleSet, WorkloadApiError> {
+        let field = "X509BundlesResponse.bundles";
         if response.bundles.is_empty() {
-            return Err(WorkloadApiError::MissingRequiredField {
-                field: "X509BundlesResponse.bundles",
-            });
+            return Err(WorkloadApiError::MissingRequiredField { field });
         }
-        let bundles: Result<Vec<_>, _> = response
-            .bundles
-            .into_iter()
-            .map(|(td, bundle_data)| {
-                let trust_domain = TrustDomain::try_from(td)?;
-                X509Bundle::parse_from_der(trust_domain, &bundle_data)
-                    .map_err(WorkloadApiError::from)
-            })
-            .collect();
 
+        let bundles = normalize_bundle_keys(response.bundles, field)?;
         let mut bundle_set = X509BundleSet::new();
-        for bundle in bundles? {
+        for (trust_domain, bundle_data) in bundles {
+            let bundle = X509Bundle::parse_from_der(trust_domain, &bundle_data)?;
             bundle_set.add_bundle(bundle);
         }
 
@@ -256,17 +247,28 @@ impl WorkloadApiClient {
 
         for svid in response.svids {
             let (x509_svid, bundle) = Self::parse_x509_svid_entry(&svid)?;
+            if bundle_set
+                .get_ref(bundle.trust_domain())
+                .is_some_and(|existing| !existing.has_same_authorities(&bundle))
+            {
+                return Err(WorkloadApiError::InvalidResponseField {
+                    field: "X509SVID.bundle",
+                });
+            }
             svids.push(Arc::new(x509_svid));
             bundle_set.add_bundle(bundle);
         }
 
-        for (trust_domain, bundle) in response.federated_bundles {
-            let trust_domain = TrustDomain::try_from(trust_domain)?;
-            let x509_bundle = X509Bundle::parse_from_der(trust_domain, bundle.as_ref())
-                .map_err(WorkloadApiError::from)?;
-            // Federated bundles are applied after per-SVID bundles. If a non-conforming
-            // server repeats the workload's own trust domain here, this intentionally follows
-            // X509BundleSet::add_bundle replacement semantics and the federated entry wins.
+        let field = "X509SVIDResponse.federated_bundles";
+        let federated_bundles = normalize_bundle_keys(response.federated_bundles, field)?;
+        if federated_bundles
+            .keys()
+            .any(|trust_domain| bundle_set.get_ref(trust_domain).is_some())
+        {
+            return Err(WorkloadApiError::InvalidResponseField { field });
+        }
+        for (trust_domain, bundle) in federated_bundles {
+            let x509_bundle = X509Bundle::parse_from_der(trust_domain, bundle.as_ref())?;
             bundle_set.add_bundle(x509_bundle);
         }
 
@@ -321,6 +323,7 @@ impl WorkloadApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::TrustDomain;
     use std::collections::HashMap;
 
     fn x509_svid(bundle: &[u8]) -> X509svid {

@@ -161,6 +161,24 @@ impl X509Bundle {
     pub fn authorities(&self) -> &[Certificate] {
         &self.x509_authorities
     }
+
+    #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
+    pub(crate) fn has_same_authorities(&self, other: &Self) -> bool {
+        let left = self.authorities();
+        let right = other.authorities();
+        if left == right {
+            return true;
+        }
+        if left.len() != right.len() {
+            return false;
+        }
+
+        let mut left: Vec<_> = left.iter().map(Certificate::as_bytes).collect();
+        let mut right: Vec<_> = right.iter().map(Certificate::as_bytes).collect();
+        left.sort_unstable();
+        right.sort_unstable();
+        left == right
+    }
 }
 
 impl X509BundleSet {

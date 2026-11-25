@@ -116,6 +116,14 @@ fn missing<T>(result: Result<T, WorkloadApiError>, field: &'static str) {
     );
 }
 
+fn invalid<T>(result: Result<T, WorkloadApiError>, field: &'static str) {
+    let error = result.err().expect("ambiguous bundles must be rejected");
+    assert!(
+        matches!(error, WorkloadApiError::InvalidResponseField { field: actual } if actual == field),
+        "expected invalid {field}, got {error}"
+    );
+}
+
 #[cfg(feature = "x509")]
 fn x509() -> X509svidResponse {
     X509svidResponse {
@@ -300,6 +308,100 @@ async fn x509_public_methods_reject_malformed_later_material() {
 
 #[cfg(feature = "x509")]
 #[tokio::test]
+async fn x509_context_public_methods_reject_ambiguous_bundles() {
+    let first_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der").as_slice();
+    let second_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert2.der").as_slice();
+
+    let mut conflicting_local = x509();
+    let mut second = conflicting_local.svids.first().unwrap().clone();
+    second.hint = "second".into();
+    second.bundle = second_ca.to_vec().into();
+    conflicting_local.svids.push(second);
+
+    let mut local_federated_overlap = x509();
+    local_federated_overlap
+        .federated_bundles
+        .insert("spiffe://EXAMPLE.org".into(), second_ca.to_vec().into());
+    let mut overlap_with_malformed_value = local_federated_overlap.clone();
+    overlap_with_malformed_value.federated_bundles.insert(
+        "spiffe://foreign.example".into(),
+        b"invalid".to_vec().into(),
+    );
+
+    let mut duplicate_federated = x509();
+    duplicate_federated.federated_bundles = HashMap::from([
+        ("spiffe://foreign.example".into(), first_ca.to_vec().into()),
+        ("FOREIGN.example".into(), second_ca.to_vec().into()),
+    ]);
+    let mut duplicates_with_malformed_values = duplicate_federated.clone();
+    for value in duplicates_with_malformed_values
+        .federated_bundles
+        .values_mut()
+    {
+        *value = b"invalid".to_vec().into();
+    }
+
+    for (response, field) in [
+        (conflicting_local, "X509SVID.bundle"),
+        (
+            local_federated_overlap,
+            "X509SVIDResponse.federated_bundles",
+        ),
+        (
+            overlap_with_malformed_value,
+            "X509SVIDResponse.federated_bundles",
+        ),
+        (duplicate_federated, "X509SVIDResponse.federated_bundles"),
+        (
+            duplicates_with_malformed_values,
+            "X509SVIDResponse.federated_bundles",
+        ),
+    ] {
+        let (client, _server) = client(Responses {
+            x509: response,
+            ..Default::default()
+        })
+        .await;
+        invalid(client.fetch_x509_context().await, field);
+        invalid(
+            client
+                .stream_x509_contexts()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+            field,
+        );
+    }
+}
+
+#[cfg(feature = "x509")]
+#[tokio::test]
+async fn x509_context_accepts_reordered_local_bundle_authorities() {
+    let first_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der").as_slice();
+    let second_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert2.der").as_slice();
+    let mut response = x509();
+    let first = response.svids.first_mut().unwrap();
+    first.bundle = [first_ca, second_ca].concat().into();
+    let mut second = first.clone();
+    second.hint = "second".into();
+    second.bundle = [second_ca, first_ca].concat().into();
+    response.svids.push(second);
+    let (client, _server) = client(Responses {
+        x509: response,
+        ..Default::default()
+    })
+    .await;
+    let context = client.fetch_x509_context().await.unwrap();
+    assert_eq!(context.svids().len(), 2);
+    assert_eq!(context.bundle_set().len(), 1);
+    let (_, bundle) = context.bundle_set().iter().next().unwrap();
+    assert_eq!(bundle.authorities().len(), 2);
+}
+
+#[cfg(feature = "x509")]
+#[tokio::test]
 async fn x509_bundle_public_methods_validate_required_map_and_all_entries() {
     let (client, _server) = client(Responses::default()).await;
     missing(
@@ -322,7 +424,7 @@ async fn x509_bundle_public_methods_validate_required_map_and_all_entries() {
             bundles: HashMap::from([
                 ("spiffe://example.org".into(), bundle.clone()),
                 (
-                    "spiffe://federated.example.org".into(),
+                    "federated.example.org".into(),
                     if malformed {
                         b"invalid".to_vec().into()
                     } else {
@@ -352,6 +454,43 @@ async fn x509_bundle_public_methods_validate_required_map_and_all_entries() {
                 assert_eq!(result.unwrap().len(), 2);
             }
         }
+    }
+}
+
+#[cfg(feature = "x509")]
+#[tokio::test]
+async fn x509_bundle_public_methods_reject_duplicate_normalized_keys() {
+    let first_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der").as_slice();
+    let second_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert2.der").as_slice();
+    for (first, second) in [
+        (first_ca, second_ca),
+        (first_ca, b"invalid"),
+        (b"invalid", b"invalid"),
+    ] {
+        let response = X509BundlesResponse {
+            bundles: HashMap::from([
+                ("spiffe://example.org".into(), first.to_vec().into()),
+                ("EXAMPLE.org".into(), second.to_vec().into()),
+            ]),
+            ..Default::default()
+        };
+        let (client, _server) = client(Responses {
+            x509_bundles: response,
+            ..Default::default()
+        })
+        .await;
+        let field = "X509BundlesResponse.bundles";
+        invalid(client.fetch_x509_bundles().await, field);
+        invalid(
+            client
+                .stream_x509_bundles()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+            field,
+        );
     }
 }
 
@@ -534,7 +673,7 @@ async fn jwt_bundle_public_methods_validate_required_map_and_all_entries() {
             bundles: HashMap::from([
                 ("spiffe://example.org".into(), bundle.clone()),
                 (
-                    "spiffe://federated.example.org".into(),
+                    "federated.example.org".into(),
                     if malformed {
                         b"invalid".to_vec().into()
                     } else if empty_keys {
@@ -567,6 +706,40 @@ async fn jwt_bundle_public_methods_validate_required_map_and_all_entries() {
                 assert_eq!(result.unwrap().len(), 2);
             }
         }
+    }
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn jwt_bundle_public_methods_reject_duplicate_normalized_keys() {
+    let empty = br#"{"keys":[]}"#.as_slice();
+    let jwks =
+        br#"{"keys":[{"kid":"fixture","kty":"EC","crv":"P-256","x":"unused","y":"unused"}]}"#
+            .as_slice();
+    for (first, second) in [(empty, jwks), (empty, b"invalid"), (b"invalid", b"invalid")] {
+        let response = JwtBundlesResponse {
+            bundles: HashMap::from([
+                ("spiffe://example.org".into(), first.to_vec().into()),
+                ("EXAMPLE.org".into(), second.to_vec().into()),
+            ]),
+        };
+        let (client, _server) = client(Responses {
+            jwt_bundles: response,
+            ..Default::default()
+        })
+        .await;
+        let field = "JWTBundlesResponse.bundles";
+        invalid(client.fetch_jwt_bundles().await, field);
+        invalid(
+            client
+                .stream_jwt_bundles()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+            field,
+        );
     }
 }
 

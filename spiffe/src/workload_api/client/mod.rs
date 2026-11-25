@@ -11,6 +11,8 @@
 //! Successful responses must contain the mandatory fields of their RPC contract.
 //! Required defaults return [`WorkloadApiError::MissingRequiredField`]; every SVID
 //! entry is checked before selection. Optional federation data remains optional.
+//! Bundle maps reject duplicate normalized trust domains. X.509 contexts also
+//! reject conflicts among local bundles and overlaps between local and federated bundles.
 //! Encoded certificate/token identities remain authoritative. JWT validation
 //! delegates cryptographic verification to the agent and checks its response
 //! structure before parsing the original token.
@@ -30,6 +32,9 @@ use crate::transport::Endpoint;
 use crate::workload_api::client::header::MetadataAdder;
 use crate::workload_api::error::WorkloadApiError;
 use crate::workload_api::pb::workload::spiffe_workload_api_client::SpiffeWorkloadApiClient;
+use crate::TrustDomain;
+use prost::bytes::Bytes;
+use std::collections::{BTreeMap, HashMap};
 
 #[cfg(all(test, feature = "jwt"))]
 use crate::{JwtSvid, SpiffeId};
@@ -204,4 +209,18 @@ impl WorkloadApiClient {
             .map_err(WorkloadApiError::from_status)?
             .ok_or(WorkloadApiError::EmptyResponse)
     }
+}
+
+fn normalize_bundle_keys(
+    bundles: HashMap<String, Bytes>,
+    field: &'static str,
+) -> Result<BTreeMap<TrustDomain, Bytes>, WorkloadApiError> {
+    let mut normalized = BTreeMap::new();
+    for (key, bundle) in bundles {
+        let trust_domain = TrustDomain::try_from(key)?;
+        if normalized.insert(trust_domain, bundle).is_some() {
+            return Err(WorkloadApiError::InvalidResponseField { field });
+        }
+    }
+    Ok(normalized)
 }

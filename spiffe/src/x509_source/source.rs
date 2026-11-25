@@ -910,26 +910,9 @@ fn bundle_set_equal_for_update(a: &X509BundleSet, b: &X509BundleSet) -> bool {
     }
 
     a.iter().all(|(trust_domain, bundle)| {
-        b.get(trust_domain)
-            .is_some_and(|other| bundle_equal_for_update(bundle.as_ref(), other.as_ref()))
+        b.get_ref(trust_domain)
+            .is_some_and(|other| bundle.has_same_authorities(other))
     })
-}
-
-fn bundle_equal_for_update(a: &X509Bundle, b: &X509Bundle) -> bool {
-    a.trust_domain() == b.trust_domain()
-        && authority_set_equal_for_update(a.authorities(), b.authorities())
-}
-
-fn authority_set_equal_for_update(a: &[Certificate], b: &[Certificate]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-
-    let mut left: Vec<&[u8]> = a.iter().map(Certificate::as_bytes).collect();
-    let mut right: Vec<&[u8]> = b.iter().map(Certificate::as_bytes).collect();
-    left.sort_unstable();
-    right.sort_unstable();
-    left == right
 }
 
 /// Total order over SVIDs covering every field that [`X509Svid`] equality compares.
