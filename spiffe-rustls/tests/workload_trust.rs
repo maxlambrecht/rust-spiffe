@@ -13,7 +13,7 @@ mod probes {
     use std::{
         collections::HashMap,
         io::{Cursor, Read as _, Write as _},
-        sync::Arc,
+        sync::{Arc, Mutex},
         time::Duration,
     };
     use tokio::sync::{mpsc, watch};
@@ -75,12 +75,28 @@ mod probes {
         .await
         .expect("source processing barrier");
     }
+    #[derive(PartialEq)]
+    enum MockEvent<R> {
+        WaitingForHeaderDenial,
+        Response(R),
+    }
+    async fn wait_for_event<R: PartialEq + Send + Sync>(
+        rx: &mut mpsc::UnboundedReceiver<MockEvent<R>>,
+        wanted: &MockEvent<R>,
+    ) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while &rx.recv().await.unwrap() != wanted {}
+        })
+        .await
+        .expect("mock server event must occur");
+    }
     async fn serve<Q, R>(
         initial: R,
         header_error: bool,
     ) -> (
         String,
         watch::Sender<Result<R, tonic::Status>>,
+        mpsc::UnboundedReceiver<MockEvent<R>>,
         tokio::task::JoinHandle<()>,
     )
     where
@@ -88,47 +104,57 @@ mod probes {
         R: prost::Message + Default + Clone + Send + Sync + 'static,
     {
         let (tx, rx) = watch::channel(Ok::<R, tonic::Status>(initial));
+        let (events_tx, events_rx) = mpsc::unbounded_channel();
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let error_delivered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let last_error = Arc::new(Mutex::new(rx));
         let svc = tower::service_fn(
             move |req: tonic::codegen::http::Request<tonic::body::Body>| {
-                let rx = rx.clone();
                 let calls = Arc::clone(&calls);
-                let error_delivered = Arc::clone(&error_delivered);
+                let last_error = Arc::clone(&last_error);
+                let events_tx = events_tx.clone();
                 async move {
                     let handler = tower::service_fn(move |_: tonic::Request<Q>| {
-                        let mut rx = rx.clone();
-                        let error_delivered = Arc::clone(&error_delivered);
+                        let mut rx = last_error.lock().unwrap().clone();
+                        let last_error = Arc::clone(&last_error);
+                        let events_tx = events_tx.clone();
                         let call = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                         async move {
+                            // A reconnect starts at the last status yielded by the server.
+                            // Wait for a new publication when that status is still current.
+                            let already_delivered = {
+                                let current = rx.borrow_and_update();
+                                current.is_err() && !current.has_changed()
+                            };
+                            if already_delivered {
+                                rx.changed().await.map_err(|_closed| {
+                                    tonic::Status::cancelled("test server closed")
+                                })?;
+                            }
                             if header_error && call == 1 {
                                 while rx.borrow().is_ok() {
+                                    let _sent = events_tx.send(MockEvent::WaitingForHeaderDenial);
                                     rx.changed().await.map_err(|_closed| {
                                         tonic::Status::cancelled("test server closed")
                                     })?;
                                 }
                             }
-                            // After delivering a denial, stall subsequent reconnects until
-                            // the test publishes another item. This gives each processing
-                            // acknowledgment exactly one attributable error.
-                            if error_delivered.load(std::sync::atomic::Ordering::Acquire)
-                                && rx.borrow().is_err()
-                            {
-                                rx.changed().await.map_err(|_closed| {
-                                    tonic::Status::cancelled("test server closed")
-                                })?;
-                            }
                             let first = rx.borrow_and_update().clone();
                             if header_error {
                                 if let Err(e) = &first {
-                                    error_delivered
-                                        .store(true, std::sync::atomic::Ordering::Release);
+                                    *last_error.lock().unwrap() = rx;
                                     return Err(e.clone());
                                 }
                             }
+                            // Initial sync consumes one response and opens a new stream.
+                            if call == 0 {
+                                let stream: std::pin::Pin<
+                                    Box<dyn Stream<Item = Result<R, tonic::Status>> + Send>,
+                                > = Box::pin(futures::stream::iter([first]));
+                                return Ok(tonic::Response::new(stream));
+                            }
                             let updates = futures::stream::unfold(
-                                (rx, Some(first), error_delivered),
-                                async |(mut rx, first, error_delivered)| {
+                                (rx, Some(first), last_error, events_tx),
+                                async |(mut rx, first, last_error, events_tx)| {
                                     let item = if let Some(first) = first {
                                         first
                                     } else {
@@ -136,11 +162,15 @@ mod probes {
                                         let next = rx.borrow_and_update().clone();
                                         next
                                     };
-                                    if item.is_err() {
-                                        error_delivered
-                                            .store(true, std::sync::atomic::Ordering::Release);
+                                    match &item {
+                                        Err(_) => *last_error.lock().unwrap() = rx.clone(),
+                                        Ok(response) if !events_tx.is_closed() => {
+                                            let _sent = events_tx
+                                                .send(MockEvent::Response(response.clone()));
+                                        }
+                                        Ok(_) => {}
                                     }
-                                    Some((item, (rx, None, error_delivered)))
+                                    Some((item, (rx, None, last_error, events_tx)))
                                 },
                             );
                             let updates: std::pin::Pin<
@@ -162,7 +192,7 @@ mod probes {
                 .await
                 .unwrap();
         });
-        (format!("tcp://{addr}"), tx, task)
+        (format!("tcp://{addr}"), tx, events_rx, task)
     }
     fn response(
         leaf: &[u8],
@@ -200,7 +230,8 @@ mod probes {
         mpsc::UnboundedReceiver<&'static str>,
         tokio::task::JoinHandle<()>,
     ) {
-        source_mode(initial, picker, false).await
+        let (source, tx, metrics, _events, server) = source_mode(initial, picker, false).await;
+        (source, tx, metrics, server)
     }
     async fn source_mode(
         initial: X509svidResponse,
@@ -210,9 +241,10 @@ mod probes {
         spiffe::X509Source,
         watch::Sender<Result<X509svidResponse, tonic::Status>>,
         mpsc::UnboundedReceiver<&'static str>,
+        mpsc::UnboundedReceiver<MockEvent<X509svidResponse>>,
         tokio::task::JoinHandle<()>,
     ) {
-        let (endpoint, tx, server) = serve::<X509svidRequest, _>(initial, headers).await;
+        let (endpoint, tx, events, server) = serve::<X509svidRequest, _>(initial, headers).await;
         let (mtx, mrx) = mpsc::unbounded_channel();
         let mut builder = spiffe::X509Source::builder()
             .endpoint(endpoint)
@@ -221,7 +253,7 @@ mod probes {
         if picker {
             builder = builder.picker(Picker);
         }
-        (builder.build().await.unwrap(), tx, mrx, server)
+        (builder.build().await.unwrap(), tx, mrx, events, server)
     }
     #[derive(Debug)]
     struct Picker;
@@ -397,14 +429,21 @@ mod probes {
         for headers in [true, false] {
             for msg in ["withdrawn", "no identity issued"] {
                 let initial = response(A, KA, CA, "", false);
-                let (source, tx, mut metrics, server) =
+                let (source, tx, mut metrics, mut events, server) =
                     source_mode(initial.clone(), false, headers).await;
                 let mut configs =
                     Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
                 configs.accept(A, KA);
                 let mut updates = source.updated();
+                if headers {
+                    wait_for_event(&mut events, &MockEvent::WaitingForHeaderDenial).await;
+                }
                 let _previous = tx.send_replace(Err(tonic::Status::permission_denied(msg)));
-                assert_eq!(updates.changed().await.unwrap(), 1);
+                let withdrawn = tokio::time::timeout(Duration::from_secs(5), updates.changed())
+                    .await
+                    .expect("source must process the denial")
+                    .unwrap();
+                assert_eq!(withdrawn, 1);
                 assert!(matches!(
                     source.svid(),
                     Err(spiffe::x509_source::X509SourceError::Withdrawn(_))
@@ -441,7 +480,7 @@ mod probes {
     async fn denial_is_published_before_external_error_callbacks() {
         ensure_provider();
         for headers in [true, false] {
-            let (endpoint, tx, server) =
+            let (endpoint, tx, mut events, server) =
                 serve::<X509svidRequest, _>(response(A, KA, CA, "", false), headers).await;
             let source = spiffe::X509Source::builder()
                 .endpoint(endpoint)
@@ -451,6 +490,9 @@ mod probes {
                 .unwrap();
             let configs = Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
             let mut updates = source.updated();
+            if headers {
+                wait_for_event(&mut events, &MockEvent::WaitingForHeaderDenial).await;
+            }
             let _previous = tx.send_replace(Err(tonic::Status::permission_denied("withdrawn")));
             let _observed = tokio::time::timeout(Duration::from_secs(5), updates.changed())
                 .await
@@ -466,14 +508,20 @@ mod probes {
     }
 
     #[tokio::test]
-    async fn denial_followed_by_malformed_or_unavailable_cannot_reauthorize_tls() {
+    async fn denial_followed_by_malformed_ambiguous_or_unavailable_cannot_reauthorize_tls() {
         ensure_provider();
+        let mut ambiguous = response(B, KB, CB, "", false);
+        ambiguous
+            .federated_bundles
+            .insert("spiffe://EXAMPLE.org".into(), CA.to_vec().into());
         for next in [
             Err(tonic::Status::unavailable("temporary")),
             Ok(response(B, &[0], CB, "", false)),
+            Ok(ambiguous),
         ] {
             let initial = response(A, KA, CA, "", false);
-            let (source, tx, mut metrics, server) = source(initial.clone(), false).await;
+            let (source, tx, mut metrics, mut events, server) =
+                source_mode(initial.clone(), false, false).await;
             let mut configs =
                 Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
             configs.accept(A, KA);
@@ -481,10 +529,21 @@ mod probes {
             let _previous = tx.send_replace(Err(tonic::Status::permission_denied("withdrawn")));
             assert_eq!(updates.changed().await.unwrap(), 1);
             metric(&mut metrics, "reconnect").await; // denial error has been recorded
-            let _previous = tx.send_replace(next);
+            let _previous = tx.send_replace(next.clone());
+            if let Ok(wanted) = next {
+                wait_for_event(&mut events, &MockEvent::Response(wanted)).await;
+            }
             metric(&mut metrics, "error").await; // the next response has been processed
             assert_eq!(source.state().revision(), 1);
             assert!(source.state().withdrawal().is_some());
+            assert!(matches!(
+                source.svid(),
+                Err(spiffe::x509_source::X509SourceError::Withdrawn(_))
+            ));
+            assert!(matches!(
+                source.bundle_set(),
+                Err(spiffe::x509_source::X509SourceError::Withdrawn(_))
+            ));
             configs.reject(A, KA);
             let _previous = tx.send_replace(Ok(initial));
             assert_eq!(updates.changed().await.unwrap(), 2);
@@ -589,6 +648,38 @@ mod probes {
         configs.applied(1).await;
         configs.reject(A, KA);
         configs.accept(B, KB);
+        source.shutdown().await;
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn ambiguous_x509_update_preserves_trust_until_valid_rotation() {
+        ensure_provider();
+        let (source, tx, mut metrics, server) = source(response(A, KA, CA, "", true), false).await;
+        let mut configs = Configs::new(&source, spiffe_rustls::TerminalSourcePolicy::RetainFinal);
+        let accepted_svid = source.svid().unwrap();
+        let accepted_bundles = source.bundle_set().unwrap();
+        let mut updates = source.updated();
+
+        let replacement = response(B, KB, CB, "", false);
+        let mut ambiguous = replacement.clone();
+        ambiguous
+            .federated_bundles
+            .insert("spiffe://EXAMPLE.org".into(), CA.to_vec().into());
+        let _previous = tx.send_replace(Ok(ambiguous));
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 0);
+        assert_eq!(source.svid().unwrap(), accepted_svid);
+        assert_eq!(source.bundle_set().unwrap(), accepted_bundles);
+        configs.accept(A, KA);
+        configs.reject(B, KB);
+
+        let _previous = tx.send_replace(Ok(replacement));
+        assert_eq!(updates.changed().await.unwrap(), 1);
+        configs.applied(1).await;
+        configs.reject(A, KA);
+        configs.accept(B, KB);
+        assert_eq!(source.bundle_set().unwrap().len(), 1);
         source.shutdown().await;
         server.abort();
     }
@@ -767,7 +858,7 @@ mod probes {
     #[tokio::test]
     async fn runtime_teardown_closes_unpolled_source_and_tls_watchers() {
         ensure_provider();
-        let (endpoint, _tx, server) =
+        let (endpoint, _tx, _events, server) =
             serve::<X509svidRequest, _>(response(A, KA, CA, "", false), false).await;
         let (source, retain, closed) = tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -931,7 +1022,7 @@ mod probes {
                     .into(),
             )]),
         };
-        let (endpoint, tx, server) = serve::<JwtBundlesRequest, _>(initial, false).await;
+        let (endpoint, tx, _events, server) = serve::<JwtBundlesRequest, _>(initial, false).await;
         let source = spiffe::JwtSource::builder()
             .endpoint(endpoint)
             .build()
@@ -961,7 +1052,7 @@ mod probes {
     }
 
     #[tokio::test]
-    async fn jwt_required_map_rejection_preserves_withdrawal_and_domain_removal() {
+    async fn jwt_malformed_bundle_maps_preserve_withdrawal_and_allow_domain_removal() {
         // Public P-256 authority from the signed JWT policy corpus, kept local
         // so this integration target remains self-contained when packaged.
         let jwks = br#"{"keys":[{"crv":"P-256","kid":"probe","kty":"EC","x":"pf-F3qt3WiBQ2hPjVIp0W8C-ltc7VGCJqW-0sJgoKTI","y":"bsqDObxnMnAkXVbmLLlxinbSRyaLNL-28UWmN5rlg44"}]}"#;
@@ -972,7 +1063,8 @@ mod probes {
             ]),
         };
         let foreign = spiffe::TrustDomain::new("foreign.example").unwrap();
-        let (endpoint, tx, server) = serve::<JwtBundlesRequest, _>(initial.clone(), false).await;
+        let (endpoint, tx, mut events, server) =
+            serve::<JwtBundlesRequest, _>(initial.clone(), false).await;
         let (metrics_tx, mut metrics) = mpsc::unbounded_channel();
         let source = spiffe::JwtSource::builder()
             .endpoint(endpoint)
@@ -993,9 +1085,31 @@ mod probes {
         metric(&mut metrics, "error").await;
         assert_eq!(source.state().revision(), 1);
         assert!(source.state().withdrawal().is_some());
+        let ambiguous = JwtBundlesResponse {
+            bundles: HashMap::from([
+                ("spiffe://example.org".into(), jwks.to_vec().into()),
+                ("EXAMPLE.org".into(), br#"{"keys":[]}"#.to_vec().into()),
+            ]),
+        };
+        let _previous = tx.send_replace(Ok(ambiguous.clone()));
+        wait_for_event(&mut events, &MockEvent::Response(ambiguous.clone())).await;
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 1);
+        assert!(matches!(
+            source.bundle_set(),
+            Err(spiffe::jwt_source::JwtSourceError::Withdrawn(_))
+        ));
+
         let _previous = tx.send_replace(Ok(initial.clone()));
         assert_eq!(updates.changed().await.unwrap(), 2);
-        assert_eq!(source.bundle_set().unwrap().len(), 2);
+        metric(&mut metrics, "update").await;
+        let accepted = source.bundle_set().unwrap();
+        assert_eq!(accepted.len(), 2);
+        let _previous = tx.send_replace(Ok(ambiguous));
+        metric(&mut metrics, "error").await;
+        assert_eq!(source.state().revision(), 2);
+        assert_eq!(source.bundle_set().unwrap(), accepted);
+
         let mut removed = initial;
         removed.bundles.remove("spiffe://foreign.example");
         let _previous = tx.send_replace(Ok(removed));
@@ -1022,7 +1136,7 @@ mod probes {
         for headers in [true, false] {
             for msg in ["denied", "no identity issued"] {
                 let initial=JwtBundlesResponse { bundles: HashMap::from([("spiffe://example.org".into(),br#"{"keys":[{"kid":"a","kty":"EC","crv":"P-256","x":"unused","y":"unused"}]}"#.to_vec().into())]) };
-                let (endpoint, tx, server) =
+                let (endpoint, tx, mut events, server) =
                     serve::<JwtBundlesRequest, _>(initial.clone(), headers).await;
                 let source = spiffe::JwtSource::builder()
                     .endpoint(endpoint)
@@ -1031,8 +1145,15 @@ mod probes {
                     .await
                     .unwrap();
                 let mut updates = source.updated();
+                if headers {
+                    wait_for_event(&mut events, &MockEvent::WaitingForHeaderDenial).await;
+                }
                 let _previous = tx.send_replace(Err(tonic::Status::permission_denied(msg)));
-                assert_eq!(updates.changed().await.unwrap(), 1);
+                let withdrawn = tokio::time::timeout(Duration::from_secs(5), updates.changed())
+                    .await
+                    .expect("source must process the denial")
+                    .unwrap();
+                assert_eq!(withdrawn, 1);
                 assert!(matches!(
                     source.bundle_set(),
                     Err(spiffe::jwt_source::JwtSourceError::Withdrawn(_))

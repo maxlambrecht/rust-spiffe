@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Reject Workload API bundle maps with duplicate normalized trust domains. X.509 contexts also reject local/federated overlap and conflicting local bundles for the same trust domain. Sources discard the entire ambiguous update and retain the last accepted material.
+
 ## [0.19.0] - 2026-10-28
 
 ### Fixed

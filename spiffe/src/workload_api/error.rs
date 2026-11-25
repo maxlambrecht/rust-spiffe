@@ -50,7 +50,7 @@ pub enum WorkloadApiError {
         field: &'static str,
     },
 
-    /// A present Workload API response field has an invalid protocol structure.
+    /// A present Workload API response field violates a structure or consistency requirement.
     ///
     /// Only the field path is reported; response values may contain credentials.
     #[error("Workload API response has invalid field: {field}")]
