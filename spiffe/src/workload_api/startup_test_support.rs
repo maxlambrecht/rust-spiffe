@@ -22,6 +22,7 @@ pub(crate) enum Step {
     Headers(tonic::Code),
     Trailers(tonic::Code),
     ValidThenTrailers(tonic::Code),
+    ValidThenBundleKeyWithPath,
     NoIdentity,
     Eof,
     Valid,
@@ -65,6 +66,7 @@ async fn reply<T>(
     req: http::Request<tonic::body::Body>,
     step: Step,
     valid: T,
+    with_bundle_key_path: fn(T) -> T,
 ) -> http::Response<tonic::body::Body>
 where
     T: prost::Message + Default + Clone + Send + Sync + 'static,
@@ -85,6 +87,10 @@ where
                     Ok(valid),
                     Err(status(code, "trailers")),
                 ])),
+                Step::ValidThenBundleKeyWithPath => {
+                    let invalid = with_bundle_key_path(valid.clone());
+                    Box::pin(futures::stream::iter([Ok(valid), Ok(invalid)]))
+                }
                 Step::Eof => Box::pin(futures::stream::empty()),
                 Step::Valid => {
                     Box::pin(futures::stream::iter([Ok(valid)]).chain(futures::stream::pending()))
@@ -163,8 +169,26 @@ where
         };
         async move {
             let response = match path.as_str() {
-                "/SpiffeWorkloadAPI/FetchX509SVID" => reply(req, step, x509_response()).await,
-                "/SpiffeWorkloadAPI/FetchJWTBundles" => reply(req, step, jwt_response()).await,
+                "/SpiffeWorkloadAPI/FetchX509SVID" => {
+                    reply(req, step, x509_response(), |mut response| {
+                        let bundle = response.svids.first().unwrap().bundle.clone();
+                        response
+                            .federated_bundles
+                            .insert("spiffe://foreign.example/service".into(), bundle);
+                        response
+                    })
+                    .await
+                }
+                "/SpiffeWorkloadAPI/FetchJWTBundles" => {
+                    reply(req, step, jwt_response(), |mut response| {
+                        let bundle = response.bundles.remove("example.org").unwrap();
+                        response
+                            .bundles
+                            .insert("spiffe://foreign.example/service".into(), bundle);
+                        response
+                    })
+                    .await
+                }
                 _ => panic!("unexpected RPC: {path}"),
             };
             Ok::<_, std::convert::Infallible>(response)

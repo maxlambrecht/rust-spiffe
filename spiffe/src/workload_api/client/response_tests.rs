@@ -117,7 +117,7 @@ fn missing<T>(result: Result<T, WorkloadApiError>, field: &'static str) {
 }
 
 fn invalid<T>(result: Result<T, WorkloadApiError>, field: &'static str) {
-    let error = result.err().expect("ambiguous bundles must be rejected");
+    let error = result.err().expect("invalid response must be rejected");
     assert!(
         matches!(error, WorkloadApiError::InvalidResponseField { field: actual } if actual == field),
         "expected invalid {field}, got {error}"
@@ -378,6 +378,55 @@ async fn x509_context_public_methods_reject_ambiguous_bundles() {
 
 #[cfg(feature = "x509")]
 #[tokio::test]
+async fn x509_context_public_methods_require_pathless_bundle_keys() {
+    let domain = crate::TrustDomain::new("foreign.example").unwrap();
+    for (key, valid) in [
+        ("SpIfFe://FOREIGN.example", true),
+        ("FOREIGN.example", true),
+        ("spiffe://foreign.example/service", false),
+        ("SpIfFe://FOREIGN.example/", false),
+    ] {
+        let mut response = x509();
+        let bundle = response.svids.first().unwrap().bundle.clone();
+        response.federated_bundles.insert(key.into(), bundle);
+        let (client, _server) = client(Responses {
+            x509: response,
+            ..Default::default()
+        })
+        .await;
+        for result in [
+            client.fetch_x509_context().await,
+            client
+                .stream_x509_contexts()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+        ] {
+            if valid {
+                assert!(result.unwrap().bundle_set().get(&domain).is_some());
+            } else {
+                invalid(result, "X509SVIDResponse.federated_bundles");
+            }
+        }
+
+        // SVID-only methods do not consume the federation map.
+        client.fetch_x509_svid().await.unwrap();
+        client.fetch_all_x509_svids().await.unwrap();
+        client
+            .stream_x509_svids()
+            .await
+            .unwrap()
+            .next()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}
+
+#[cfg(feature = "x509")]
+#[tokio::test]
 async fn x509_context_accepts_reordered_local_bundle_authorities() {
     let first_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert1.der").as_slice();
     let second_ca = include_bytes!("../../../tests/testdata/bundle/x509/cert2.der").as_slice();
@@ -452,6 +501,44 @@ async fn x509_bundle_public_methods_validate_required_map_and_all_entries() {
                 assert!(matches!(result, Err(WorkloadApiError::X509Bundle(_))));
             } else {
                 assert_eq!(result.unwrap().len(), 2);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "x509")]
+#[tokio::test]
+async fn x509_bundle_public_methods_require_pathless_bundle_keys() {
+    let domain = crate::TrustDomain::new("example.org").unwrap();
+    for (key, valid) in [
+        ("SpIfFe://EXAMPLE.org", true),
+        ("EXAMPLE.org", true),
+        ("spiffe://example.org/service", false),
+        ("SpIfFe://EXAMPLE.org/", false),
+    ] {
+        let response = X509BundlesResponse {
+            bundles: HashMap::from([(key.into(), x509().svids.remove(0).bundle)]),
+            ..Default::default()
+        };
+        let (client, _server) = client(Responses {
+            x509_bundles: response,
+            ..Default::default()
+        })
+        .await;
+        for result in [
+            client.fetch_x509_bundles().await,
+            client
+                .stream_x509_bundles()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+        ] {
+            if valid {
+                assert!(result.unwrap().get(&domain).is_some());
+            } else {
+                invalid(result, "X509BundlesResponse.bundles");
             }
         }
     }
@@ -704,6 +791,43 @@ async fn jwt_bundle_public_methods_validate_required_map_and_all_entries() {
                 assert!(matches!(result, Err(WorkloadApiError::JwtBundle(_))));
             } else {
                 assert_eq!(result.unwrap().len(), 2);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn jwt_bundle_public_methods_require_pathless_bundle_keys() {
+    let domain = crate::TrustDomain::new("example.org").unwrap();
+    for (key, valid) in [
+        ("SpIfFe://EXAMPLE.org", true),
+        ("EXAMPLE.org", true),
+        ("spiffe://example.org/service", false),
+        ("SpIfFe://EXAMPLE.org/", false),
+    ] {
+        let response = JwtBundlesResponse {
+            bundles: HashMap::from([(key.into(), br#"{"keys":[]}"#.to_vec().into())]),
+        };
+        let (client, _server) = client(Responses {
+            jwt_bundles: response,
+            ..Default::default()
+        })
+        .await;
+        for result in [
+            client.fetch_jwt_bundles().await,
+            client
+                .stream_jwt_bundles()
+                .await
+                .unwrap()
+                .next()
+                .await
+                .unwrap(),
+        ] {
+            if valid {
+                assert!(result.unwrap().get(&domain).is_some());
+            } else {
+                invalid(result, "JWTBundlesResponse.bundles");
             }
         }
     }
