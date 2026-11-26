@@ -11,8 +11,10 @@
 //! Successful responses must contain the mandatory fields of their RPC contract.
 //! Required defaults return [`WorkloadApiError::MissingRequiredField`]; every SVID
 //! entry is checked before selection. Optional federation data remains optional.
-//! Bundle maps reject duplicate normalized trust domains. X.509 contexts also
-//! reject conflicts among local bundles and overlaps between local and federated bundles.
+//! Bundle maps accept bare trust domain names and pathless SPIFFE IDs as keys.
+//! They reject path-bearing SPIFFE IDs and duplicate normalized trust domains.
+//! X.509 contexts also reject conflicts among local bundles and overlaps between
+//! local and federated bundles.
 //! Encoded certificate/token identities remain authoritative. JWT validation
 //! delegates cryptographic verification to the agent and checks its response
 //! structure before parsing the original token.
@@ -211,13 +213,23 @@ impl WorkloadApiClient {
     }
 }
 
+/// Validates and canonicalizes trust domain keys before parsing bundle values.
+/// Bare names identify the same domain as pathless SPIFFE IDs and are accepted
+/// for compatibility with SPIRE X.509 bundle maps that use them.
 fn normalize_bundle_keys(
     bundles: HashMap<String, Bytes>,
     field: &'static str,
 ) -> Result<BTreeMap<TrustDomain, Bytes>, WorkloadApiError> {
     let mut normalized = BTreeMap::new();
     for (key, bundle) in bundles {
-        let trust_domain = TrustDomain::try_from(key)?;
+        let trust_domain = TrustDomain::try_from(key.as_str())?;
+        // TrustDomain parsing extracts the domain even when the URI has a path.
+        if key
+            .split_once("://")
+            .is_some_and(|(_, authority_and_path)| authority_and_path.contains('/'))
+        {
+            return Err(WorkloadApiError::InvalidResponseField { field });
+        }
         if normalized.insert(trust_domain, bundle).is_some() {
             return Err(WorkloadApiError::InvalidResponseField { field });
         }

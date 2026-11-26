@@ -67,13 +67,15 @@ wire/payload identity equality check is applied. Optional hints, CRLs, and
 federation data may be absent. Complete updates still remove omitted federation
 trust, and present empty authority bundles retain their existing behavior.
 
-Bundle maps check for keys that normalize to the same trust domain before
-parsing bundle values. X.509 contexts also check federated keys against local
-trust domains before parsing federated values, and reject conflicting bundles
-attached to local SVIDs in the same domain. Multiple local SVIDs may carry the
-same authorities in any order. These conflicts return
-`WorkloadApiError::InvalidResponseField`, and sources keep the last accepted
-trust snapshot until a valid update arrives or permission is withdrawn.
+Bundle maps accept bare trust domain names and pathless SPIFFE IDs as keys.
+They reject SPIFFE IDs with a path and keys that normalize to the same trust
+domain before parsing bundle values. X.509 contexts also check federated keys
+against local trust domains before parsing federated values, and reject
+conflicting bundles attached to local SVIDs in the same domain. Multiple local
+SVIDs may carry the same authorities in any order. Path-bearing keys and these
+conflicts return `WorkloadApiError::InvalidResponseField`, and sources keep the
+last accepted trust snapshot until a valid update arrives or permission is
+withdrawn.
 
 ---
 

@@ -349,6 +349,42 @@ async fn valid_unavailable_endpoint_keeps_initial_timeout() {
 }
 
 #[tokio::test]
+async fn steady_state_bundle_key_with_path_preserves_last_accepted_revision() {
+    let server = support::server(vec![
+        Step::Valid,
+        Step::ValidThenBundleKeyWithPath,
+        Step::Valid,
+    ])
+    .await;
+    let (tx, mut errors) = mpsc::channel(128);
+    let source = watchdog(
+        Source::builder()
+            .endpoint(&server.endpoint)
+            .reconnect_backoff(Duration::from_secs(30), Duration::from_secs(30))
+            .metrics(Arc::new(Metrics(tx)))
+            .build(),
+    )
+    .await
+    .unwrap();
+
+    // The supervisor has processed the second item by the time it reports the
+    // parse error or observes EOF. The reconnect is held off by the backoff.
+    let error = watchdog(errors.recv()).await.unwrap();
+    let state = source.state();
+    assert_eq!(state.revision(), 0);
+    assert_eq!(source.updated().last(), 0);
+    assert!(state.withdrawal().is_none());
+    let bundles = source.bundle_set().unwrap();
+    assert_eq!(bundles.len(), 1);
+    assert!(bundles.get(&crate::TrustDomain::new("example.org").unwrap()).is_some());
+    assert!(bundles
+        .get(&crate::TrustDomain::new("foreign.example").unwrap())
+        .is_none());
+    assert_eq!(error, MetricsErrorKind::StreamError);
+    watchdog(source.shutdown()).await;
+}
+
+#[tokio::test]
 async fn steady_state_unimplemented_retries_and_does_not_resurrect_withdrawn_material() {
     for denied in [false, true] {
         for (unsupported, trailers) in [
