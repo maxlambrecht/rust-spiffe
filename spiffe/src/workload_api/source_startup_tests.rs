@@ -386,20 +386,29 @@ async fn steady_state_bundle_key_with_path_preserves_last_accepted_revision() {
 
 #[tokio::test]
 async fn steady_state_unimplemented_retries_and_does_not_resurrect_withdrawn_material() {
+    assert_steady_state_retry_preserves_permission(tonic::Code::Unimplemented).await;
+}
+
+#[tokio::test]
+async fn steady_state_invalid_argument_retries_and_does_not_resurrect_withdrawn_material() {
+    assert_steady_state_retry_preserves_permission(tonic::Code::InvalidArgument).await;
+}
+
+async fn assert_steady_state_retry_preserves_permission(status: tonic::Code) {
     for denied in [false, true] {
-        for (unsupported, trailers) in [
-            (Step::Headers(tonic::Code::Unimplemented), false),
-            (Step::Trailers(tonic::Code::Unimplemented), true),
-            (Step::ValidThenTrailers(tonic::Code::Unimplemented), true),
+        for (failure, trailers) in [
+            (Step::Headers(status), false),
+            (Step::Trailers(status), true),
+            (Step::ValidThenTrailers(status), true),
         ] {
-            if denied && matches!(unsupported, Step::ValidThenTrailers(_)) {
+            if denied && matches!(failure, Step::ValidThenTrailers(_)) {
                 continue;
             }
             let mut steps = vec![Step::Valid];
             if denied {
                 steps.push(Step::Headers(tonic::Code::PermissionDenied));
             }
-            steps.extend([unsupported, Step::Valid]);
+            steps.extend([failure, Step::Valid]);
             let mut server = support::server(steps).await;
             let (tx, mut errors) = mpsc::channel(128);
             let source = watchdog(

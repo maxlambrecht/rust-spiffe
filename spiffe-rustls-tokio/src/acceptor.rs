@@ -72,28 +72,13 @@ impl TlsAcceptor {
     /// After a successful TLS handshake, the peer's SPIFFE ID is extracted from
     /// their certificate and returned along with the TLS stream.
     ///
-    /// # SPIFFE X.509-SVID Expectations
-    ///
-    /// According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-    /// in the URI SAN, and peers are expected to present certificates when mTLS is required.
-    /// When using `spiffe-rustls` verifiers correctly, these requirements are enforced during
-    /// the TLS handshake, and cases where `peer_identity.spiffe_id` is `None` should normally
-    /// be unreachable.
+    /// See [`PeerIdentity`] for post-handshake extraction outcomes.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The TLS handshake fails (`Error::Rustls`)
-    /// - The peer certificate cannot be parsed after a successful handshake (`Error::CertParse`)
-    ///
-    /// If identity extraction fails after a successful handshake, `accept()` returns
-    /// an error and the connection is closed. If the peer certificate doesn't contain
-    /// a SPIFFE ID, contains multiple SPIFFE IDs, or no peer certificates are present,
-    /// `accept()` succeeds and `peer_identity.spiffe_id` will be `None`.
-    ///
-    /// **Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations
-    /// and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that
-    /// the peer is not presenting a valid SPIFFE X.509-SVID.
+    /// - Peer identity extraction fails after a successful handshake ([`Error::CertParse`]).
     pub async fn accept(
         &self,
         stream: TcpStream,

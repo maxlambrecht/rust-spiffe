@@ -139,6 +139,19 @@ impl JwtSourceUpdates {
 /// [`JwtSourceBuilder::build`]. Updates are applied atomically and can be observed via
 /// [`JwtSource::updated`].
 ///
+/// During initial sync, `InvalidArgument` from the client factory or the
+/// material stream RPC fails construction without retry. `Unimplemented`
+/// from the material stream RPC also fails construction, while a factory
+/// `Unimplemented` is retried with backoff.
+///
+/// After readiness, both statuses trigger reconnection with backoff and leave
+/// the snapshot and its permission unchanged. Existing withdrawals and normal
+/// usability checks, including expiry where applicable, still apply.
+/// Retrying `InvalidArgument` after readiness is a deliberate exception to
+/// [SPIFFE Workload Endpoint §6].
+///
+/// [SPIFFE Workload Endpoint §6]: https://github.com/spiffe/spiffe/blob/88f6cddc4a6ab7998d9664f692fced0290d18f53/standards/SPIFFE_Workload_Endpoint.md#6-error-codes
+///
 /// The source automatically:
 /// - Maintains a cached view of the latest JWT bundles
 /// - Handles bundle rotation transparently

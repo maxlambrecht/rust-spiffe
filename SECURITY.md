@@ -30,7 +30,8 @@ unless otherwise agreed.
 
 This project follows standard Rust security best practices, including:
 
-- No `unsafe` code (`#![deny(unsafe_code)]`)
+- Workspace Rust sources currently contain no `unsafe` code. The workspace
+  configures the `unsafe_code` lint at `warn`.
 - Dependency vulnerability scanning using `cargo-audit`
 - Dependency, license, and source policy checks using `cargo-deny`
 - Release preflight that binds the release tag, crate version, and current

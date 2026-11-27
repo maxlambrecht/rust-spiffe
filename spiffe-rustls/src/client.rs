@@ -23,6 +23,12 @@ type ClientConfigCustomizer = Box<dyn FnOnce(&mut ClientConfig) + Send>;
 /// bundle is rotated by the SPIRE agent, **new TLS handshakes automatically use
 /// the updated material**.
 ///
+/// ## Revocation
+///
+/// Peer verification does not enforce Workload API CRLs or stapled OCSP.
+/// Operators are responsible for revocation policy beyond trust-bundle changes
+/// and certificate expiry.
+///
 /// ## Trust Domain Selection
 ///
 /// The builder uses the bundle set from `X509Source`, which may contain bundles

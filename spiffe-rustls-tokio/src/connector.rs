@@ -75,28 +75,13 @@ impl TlsConnector {
     ///   The `ServerName` is required by rustls for the TLS protocol (SNI).
     /// * `stream` - The TCP stream to wrap with TLS.
     ///
-    /// # SPIFFE X.509-SVID Expectations
-    ///
-    /// According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-    /// in the URI SAN, and peers are expected to present certificates when mTLS is required.
-    /// When using `spiffe-rustls` verifiers correctly, these requirements are enforced during
-    /// the TLS handshake, and cases where `peer_identity.spiffe_id` is `None` should normally
-    /// be unreachable.
+    /// See [`PeerIdentity`] for post-handshake extraction outcomes.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The TLS handshake fails (`Error::Rustls`)
-    /// - The peer certificate cannot be parsed after a successful handshake (`Error::CertParse`)
-    ///
-    /// If identity extraction fails after a successful handshake, `connect()` returns
-    /// an error and the connection is closed. If the peer certificate doesn't contain
-    /// a SPIFFE ID, contains multiple SPIFFE IDs, or no peer certificates are present,
-    /// `connect()` succeeds and `peer_identity.spiffe_id` will be `None`.
-    ///
-    /// **Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations
-    /// and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that
-    /// the peer is not presenting a valid SPIFFE X.509-SVID.
+    /// - Peer identity extraction fails after a successful handshake ([`Error::CertParse`]).
     pub async fn connect(
         &self,
         server_name: ServerName<'static>,
@@ -120,29 +105,14 @@ impl TlsConnector {
     /// * `addr` - The socket address to connect to.
     /// * `server_name` - The server name to use for SNI (Server Name Indication).
     ///
-    /// # SPIFFE X.509-SVID Expectations
-    ///
-    /// According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-    /// in the URI SAN, and peers are expected to present certificates when mTLS is required.
-    /// When using `spiffe-rustls` verifiers correctly, these requirements are enforced during
-    /// the TLS handshake, and cases where `peer_identity.spiffe_id` is `None` should normally
-    /// be unreachable.
+    /// See [`PeerIdentity`] for post-handshake extraction outcomes.
     ///
     /// # Errors
     ///
     /// Returns an error if:
     /// - The TCP connection fails (`Error::Io`)
     /// - The TLS handshake fails (`Error::Rustls`)
-    /// - The peer certificate cannot be parsed after a successful handshake (`Error::CertParse`)
-    ///
-    /// If identity extraction fails after a successful handshake, `connect_addr()` returns
-    /// an error and the connection is closed. If the peer certificate doesn't contain
-    /// a SPIFFE ID, contains multiple SPIFFE IDs, or no peer certificates are present,
-    /// `connect_addr()` succeeds and `peer_identity.spiffe_id` will be `None`.
-    ///
-    /// **Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations
-    /// and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that
-    /// the peer is not presenting a valid SPIFFE X.509-SVID.
+    /// - Peer identity extraction fails after a successful handshake ([`Error::CertParse`]).
     pub async fn connect_addr(
         &self,
         addr: SocketAddr,

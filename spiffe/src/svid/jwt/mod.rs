@@ -1,11 +1,10 @@
 //! JWT SVID types.
 //!
-//! Supports two common flows:
-//! 1) **Workload API (trusted)**: tokens are fetched from the SPIRE agent (already validated by the agent).
-//!    Use [`JwtSvid::from_workload_api_token`] to parse and inspect the token.
-//! 2) **Offline verification**: verify a token using JWT authorities from bundles.
-//!    Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`)
-//!    and [`JwtSvid::parse_and_validate`].
+//! [`JwtSvid::parse_insecure`] and [`JwtSvid::from_workload_api_token`] parse
+//! tokens for structured access. For token authentication, use the trusted
+//! Workload API endpoint's validation RPC or enable a JWT verification backend
+//! (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`) for
+//! `JwtSvid::parse_and_validate`.
 //!
 //! ## Input-size limits
 //!
@@ -179,12 +178,7 @@ impl JwtAlg {
 /// The serialized token is zeroized on drop and omitted from `Debug` output
 /// (only the token length is shown).
 ///
-/// ## Usage Patterns
-///
-/// - **Trusted tokens** (from Workload API): Use [`JwtSvid::from_workload_api_token`]
-/// - **Untrusted tokens** (from network): Use [`JwtSvid::parse_and_validate`] (requires a JWT verification backend feature)
-///
-/// See the [module documentation](self) for details on verification modes.
+/// See the [module documentation](self) for parsing and verification options.
 ///
 /// ## Invariants
 ///
@@ -407,10 +401,8 @@ impl Claims {
 impl JwtSvid {
     /// Parses a JWT-SVID obtained from the SPIFFE Workload API.
     ///
-    /// This performs **no signature verification**. It is intended for tokens that are
-    /// trusted by construction (i.e., fetched from the SPIRE agent).
-    ///
-    /// For untrusted tokens, use [`JwtSvid::parse_and_validate`] (requires a JWT verification backend feature).
+    /// This is an alias for [`Self::parse_insecure`]. The caller establishes
+    /// that the token came from a trusted Workload API endpoint.
     ///
     /// # Errors
     ///
@@ -421,12 +413,9 @@ impl JwtSvid {
 
     /// Parses a JWT-SVID without performing signature verification.
     ///
-    /// This method validates only token **structure** and required headers/claims. It is
-    /// appropriate when the token is **trusted by construction**, such as tokens obtained
-    /// from the SPIFFE Workload API.
-    ///
-    /// For untrusted tokens, use [`JwtSvid::parse_and_validate`] instead (requires
-    /// a JWT verification backend feature: `jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`).
+    /// This checks token structure and required headers and claims. To
+    /// authenticate an untrusted token, use the Workload API validation RPC
+    /// or `JwtSvid::parse_and_validate` with an offline verification backend.
     ///
     /// # Errors
     ///
@@ -491,9 +480,11 @@ impl JwtSvid {
     ///
     /// This method does **not** validate:
     /// - **Issued at (`iat`)**: Not checked
-    /// - **Issuer (`iss`)**: Not checked (trust domain is derived from `sub`)
+    /// - **Issuer (`iss`)**: Claim format and ownership of the verification key
+    ///   are unchecked. The bundle is selected from the trust domain in `sub`.
     ///
-    /// Additional private payload claims remain permitted.
+    /// Applications relying on `iss` must establish the issuer's binding to
+    /// the verification key. Additional private payload claims remain permitted.
     ///
     /// # Errors
     ///
@@ -629,11 +620,10 @@ impl JwtSvid {
         &self.kid
     }
 
-    /// Returns the parsed claims (untrusted unless validated).
+    /// Returns the parsed claims.
     ///
-    /// **Note:** Claims are only trustworthy if the token was validated using
-    /// [`JwtSvid::parse_and_validate`]. Tokens parsed with [`JwtSvid::from_workload_api_token`]
-    /// are trusted by construction (fetched from the SPIRE agent).
+    /// Trust in these claims depends on how the token was obtained or validated.
+    /// See the [module documentation](self) for the available verification options.
     pub const fn claims(&self) -> &Claims {
         &self.claims
     }

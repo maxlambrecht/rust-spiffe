@@ -279,13 +279,26 @@ while let Some(update) = stream.next().await {
 
 ## JWT verification modes
 
-This crate supports **three distinct JWT-SVID usage patterns**, depending on where
-verification happens.
+| Input or operation | Parse-only APIs | Agent validation | Offline verification |
+| --- | --- | --- | --- |
+| Entry point | `JwtSvid::parse_insecure`, `FromStr`, `JwtSvid::from_workload_api_token`, typed fetch | `WorkloadApiClient::validate_jwt_token` | `JwtSvid::parse_and_validate` |
+| Authentication | Structural parsing only | Trusted Workload API endpoint validates, then the client parses the submitted token | Local signature, expected audience, and validity checks against trusted JWT bundles |
+| `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384` | Parsed | Parsed after agent acceptance | Supported by both backend features |
+| `ES512` | Parsed | Parsed after agent acceptance | Rejected by both backend features |
+| `ML-DSA-44`, `ML-DSA-65`, `ML-DSA-87` and all other algorithm names | Rejected | Rejected by the local parser | Rejected |
+| `kid` | Required string | Required by the local parser | Required and used for key lookup |
+| `exp` | Required integer Unix seconds in the parser's supported date range | Same requirement for the submitted token | Same representation, with expiration enforced |
 
-### 1. Trusted by construction (no verification)
+The current JWT-SVID profile lists ES512 and the ML-DSA algorithms and makes
+`kid` optional. JWT NumericDate permits fractional seconds. The table describes
+the client-side limits, so an agent can accept a token that the client then
+rejects. [JWT-SVID §§2–3](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#2-jose-header) · [RFC 7519 §2](https://www.rfc-editor.org/rfc/rfc7519.html#section-2)
 
-JWT-SVIDs **fetched directly from the SPIFFE Workload API** are trusted by construction.
-The SPIRE agent already authenticated the workload and issued the token.
+### 1. Parse a token from a trusted source
+
+Use `JwtSvid::from_workload_api_token` to inspect a token obtained from a trusted
+Workload API endpoint. For opaque acquisition, use
+`WorkloadApiClient::fetch_jwt_token`.
 
 ```rust
 use spiffe::JwtSvid;
@@ -383,24 +396,22 @@ During initial synchronization, `UNIMPLEMENTED` from `FetchX509SVID` or
 `FetchJWTBundles` returns the source-specific `UnsupportedRpc` error. It identifies
 the method and retains the original gRPC error, including its status code and
 cause. This applies to headers and stream trailers before the first accepted
-item, including a subsequent startup attempt. `INVALID_ARGUMENT` retains its
-existing immediate-failure policy. Correct the endpoint or server/profile
-configuration and build a new source after either terminal failure.
+item, including a subsequent startup attempt. `INVALID_ARGUMENT` from the
+required RPC or the client factory also fails construction without retry.
+Correct the endpoint or server/profile configuration and build a new source
+after either terminal failure.
 
 `Unavailable`, connection/HTTP2 failures, `DeadlineExceeded`, `PermissionDenied`,
 `NoIdentityIssued`, `Unauthenticated`, `Internal`, `Unknown`, and `Cancelled` remain
 retriable. Rejected malformed/over-limit responses retain their existing rejection
 and retry contract. No retry-count limit or mandatory deadline is introduced;
 `initial_sync_timeout(...)` continues to bound recoverable startup failures.
-Custom factory errors and environment-based discovery retain their existing
-retry behavior; repeated identical errors alone do not establish permanence.
+Other factory errors, including `UNIMPLEMENTED`, and environment discovery
+errors are retried with backoff.
 
-After successful synchronization, `UNIMPLEMENTED` continues to reconnect with
-backoff. It does not withdraw authorized material, restore withdrawn material,
-advance a material revision, or close the source. Source health still describes
-material usability and supervisor liveness, rather than RPC reachability. A server
-upgrade can therefore recover without rebuilding a running source. TLS source
-closure policies and established connection lifetimes are unchanged.
+After readiness, both statuses trigger reconnection with backoff and leave the
+snapshot and its permission unchanged. Existing withdrawals and normal usability
+checks still apply.
 
 See [Workload API startup policy](../docs/workload-api-startup.md) for the full
 classification and recovery contract.
@@ -574,8 +585,7 @@ EC curve, canonical RSA encoding, and 2048-bit minimum policies. Cryptographic
 key validity and capacity limits remain backend-specific: with the locked
 dependencies, RustCrypto accepts RSA moduli up to 4096 bits and AWS-LC up to
 8192 bits. A valid 5120-bit authority is therefore accepted by AWS-LC and
-rejected by RustCrypto. No shared maximum is imposed. ES512 remains unavailable
-for offline verification with either backend.
+rejected by RustCrypto.
 
 ---
 
@@ -728,7 +738,8 @@ This layered design allows you to use only what you need, minimizing dependencie
 
 ## Security Best Practices
 
-- **Always validate JWT tokens** when received from untrusted sources (use `jwt-verify-*` features)
+- **Always validate JWT tokens from untrusted sources** via a trusted Workload
+  API endpoint or offline verification
 - **Use `X509Source` or `JwtSource`** for automatic rotation instead of manual polling
 - **Enable observability** (`logging` or `tracing`) in production for monitoring
 
@@ -736,13 +747,10 @@ For security vulnerabilities, see [SECURITY.md](../SECURITY.md).
 
 ### Dependency advisories (cargo audit)
 
-This project runs `cargo audit` in CI. Some advisories may appear only when enabling optional features
-(e.g., offline JWT verification). At the time of writing, `cargo audit` may report `RUSTSEC-2023-0071`
-(the `rsa` crate “Marvin Attack” advisory) via `jsonwebtoken`, and there is currently no fixed upgrade
-available upstream.
-
-If you require a clean audit, avoid enabling offline JWT verification unless needed, or temporarily ignore
-the advisory until upstream releases a fix.
+This project runs `cargo audit` in CI. The RustCrypto JWT backend uses the
+`rsa` 0.9 series affected by RUSTSEC-2023-0071, which RustSec lists as patched
+in 0.10.0. The lockfile scan excludes this advisory under the workspace's
+documented exception. [RustSec advisory](https://rustsec.org/advisories/RUSTSEC-2023-0071.html) · [Audit configuration](../.cargo/audit.toml)
 
 ## License
 

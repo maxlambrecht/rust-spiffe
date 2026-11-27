@@ -1,8 +1,12 @@
 [advisories]
 ignore = [
     # RUSTSEC-2023-0071: rsa Marvin attack timing side-channel.
-    # Present via jsonwebtoken when using rust_crypto backend / RSA algorithms.
-    # No upstream fix currently available; monitor advisory status.
+    # RustSec lists rsa >=0.10.0 as patched. The jwt-verify-rust-crypto feature
+    # enables jsonwebtoken 11.1.0's rust_crypto backend, which requires
+    # rsa ^0.9.6 and resolves to rsa 0.9.10.
+    # The workspace's production JWT path uses public-key verification.
+    # No private RSA operation on this dependency path was identified.
+    # Reassess this exception when jsonwebtoken can use a patched rsa release.
     "RUSTSEC-2023-0071",
     # RUSTSEC-2026-0387: crypto-bigint constant-time operation timing issues.
     # jsonwebtoken 11.1.0's optional rust_crypto backend requires elliptic-curve

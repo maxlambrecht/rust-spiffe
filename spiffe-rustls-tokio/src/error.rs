@@ -14,20 +14,17 @@ pub enum Error {
     #[error("rustls error: {0}")]
     Rustls(#[from] rustls::Error),
 
-    /// Failed to parse a peer certificate.
+    /// Peer certificate or SPIFFE identity parsing failed after the handshake.
     ///
-    /// This error occurs when the peer certificate cannot be parsed after a
-    /// successful TLS handshake. Note that missing or multiple SPIFFE IDs do
-    /// not cause this error; they result in `PeerIdentity::spiffe_id` being
-    /// `None`.
+    /// This includes a missing SAN extension or multiple URI SAN entries.
+    /// See [`crate::PeerIdentity`] for the extraction outcomes.
     #[error("failed parsing peer certificate: {0}")]
     CertParse(String),
 
-    /// The peer certificate does not contain a SPIFFE ID in the URI SAN.
+    /// No SPIFFE ID was extracted.
     ///
-    /// This error is returned by `PeerIdentity::require_spiffe_id()` when
-    /// `spiffe_id` is `None`. This is distinct from `CertParse`, which indicates
-    /// an actual certificate parsing failure.
+    /// Returned by [`crate::PeerIdentity::require_spiffe_id`] when the extracted
+    /// identity is absent.
     #[error("peer certificate missing SPIFFE ID in URI SAN")]
     MissingSpiffeId,
 
