@@ -35,12 +35,16 @@ impl WorkloadApiClient {
 
     /// Fetches a `JwtSvid` for the given audience and optional SPIFFE ID.
     ///
-    /// If `spiffe_id` is `None`, the Workload API returns the default identity.
+    /// If `spiffe_id` is `None`, the request asks for all authorized identities.
+    /// This method parses every entry and returns the first in response order.
+    /// If an ID is supplied, every token's subject must match it.
+    /// The tokens are parsed without local signature verification.
     ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails or the Workload API
-    /// returns an invalid or empty response.
+    /// returns an invalid or empty response. A subject mismatch returns
+    /// [`WorkloadApiError::InvalidResponseField`].
     pub async fn fetch_jwt_svid<I>(
         &self,
         audience: I,
@@ -62,7 +66,7 @@ impl WorkloadApiClient {
         let response = self.fetch_jwt(audience, spiffe_id).await?;
         let mut selected = None;
         for (index, entry) in response.svids.iter().enumerate() {
-            let svid = Self::parse_jwt_svid_entry(entry)?;
+            let svid = Self::parse_jwt_svid_entry(entry, spiffe_id)?;
             if index == DEFAULT_SVID {
                 selected = Some(svid);
             }
@@ -75,12 +79,16 @@ impl WorkloadApiClient {
     /// The Workload API can return more than one JWT-SVID. Each returned [`JwtSvid`] may include an
     /// optional **hint** (via [`JwtSvid::hint`]) that can be used to disambiguate which SVID to use.
     ///
-    /// If `spiffe_id` is `None`, the Workload API returns JWT-SVIDs for the default identity.
+    /// If `spiffe_id` is `None`, the request asks for all authorized identities.
+    /// This method returns the full parsed list in response order. If an ID is
+    /// supplied, every token's subject must match it.
+    /// The tokens are parsed without local signature verification.
     ///
     /// # Errors
     ///
-    /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails, the Workload API response is
-    /// invalid or empty, or any returned token cannot be parsed.
+    /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails or the Workload API
+    /// returns an invalid or empty response. A subject mismatch returns
+    /// [`WorkloadApiError::InvalidResponseField`].
     pub async fn fetch_all_jwt_svids<I>(
         &self,
         audience: I,
@@ -95,24 +103,26 @@ impl WorkloadApiClient {
         response
             .svids
             .iter()
-            .map(Self::parse_jwt_svid_entry)
+            .map(|entry| Self::parse_jwt_svid_entry(entry, spiffe_id))
             .collect()
     }
 
     /// Fetches the JWT-SVID whose Workload API hint matches `hint`.
     ///
     /// Wrapper around [`WorkloadApiClient::fetch_all_jwt_svids`] that selects
-    /// a single [`JwtSvid`] by its hint.
+    /// the first parsed [`JwtSvid`] in response order with the requested hint.
     ///
     /// The hint is **not** part of the JWT token; it is transport metadata provided by the SPIFFE
     /// Workload API to help identify a specific SVID when multiple are available.
     ///
-    /// If `spiffe_id` is `None`, the Workload API returns JWT-SVIDs for the default identity.
+    /// If `spiffe_id` is `None`, the request asks for all authorized identities.
+    /// If an ID is supplied, every token's subject must match it before hint selection.
     ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the JWT-SVID request fails, the Workload API response is
-    /// invalid, or no JWT-SVID with the requested hint is found.
+    /// invalid (including a subject mismatch for an explicit SPIFFE ID), or no
+    /// JWT-SVID with the requested hint is found.
     pub async fn fetch_jwt_svid_by_hint<I>(
         &self,
         audience: I,
@@ -132,7 +142,9 @@ impl WorkloadApiClient {
 
     /// Fetches a JWT-SVID token string for the given audience and optional SPIFFE ID.
     ///
-    /// If `spiffe_id` is `None`, the Workload API returns the default identity.
+    /// If `spiffe_id` is `None`, the request asks for all authorized identities.
+    /// This method returns the first token string in response order without parsing
+    /// it or checking its subject against a supplied SPIFFE ID.
     ///
     /// # Errors
     ///
@@ -216,8 +228,16 @@ impl WorkloadApiClient {
 }
 
 impl WorkloadApiClient {
-    fn parse_jwt_svid_entry(entry: &Jwtsvid) -> Result<JwtSvid, WorkloadApiError> {
+    fn parse_jwt_svid_entry(
+        entry: &Jwtsvid,
+        requested_id: Option<&SpiffeId>,
+    ) -> Result<JwtSvid, WorkloadApiError> {
         let mut svid = JwtSvid::from_str(&entry.svid)?;
+        if requested_id.is_some_and(|id| svid.spiffe_id() != id) {
+            return Err(WorkloadApiError::InvalidResponseField {
+                field: "JWTSVID.svid.sub",
+            });
+        }
         if !entry.hint.is_empty() {
             svid = svid.with_hint(Arc::<str>::from(entry.hint.as_str()));
         }

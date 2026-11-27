@@ -492,8 +492,8 @@ impl JwtSource {
     /// Fetches a JWT SVID for the given audience.
     ///
     /// Unlike X.509 SVIDs which are streamed continuously, JWT SVIDs are fetched
-    /// on-demand with specific audiences. This method makes a one-shot request to
-    /// the Workload API to fetch a JWT SVID.
+    /// on-demand with specific audiences. This method asks the Workload API for
+    /// all authorized identities and returns the first parsed JWT SVID in response order.
     ///
     /// # Errors
     ///
@@ -526,6 +526,11 @@ impl JwtSource {
 
     /// Fetches a JWT SVID for the given audience and optional SPIFFE ID.
     ///
+    /// If `spiffe_id` is `None`, the request asks for all authorized identities.
+    /// This method parses every entry and returns the first in response order.
+    /// If an ID is supplied, every token's subject must match it, including on retry.
+    /// The tokens are parsed without local signature verification.
+    ///
     /// This method automatically retries once if the initial request fails with a transient
     /// transport/status error. On retry, the cached client is recreated to handle transient
     /// connection issues.
@@ -535,7 +540,9 @@ impl JwtSource {
     /// Returns a [`JwtSourceError`] if:
     /// - the source is closed
     /// - the Workload API request fails (after retry)
-    /// - no SVID is returned or the SVID cannot be parsed
+    /// - the response is empty, a token cannot be parsed, or a token's subject
+    ///   differs from the requested SPIFFE ID
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -841,7 +848,7 @@ impl JwtSource {
     }
 
     #[cfg(test)]
-    fn new_for_test_with_client_factory(
+    pub(crate) fn new_for_test_with_client_factory(
         initial_bundle_set: Arc<JwtBundleSet>,
         reconnect: ReconnectConfig,
         limits: ResourceLimits,

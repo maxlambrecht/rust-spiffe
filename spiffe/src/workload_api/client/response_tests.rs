@@ -707,6 +707,232 @@ async fn jwt_public_methods_preserve_parse_only_selection_and_hints() {
 }
 
 #[cfg(feature = "jwt")]
+fn jwt_with_distinct_subjects() -> JwtsvidResponse {
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+
+    let mut response = jwt();
+    let first = response.svids.first_mut().unwrap();
+    first.hint = "first".into();
+    let header = first.svid.split('.').next().unwrap();
+    let claims = Base64UrlUnpadded::encode_string(
+        br#"{"sub":"spiffe://example.org/second","aud":"receiver","exp":4294967295}"#,
+    );
+    let svid = format!("{header}.{claims}.sig");
+    response.svids.push(Jwtsvid {
+        spiffe_id: "spiffe://example.org/second".into(),
+        svid,
+        hint: "second".into(),
+    });
+    response
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn jwt_public_methods_select_in_response_order_without_requested_id() {
+    let mut response = jwt_with_distinct_subjects();
+    let first_id = crate::JwtSvid::parse_insecure(&response.svids.first().unwrap().svid)
+        .unwrap()
+        .spiffe_id()
+        .clone();
+    let second_id = crate::SpiffeId::new("spiffe://example.org/second").unwrap();
+    assert_ne!(first_id, second_id);
+
+    let mut expected = [&first_id, &second_id];
+    for _ in 0..2 {
+        let (client, _server) = client(Responses {
+            jwt: response.clone(),
+            ..Default::default()
+        })
+        .await;
+        let all = client
+            .fetch_all_jwt_svids(["receiver"], None)
+            .await
+            .unwrap();
+        assert_eq!(
+            all.iter()
+                .map(crate::JwtSvid::spiffe_id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        assert_eq!(
+            client
+                .fetch_jwt_svid(["receiver"], None)
+                .await
+                .unwrap()
+                .spiffe_id(),
+            expected[0]
+        );
+        assert_eq!(
+            client.fetch_jwt_token(["receiver"], None).await.unwrap(),
+            response.svids.first().unwrap().svid
+        );
+        assert_eq!(
+            client
+                .fetch_jwt_svid_by_hint(["receiver"], None, "second")
+                .await
+                .unwrap()
+                .spiffe_id(),
+            &second_id
+        );
+        response.svids.reverse();
+        expected.reverse();
+    }
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn jwt_typed_methods_accept_matching_subjects_and_preserve_selection() {
+    let mut response = jwt();
+    let first = response.svids.first_mut().unwrap();
+    let requested = crate::JwtSvid::parse_insecure(&first.svid)
+        .unwrap()
+        .spiffe_id()
+        .clone();
+    first.spiffe_id = "spiffe://other.example/metadata".into();
+    first.hint = "first".into();
+    let mut second = first.clone();
+    second.hint = "second".into();
+    response.svids.push(second);
+
+    for expected in ["first", "second"] {
+        let (client, _server) = client(Responses {
+            jwt: response.clone(),
+            ..Default::default()
+        })
+        .await;
+        let audience = ["receiver"];
+        let id = Some(&requested);
+        let selected = client.fetch_jwt_svid(audience, id).await.unwrap();
+        assert_eq!(selected.spiffe_id(), &requested);
+        assert_eq!(selected.hint(), Some(expected));
+        let all = client.fetch_all_jwt_svids(audience, id).await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert!(all.iter().all(|svid| svid.spiffe_id() == &requested));
+        let hinted = client
+            .fetch_jwt_svid_by_hint(audience, id, "second")
+            .await
+            .unwrap();
+        assert_eq!(hinted.spiffe_id(), &requested);
+        assert_eq!(hinted.hint(), Some("second"));
+        response.svids.reverse();
+    }
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn jwt_typed_methods_reject_mismatched_subjects_in_any_position() {
+    let mut response = jwt_with_distinct_subjects();
+    let requested = crate::JwtSvid::parse_insecure(&response.svids.first().unwrap().svid)
+        .unwrap()
+        .spiffe_id()
+        .clone();
+    response.svids.last_mut().unwrap().spiffe_id = requested.to_string();
+    response.svids.reverse();
+
+    for _ in 0..2 {
+        let (client, _server) = client(Responses {
+            jwt: response.clone(),
+            ..Default::default()
+        })
+        .await;
+        let audience = ["receiver"];
+        let id = Some(&requested);
+        assert_eq!(
+            client.fetch_jwt_token(audience, id).await.unwrap(),
+            response.svids.first().unwrap().svid
+        );
+        let errors = [
+            client.fetch_jwt_svid(audience, id).await.err(),
+            client.fetch_all_jwt_svids(audience, id).await.err(),
+            client
+                .fetch_jwt_svid_by_hint(audience, id, "second")
+                .await
+                .err(),
+        ];
+        assert!(
+            errors.iter().all(|error| matches!(
+                error,
+                Some(WorkloadApiError::InvalidResponseField {
+                    field: "JWTSVID.svid.sub"
+                })
+            )),
+            "{errors:?}"
+        );
+        response.svids.reverse();
+    }
+}
+
+#[cfg(feature = "jwt-source")]
+async fn jwt_source_explicit_id_mismatch(retry: bool) {
+    use crate::jwt_source::{JwtSourceError, ReconnectConfig, ResourceLimits};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    let mut response = jwt();
+    let requested = crate::SpiffeId::new("spiffe://example.org/requested").unwrap();
+    response.svids.first_mut().unwrap().spiffe_id = requested.to_string();
+    let (client, _server) = client(Responses {
+        jwt: response,
+        ..Default::default()
+    })
+    .await;
+    let mut clients = VecDeque::from([client]);
+    if retry {
+        clients.push_front(WorkloadApiClient::new_with_jwt_fetch_hook(
+            "tcp://127.0.0.1:1".parse().unwrap(),
+            Arc::new(|_, _| {
+                Box::pin(async {
+                    Err(WorkloadApiError::from_status(tonic::Status::unavailable(
+                        "retry",
+                    )))
+                })
+            }),
+        ));
+    }
+    let clients = Arc::new(Mutex::new(clients));
+    let remaining = Arc::clone(&clients);
+    let source = crate::JwtSource::new_for_test_with_client_factory(
+        Arc::new(crate::JwtBundleSet::new()),
+        ReconnectConfig::default(),
+        ResourceLimits::default(),
+        None,
+        Arc::new(move || {
+            let client = clients
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("unexpected client recreation");
+            Box::pin(async move { Ok(client) })
+        }),
+    );
+
+    let result = source
+        .fetch_jwt_svid_with_id(["receiver"], Some(&requested))
+        .await;
+    assert!(remaining.lock().unwrap().is_empty());
+    assert!(matches!(
+        result,
+        Err(JwtSourceError::FetchJwtSvid(
+            WorkloadApiError::InvalidResponseField {
+                field: "JWTSVID.svid.sub"
+            }
+        ))
+    ));
+}
+
+#[cfg(feature = "jwt-source")]
+#[tokio::test]
+async fn jwt_source_rejects_mismatched_subject() {
+    jwt_source_explicit_id_mismatch(false).await;
+}
+
+#[cfg(feature = "jwt-source")]
+#[tokio::test]
+async fn jwt_source_rejects_mismatched_subject_after_retry() {
+    jwt_source_explicit_id_mismatch(true).await;
+}
+
+#[cfg(feature = "jwt")]
 #[tokio::test]
 async fn jwt_public_svid_methods_reject_malformed_later_token() {
     let mut response = jwt();

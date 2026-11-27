@@ -241,6 +241,20 @@ let jwt = client
     .await?;
 ```
 
+Omitting the SPIFFE ID asks the agent for JWT-SVIDs for all authorized identities.
+`WorkloadApiClient::fetch_jwt_svid` and `JwtSource::fetch_jwt_svid` return the first
+parsed entry in the agent's response order. That order can change between requests
+independently of the workload's X.509 default identity.
+`fetch_all_jwt_svids` returns the full parsed list in the same order, and
+`fetch_jwt_svid_by_hint` returns the first parsed entry with the requested hint.
+With an explicit SPIFFE ID, typed fetches reject the response if any token's
+subject differs from that ID.
+
+`fetch_jwt_token` returns the first raw token string after checking required
+response fields. Typed fetches parse the JWT without verifying its signature.
+To authenticate a JWT received from a peer, use `validate_jwt_token` or offline
+verification as described below.
+
 ### Fetch and watch JWT bundles
 
 ```rust
