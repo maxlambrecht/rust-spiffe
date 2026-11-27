@@ -7,6 +7,17 @@
 //!    Requires a JWT verification backend feature (`jwt-verify-rust-crypto` or `jwt-verify-aws-lc-rs`)
 //!    and [`JwtSvid::parse_and_validate`].
 //!
+//! ## Input-size limits
+//!
+//! Parse-only APIs (including Workload API token parsing) and offline
+//! verification share the same parser limits. The compact token may contain
+//! at most 176,130 bytes, including both separators. Its unpadded base64url
+//! signature segment may contain at most 1,366 bytes, enough for an 8,192-bit
+//! RSA signature. Both limits are checked before decoding the header or
+//! claims, copying the token, or looking up a verification bundle. The header
+//! and claims each retain their 64 KiB decoded limit and 87,381-byte encoded
+//! precheck.
+//!
 //! ## `kid` compatibility constraint
 //!
 //! Although the JWT-SVID specification makes the `kid` header optional, this
@@ -229,8 +240,9 @@ pub enum JwtSvidError {
     #[error("algorithm in 'alg' header is unsupported by offline verification backend: {0:?}")]
     BackendUnsupportedAlgorithm(JwtAlg),
 
-    /// Token does not have 3 dot-separated parts.
-    #[error("malformed jwt token: expected 3 dot-separated parts")]
+    /// The token does not have 3 dot-separated parts or exceeds the compact
+    /// token or signature-segment size limit.
+    #[error("malformed jwt token: expected 3 dot-separated parts within size limits")]
     InvalidJwtFormat,
 
     /// Invalid base64url encoding in JWT header/claims.
@@ -419,7 +431,8 @@ impl JwtSvid {
     /// # Errors
     ///
     /// Returns [`JwtSvidError`] if:
-    /// - the token is not a 3-part JWT (`header.payload.signature`),
+    /// - the token is not a 3-part JWT (`header.payload.signature`) or exceeds
+    ///   the [input-size limits](self#input-size-limits),
     /// - header/claims are not valid base64url or JSON,
     /// - required headers/claims are missing or invalid (`kid`, `sub`, `aud`, `exp`),
     /// - the `sub` claim is not a valid SPIFFE ID,
@@ -485,7 +498,8 @@ impl JwtSvid {
     /// # Errors
     ///
     /// Returns [`JwtSvidError`] if:
-    /// - the token is malformed or cannot be decoded,
+    /// - the token is malformed, exceeds the [input-size limits](self#input-size-limits),
+    ///   or cannot be decoded,
     /// - required headers/claims are missing or invalid (e.g. `kid`, `sub`, `exp`),
     /// - the token uses an unsupported signature algorithm,
     /// - the trust domain bundle or authority (`kid`) cannot be found,
@@ -677,12 +691,15 @@ impl JwtSvid {
         token: &str,
         parse_header: impl FnOnce(&[u8]) -> Result<Header, JwtSvidError>,
     ) -> Result<(Self, Vec<u8>), JwtSvidError> {
-        // Split JWT parts.
+        if token.len() > MAX_ENCODED_JWT_SIZE {
+            return Err(JwtSvidError::InvalidJwtFormat);
+        }
+
         let mut it = token.split('.');
         let header_b64 = it.next().ok_or(JwtSvidError::InvalidJwtFormat)?;
         let claims_b64 = it.next().ok_or(JwtSvidError::InvalidJwtFormat)?;
-        let _sig_b64 = it.next().ok_or(JwtSvidError::InvalidJwtFormat)?;
-        if it.next().is_some() {
+        let sig_b64 = it.next().ok_or(JwtSvidError::InvalidJwtFormat)?;
+        if sig_b64.len() > MAX_ENCODED_JWT_SIGNATURE_SIZE || it.next().is_some() {
             return Err(JwtSvidError::InvalidJwtFormat);
         }
 
@@ -795,6 +812,13 @@ where
 /// This limit prevents excessive memory allocation from malicious or malformed tokens.
 /// 64KB is more than sufficient for any valid JWT-SVID.
 const MAX_JWT_SEGMENT_SIZE: usize = 64 * 1024;
+const MAX_ENCODED_JWT_JSON_SEGMENT_SIZE: usize = MAX_JWT_SEGMENT_SIZE * 4 / 3;
+
+// RSA PKCS#1 v1.5 and RSA-PSS signatures are as wide as the modulus. AWS-LC
+// verifies RSA up to 8192 bits (1024 bytes), wider than RustCrypto RSA or ECDSA.
+const MAX_ENCODED_JWT_SIGNATURE_SIZE: usize = (8_192usize / 8 * 4).div_ceil(3);
+const MAX_ENCODED_JWT_SIZE: usize =
+    2 * MAX_ENCODED_JWT_JSON_SEGMENT_SIZE + MAX_ENCODED_JWT_SIGNATURE_SIZE + 2; // Two dots.
 
 /// Decode base64url (no padding) into bytes.
 ///
@@ -804,7 +828,7 @@ fn decode_b64url_to_vec(input: &str) -> Result<Vec<u8>, JwtSvidError> {
 
     // Base64url encoding expands data by ~33%, so the encoded size gives us an upper bound.
     // Reject obviously oversized inputs before attempting to decode.
-    if input.len() > MAX_JWT_SEGMENT_SIZE * 4 / 3 {
+    if input.len() > MAX_ENCODED_JWT_JSON_SEGMENT_SIZE {
         return Err(JwtSvidError::InvalidBase64);
     }
 
@@ -842,6 +866,78 @@ fn mk_token(header_json: &str, claims_json: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jwt_input_size_signature_boundary_parse_only() {
+        let mut token = mk_token(
+            r#"{"alg":"RS256","kid":"k1"}"#,
+            r#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295}"#,
+        );
+        token.truncate(token.len() - "sig".len());
+        token.push_str(&"A".repeat(1_366));
+
+        token.parse::<JwtSvid>().unwrap();
+        JwtSvid::parse_insecure(&token).unwrap();
+        JwtSvid::from_workload_api_token(&token).unwrap();
+
+        token.push('A');
+        for result in [
+            token.parse::<JwtSvid>(),
+            JwtSvid::parse_insecure(&token),
+            JwtSvid::from_workload_api_token(&token),
+        ] {
+            assert!(matches!(result, Err(JwtSvidError::InvalidJwtFormat)));
+        }
+    }
+
+    #[test]
+    fn jwt_input_size_compact_boundary_precedes_decoding() {
+        // The legacy encoded precheck allows 87,381 bytes per JSON segment.
+        // That length is invalid base64url, so exactly 176,130 bytes should
+        // reach the decoder and return its usual error.
+        let invalid_base64 = "A".repeat(87_381);
+        let mut token = format!("{invalid_base64}.{invalid_base64}.{}", "A".repeat(1_366));
+        assert_eq!(token.len(), 176_130);
+        assert!(matches!(
+            JwtSvid::parse_insecure(&token),
+            Err(JwtSvidError::InvalidBase64)
+        ));
+
+        token.insert(0, 'A');
+        assert!(matches!(
+            JwtSvid::parse_insecure(&token),
+            Err(JwtSvidError::InvalidJwtFormat)
+        ));
+    }
+
+    #[test]
+    fn jwt_input_size_preserves_header_and_claims_boundaries() {
+        fn pad_json(json: &str, len: usize) -> String {
+            let mut padded = String::with_capacity(len);
+            padded.push_str(json);
+            padded.extend(std::iter::repeat_n(' ', len - json.len()));
+            padded
+        }
+
+        let header = r#"{"alg":"ES256","kid":"k1"}"#;
+        let claims = r#"{"sub":"spiffe://example.org/service","aud":"aud1","exp":4294967295}"#;
+        // The existing encoded precheck admits at most 65,535 decoded bytes.
+        let first_rejected_len = 64 * 1024;
+        let max_decoded_len = first_rejected_len - 1;
+        let header_at_limit = pad_json(header, max_decoded_len);
+        let claims_at_limit = pad_json(claims, max_decoded_len);
+        JwtSvid::parse_insecure(&mk_token(&header_at_limit, &claims_at_limit)).unwrap();
+
+        for token in [
+            mk_token(&pad_json(header, first_rejected_len), claims),
+            mk_token(header, &pad_json(claims, first_rejected_len)),
+        ] {
+            assert!(matches!(
+                JwtSvid::parse_insecure(&token),
+                Err(JwtSvidError::InvalidBase64)
+            ));
+        }
+    }
 
     #[test]
     fn parse_insecure_ok_with_aud_string() {

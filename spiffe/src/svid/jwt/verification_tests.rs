@@ -134,6 +134,47 @@ fn assert_kind(result: Result<JwtSvid, JwtSvidError>, kind: JwtVerificationError
 }
 
 #[test]
+fn jwt_input_size_signature_boundary_before_bundle_lookup() {
+    use std::cell::Cell;
+    use std::convert::Infallible;
+
+    #[derive(Default)]
+    struct CountingBundleSource(Cell<usize>);
+
+    impl BundleSource for CountingBundleSource {
+        type Item = JwtBundle;
+        type Error = Infallible;
+
+        fn bundle_for_trust_domain(
+            &self,
+            _trust_domain: &TrustDomain,
+        ) -> Result<Option<Arc<JwtBundle>>, Self::Error> {
+            self.0.set(self.0.get() + 1);
+            Ok(None)
+        }
+    }
+
+    let bundles = CountingBundleSource::default();
+    let header = b64(br#"{"alg":"RS256","kid":"k1"}"#);
+    let claims = b64(payload(0xFFFF_FFFF, None).as_bytes());
+    let mut token = format!("{header}.{claims}.{}", "A".repeat(1_366));
+    assert!(matches!(
+        JwtSvid::parse_and_validate(&token, &bundles, &["audience"]),
+        Err(JwtSvidError::BundleNotFound(_))
+    ));
+    assert_eq!(bundles.0.replace(0), 1);
+
+    token.push('A');
+    let result = JwtSvid::parse_and_validate(&token, &bundles, &["audience"]);
+    assert_eq!(
+        bundles.0.get(),
+        0,
+        "oversized signature reached bundle lookup"
+    );
+    assert!(matches!(result, Err(JwtSvidError::InvalidJwtFormat)));
+}
+
+#[test]
 fn jwt_temporal_nbf_activation() {
     let fixture = Fixture::es256();
     for value in [
