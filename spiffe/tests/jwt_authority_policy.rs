@@ -417,6 +417,28 @@ mod tests {
         }
 
         #[test]
+        fn jwt_input_size_accepts_maximum_rsa_signature() {
+            let row = fixtures()
+                .into_iter()
+                .find(|r| r.name == "rsa_8192_RS256")
+                .unwrap();
+            let (_, signature) = row.token.rsplit_once('.').unwrap();
+            assert_eq!(signature.len(), 1_366);
+            assert_eq!(
+                Base64UrlUnpadded::decode_vec(signature).unwrap().len(),
+                1_024
+            );
+            JwtSvid::parse_insecure(&row.token).unwrap();
+
+            let result = verify(&row, &row.jwk);
+            if cfg!(feature = "jwt-verify-aws-lc-rs") {
+                result.unwrap();
+            } else {
+                assert!(matches!(result, Err(JwtSvidError::InvalidToken(_))));
+            }
+        }
+
+        #[test]
         fn rsa_component_encodings() {
             let rows = fixtures();
             let row = rows.iter().find(|r| r.name == "rsa_2048_RS256").unwrap();

@@ -11,6 +11,10 @@
 - Reject SPIFFE IDs with a path as Workload API bundle-map keys. Pathless SPIFFE IDs and bare trust domain names are still accepted. Sources retain the last accepted snapshot when they reject an update for this reason.
 - Reject Workload API bundle maps with duplicate normalized trust domains. X.509 contexts also reject local/federated overlap and conflicting local bundles for the same trust domain. Sources discard the entire ambiguous update and retain the last accepted material.
 
+### Security
+
+- JWT-SVID parsing and offline verification reject compact tokens over 176,130 bytes or signature segments over 1,366 encoded bytes before decoding, copying the token, or looking up a bundle. The signature limit accommodates 8,192-bit RSA keys supported by AWS-LC. Header and claims size limits are unchanged.
+
 ## [0.19.0] - 2026-10-28
 
 ### Fixed

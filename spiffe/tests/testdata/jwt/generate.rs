@@ -126,6 +126,7 @@ pub(super) fn generate() {
         (3072, 0x0001_0001),
         (4096, 0x0001_0001),
         (5120, 0x0001_0001),
+        (8192, 0x0001_0001),
         (2048, 3),
     ] {
         let rsa = Rsa::generate_with_e(bits, &BigNum::from_u32(exponent).unwrap()).unwrap();
@@ -135,7 +136,7 @@ pub(super) fn generate() {
             "e":Base64UrlUnpadded::encode_string(&rsa.e().to_vec())});
         let key = PKey::from_rsa(rsa).unwrap();
         for alg in ["RS256", "RS384", "RS512", "PS256", "PS384", "PS512"] {
-            if bits == 1024 && alg == "PS512" {
+            if (bits == 1024 && alg == "PS512") || (bits == 8192 && alg != "RS256") {
                 continue;
             }
             rows.push(json!({"name":if exponent == 3 {format!("rsa_e3_{alg}")} else {format!("rsa_{bits}_{alg}")},
