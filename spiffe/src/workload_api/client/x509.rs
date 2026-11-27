@@ -11,6 +11,8 @@ use std::sync::Arc;
 impl WorkloadApiClient {
     /// Fetches the default X.509 SVID for the calling workload from the SPIFFE Workload API.
     ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
+    ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the gRPC request fails, the response stream
@@ -30,6 +32,8 @@ impl WorkloadApiClient {
     }
 
     /// Fetches all X.509 SVIDs available to the calling workload from the SPIFFE Workload API.
+    ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
     ///
     /// # Errors
     ///
@@ -51,12 +55,12 @@ impl WorkloadApiClient {
 
     /// Fetches the current X.509 bundle set from the SPIFFE Workload API.
     ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
+    ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the gRPC request fails, the response stream
     /// ends unexpectedly, or the received data is invalid.
-    ///
-    /// CRLs included in the Workload API response are currently ignored.
     pub async fn fetch_x509_bundles(&self) -> Result<X509BundleSet, WorkloadApiError> {
         let request = X509BundlesRequest::default();
 
@@ -74,12 +78,12 @@ impl WorkloadApiClient {
 
     /// Fetches the current X.509 context (SVIDs and bundles).
     ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
+    ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the Workload API request fails, the response
     /// stream terminates unexpectedly, or the received data cannot be parsed.
-    ///
-    /// CRLs included in the Workload API response are currently ignored.
     #[cfg(feature = "x509")]
     pub async fn fetch_x509_context(&self) -> Result<X509Context, WorkloadApiError> {
         let request = X509svidRequest::default();
@@ -96,6 +100,8 @@ impl WorkloadApiClient {
     }
 
     /// Streams X.509 context updates from the Workload API.
+    ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
@@ -130,6 +136,8 @@ impl WorkloadApiClient {
 
     /// Streams default X.509 SVID updates from the Workload API.
     ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
+    ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,
     /// use [`crate::X509Source`].
@@ -160,6 +168,8 @@ impl WorkloadApiClient {
     }
 
     /// Streams X.509 bundle set updates from the Workload API.
+    ///
+    /// Certificate revocation lists (CRLs) in the response are ignored.
     ///
     /// The stream ends when the server closes the connection. This stream does not
     /// automatically reconnect; if you need resilience and automatic reconnection,

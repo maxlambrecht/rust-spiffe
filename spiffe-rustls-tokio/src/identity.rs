@@ -5,35 +5,20 @@ use rustls::client::ClientConnection;
 use rustls::server::ServerConnection;
 use spiffe::SpiffeId;
 
-/// Peer identity extracted from a TLS connection.
+/// SPIFFE ID extracted from the leaf certificate after a successful TLS handshake.
 ///
-/// After a successful TLS handshake, the peer's SPIFFE ID (if present) is extracted
-/// from their certificate's URI SAN.
+/// Extraction uses the certificate accepted by the configured TLS verifier.
+/// With the SPIFFE mTLS verifiers, the handshake enforces the peer identity
+/// requirements. With other TLS configurations, extraction has these outcomes.
 ///
-/// # SPIFFE X.509-SVID Expectations
+/// - `Some` when the leaf has a single URI SAN that parses as a SPIFFE ID.
+/// - `None` when there is no peer certificate, or a present SAN contains no
+///   SPIFFE URI and passes parsing.
+/// - [`Error::CertParse`] when the leaf has no SAN extension, has multiple URI
+///   SAN entries, or otherwise fails identity parsing.
 ///
-/// According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-/// in the URI SAN, and peers are expected to present certificates when mTLS is required.
-/// When using `spiffe-rustls` verifiers correctly, these requirements are enforced during
-/// the TLS handshake, and cases where `spiffe_id` is `None` should normally be unreachable.
-///
-/// # Extraction Semantics
-///
-/// This crate performs post-handshake identity extraction from connections that have already passed TLS verification.
-/// The API behavior is:
-///
-/// - **Exactly one SPIFFE ID**: Extracted and stored in `spiffe_id`
-/// - **Missing SPIFFE ID**: `spiffe_id` is `None` (no error; `accept()`/`connect()` succeed)
-///   - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-/// - **Multiple SPIFFE IDs**: `spiffe_id` is `None` (no error; `accept()`/`connect()` succeed)
-///   - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-/// - **No peer certificates**: `spiffe_id` is `None` (no error; `accept()`/`connect()` succeed)
-///   - **SPIFFE perspective**: Invalid for mTLS; unexpected in SPIFFE-compliant configurations
-/// - **Certificate parse failure**: Returns `Error::CertParse` (`accept()`/`connect()` fail)
-///
-/// **Note**: A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations
-/// and may indicate that the TLS configuration is not enforcing SPIFFE semantics, or that
-/// the peer is not presenting a valid SPIFFE X.509-SVID.
+/// Extraction alone performs no additional certificate trust or authorization
+/// checks. Use [`Self::spiffe_id`] or [`Self::require_spiffe_id`] to access the result.
 #[derive(Debug, Clone)]
 pub struct PeerIdentity {
     /// The SPIFFE ID extracted from the peer's certificate, if present.
@@ -54,9 +39,8 @@ impl PeerIdentity {
     /// Returns the peer's SPIFFE ID, or [`Error::MissingSpiffeId`] if absent.
     ///
     /// Use this for a fail-closed alternative to [`spiffe_id`](Self::spiffe_id)
-    /// when the caller requires an authenticated SPIFFE ID. A `None` identity is
-    /// unexpected in SPIFFE-compliant configurations (see the type-level docs),
-    /// so this turns that case into an explicit error rather than a silent `None`.
+    /// when the caller requires a SPIFFE ID. Authentication depends on the
+    /// configured TLS verifier.
     ///
     /// # Errors
     ///
@@ -83,34 +67,7 @@ pub(crate) fn extract_peer_identity_from_client(
     extract_peer_identity_impl(peer_certs)
 }
 
-/// Extracts the SPIFFE ID from peer certificates.
-///
-/// Extracts the SPIFFE ID from the leaf (first) certificate in the
-/// peer's certificate chain. The certificates are obtained from a verified rustls
-/// connection after a successful TLS handshake.
-///
-/// # SPIFFE X.509-SVID Expectations
-///
-/// According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID
-/// in the URI SAN, and peers are expected to present certificates when mTLS is required.
-/// Cases where `spiffe_id` is `None` are unexpected in SPIFFE-compliant configurations and
-/// may indicate misconfiguration or a non-SPIFFE peer.
-///
-/// # Behavior
-///
-/// - **Exactly one SPIFFE ID**: Extracted and returned in `PeerIdentity`
-/// - **Zero SPIFFE IDs**: Returns `PeerIdentity { spiffe_id: None }` (no error)
-///   - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-/// - **Multiple SPIFFE IDs**: Returns `PeerIdentity { spiffe_id: None }` (no error)
-///   - **SPIFFE perspective**: Invalid X.509-SVID; unexpected in SPIFFE-compliant configurations
-/// - **No peer certificates**: Returns `PeerIdentity { spiffe_id: None }` (no error)
-///   - **SPIFFE perspective**: Invalid for mTLS; unexpected in SPIFFE-compliant configurations
-/// - **Certificate parse failure**: Returns `Error::CertParse`
-///
-/// # Errors
-///
-/// Returns an error if the certificate cannot be parsed (e.g., malformed DER).
-/// Missing or multiple SPIFFE IDs do not cause an error; they result in `spiffe_id` being `None`.
+/// Applies the post-handshake extraction policy documented on [`PeerIdentity`].
 fn extract_peer_identity_impl(
     peer_certs: Option<&[rustls::pki_types::CertificateDer<'_>]>,
 ) -> Result<PeerIdentity, Error> {
@@ -159,6 +116,35 @@ mod tests {
         let empty: &[CertificateDer<'_>] = &[];
         let identity = extract_peer_identity_impl(Some(empty)).unwrap();
         assert!(identity.spiffe_id().is_none());
+    }
+
+    #[test]
+    fn test_peer_identity_uri_san_outcomes() {
+        let [spiffe_uri, non_spiffe_uri, multiple_uri, no_san] = [
+            CertificateDer::from(include_bytes!("../tests/fixtures/spiffe-uri.der").as_slice()),
+            CertificateDer::from(include_bytes!("../tests/fixtures/non-spiffe-uri.der").as_slice()),
+            CertificateDer::from(include_bytes!("../tests/fixtures/multiple-uri.der").as_slice()),
+            CertificateDer::from(include_bytes!("../tests/fixtures/no-san.der").as_slice()),
+        ];
+        let expected = spiffe::SpiffeId::new("spiffe://example.org/workload").unwrap();
+        assert_eq!(
+            extract_peer_identity_impl(Some(std::slice::from_ref(&spiffe_uri)))
+                .unwrap()
+                .spiffe_id(),
+            Some(&expected)
+        );
+        assert!(
+            extract_peer_identity_impl(Some(std::slice::from_ref(&non_spiffe_uri)))
+                .unwrap()
+                .spiffe_id()
+                .is_none()
+        );
+        for cert in [&multiple_uri, &no_san] {
+            assert!(matches!(
+                extract_peer_identity_impl(Some(std::slice::from_ref(cert))),
+                Err(crate::Error::CertParse(_))
+            ));
+        }
     }
 
     #[test]

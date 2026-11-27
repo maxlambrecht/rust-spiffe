@@ -110,16 +110,12 @@ pub enum WorkloadApiError {
 
 #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
 impl WorkloadApiError {
-    /// Returns `true` if this error indicates the Workload API rejected the request as
-    /// invalid (gRPC `INVALID_ARGUMENT`), rather than a transient connectivity or
-    /// availability problem.
+    /// Returns `true` for a gRPC `INVALID_ARGUMENT` status.
     ///
-    /// This typically indicates a non-conforming Workload API implementation, a proxy that
-    /// strips or mangles required gRPC metadata, or a protocol mismatch. Unlike transient
-    /// errors (e.g. `UNAVAILABLE`, connection refused, `NoIdentityIssued`), retrying with
-    /// backoff will not help: the same malformed/rejected request will keep failing the
-    /// same way. Callers that retry indefinitely (such as `X509Source`/`JwtSource` initial
-    /// synchronization) should treat this as a fast-fail condition instead.
+    /// Backoff alone does not correct an invalid request. `X509Source` and
+    /// `JwtSource` fail initial synchronization on this status from their client
+    /// factory or material stream RPC. After readiness, their supervisors retry
+    /// with backoff while preserving the current snapshot and its permission.
     #[must_use]
     pub fn is_invalid_argument(&self) -> bool {
         matches!(

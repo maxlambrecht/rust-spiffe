@@ -133,7 +133,11 @@ impl DelegateAttestationRequest {
     /// Creates an attestation request for a positive process ID.
     ///
     /// Accepts values in `1..=i32::MAX`. For the wider range supported by PID
-    /// selectors, see [`UnixPid`](crate::selectors::UnixPid).
+    /// selectors, see [`UnixPid`](crate::selectors::UnixPid). The caller must
+    /// track the target process's lifetime. This constructor checks only the
+    /// numeric range. See the [SPIRE Delegated Identity protocol].
+    ///
+    /// [SPIRE Delegated Identity protocol]: https://github.com/spiffe/spire-api-sdk/blob/main/proto/spire/api/agent/delegatedidentity/v1/delegatedidentity.proto
     ///
     /// # Errors
     ///
@@ -160,6 +164,8 @@ impl DelegateAttestationRequest {
 ///
 /// The Delegated Identity API uses a signed 32-bit PID field. For PID selectors
 /// with a wider range, see [`UnixPid`](crate::selectors::UnixPid).
+/// Callers using this value must track process lifetime as described in
+/// [`DelegateAttestationRequest::for_pid`].
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub struct DelegatePid(i32);
 
@@ -288,6 +294,10 @@ impl DelegatedIdentityClient {
     ///
     /// This method calls the SPIRE Agent Admin API and returns the first X509 SVID in the response.
     ///
+    /// For a PID request, track the target process until the first response
+    /// arrives. If it exits or its PID is reused, cancel the pending fetch and
+    /// discard any response that arrives in flight.
+    ///
     /// # Arguments
     ///
     /// * `attest_type` - A validated PID or selector request identifying the workload to attest.
@@ -325,6 +335,10 @@ impl DelegatedIdentityClient {
     ///
     /// This function establishes a stream with the Agent Admin API to continuously receive updates for the [`X509Svid`].
     /// The returned stream can be used to asynchronously yield new `X509Svid` updates as they become available.
+    ///
+    /// For a PID request, track the target process for the entire subscription.
+    /// If it exits or its PID is reused, close the stream immediately and
+    /// discard any in-flight updates.
     ///
     /// # Arguments
     ///
@@ -455,6 +469,9 @@ impl DelegatedIdentityClient {
     /// Each returned [`JwtSvid`] may include an optional usage hint (via [`JwtSvid::hint`])
     /// that can be used to disambiguate which SVID to use when multiple identities are
     /// returned. Empty hints from the API are mapped to [`None`].
+    ///
+    /// For a PID request, track the target process until the RPC returns.
+    /// If it exits or its PID is reused, discard any in-flight response.
     ///
     /// # Arguments
     ///

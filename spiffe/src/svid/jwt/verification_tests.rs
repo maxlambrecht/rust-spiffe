@@ -390,6 +390,19 @@ fn jwt_jose_header_allowlist_public_path() {
 }
 
 #[test]
+fn jwt_offline_verification_rejects_ml_dsa_algorithms() {
+    let bundles = JwtBundleSet::default();
+    for alg in ["ML-DSA-44", "ML-DSA-65", "ML-DSA-87"] {
+        let header = format!(r#"{{"alg":"{alg}","kid":"k1"}}"#);
+        let token = mk_token(&header, &payload(N + 600, None));
+        assert!(matches!(
+            JwtSvid::parse_and_validate(&token, &bundles, &["audience"]),
+            Err(JwtSvidError::UnsupportedAlgorithm)
+        ));
+    }
+}
+
+#[test]
 fn jwt_jose_supported_field_errors() {
     let fixture = Fixture::es256();
     for header in [

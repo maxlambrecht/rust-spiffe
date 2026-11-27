@@ -21,10 +21,12 @@ The main trust boundaries are:
   bundles a workload is entitled to receive.
 
 Network peer input and decoded Workload API messages are treated as potentially
-malformed. Material obtained from an authenticated local Workload API is trusted
-for issuance and validation decisions only after the library's structural checks
-succeed. A compromised workload agent, process, operating system, or configured
-trust anchor is outside the protection this library can provide.
+malformed. The library trusts an authenticated local Workload API for issuance
+and validation decisions only after the applicable response checks succeed.
+Typed results require structural checks on the data they consume. An opaque JWT
+fetch checks required response fields and forwards the token without parsing it.
+A compromised workload agent, process, operating system, or configured trust
+anchor is outside the protection this library can provide.
 
 ## Security invariants
 
@@ -65,13 +67,9 @@ trust anchor is outside the protection this library can provide.
 
 ### JWT-SVIDs and JWT bundles
 
-- JWT-SVID parsing requires the `sub`, `aud`, and `exp` claims, a supported
-  asymmetric JWT-SVID algorithm, and the library's documented `kid` policy.
-  The `sub` claim must parse as a SPIFFE ID and `aud` must contain at least one
-  value. These checks follow
-  [JWT-SVID sections 3 and 4](https://github.com/spiffe/spiffe/blob/main/standards/JWT-SVID.md#3-jwt-svid-token).
-- `JwtSvid::parse_insecure` and `from_workload_api_token` perform structural
-  parsing only. They must not be used to authenticate an untrusted token.
+- JWT-SVID parsing requires a SPIFFE ID in `sub` and at least one audience
+  in `aud`. The [JWT verification modes and interoperability matrix](../spiffe/README.md#jwt-verification-modes)
+  describe the shared parser constraints and which APIs authenticate tokens.
 - `JwtSvid::parse_and_validate` selects the JWT bundle from the subject SPIFFE
   ID's trust domain, selects the authority by `kid`, restricts the algorithm,
   verifies the signature, requires an expected audience, and rejects expired
@@ -92,9 +90,11 @@ trust anchor is outside the protection this library can provide.
   reject. A pre-epoch or out-of-range verification clock fails closed.
   jsonwebtoken still verifies the signature, required expiration presence, and
   audience; its temporal checks are disabled to avoid a second clock and rounding.
-- Offline validation does not validate `iat` or `iss`. Additional private claims
-  remain permitted. Applications must agree on their semantics before using them
-  as authorization facts. Workload API token parsing adds no local temporal policy.
+- Offline validation authenticates the SPIFFE subject in `sub`. It leaves
+  `iat` and `iss` unchecked, including issuer format and ownership of the
+  verification key. Applications relying on `iss` must establish that binding.
+  Additional private claims remain permitted. Workload API token parsing adds
+  no local temporal policy. [RFC 8725 §3.8](https://www.rfc-editor.org/rfc/rfc8725.html#section-3.8)
 - Workload API JWKS input is a purpose-specific JWT bundle. JWKs must have a
   `kid`; cryptographic key validity is checked by the verification backend when
   the key is used.
@@ -118,10 +118,9 @@ trust anchor is outside the protection this library can provide.
 
 ### Workload API responses and rotation
 
-- Protobuf decoding does not make response contents valid. Certificate, key,
-  SPIFFE ID, JWT, and bundle fields are parsed through the same validating types
-  used by direct callers. Missing required local X.509 bundle bytes reject the
-  complete response.
+- Typed results parse certificate, key, SPIFFE ID, JWT, and bundle data they
+  consume through the same types used by direct callers. Missing required local
+  X.509 bundle bytes reject the complete response.
 - Streaming responses represent complete current state. Parsing and resource
   limits are validated before atomic publication; malformed or over-limit
   responses do not partially replace SVIDs or bundles. Valid complete X.509
@@ -134,6 +133,14 @@ trust anchor is outside the protection this library can provide.
   the revision and notifies consumers. EOF, `Unavailable`, malformed updates,
   and transport recovery alone do not change permission. Independent JWT issuance
   success or failure cannot alter the bundle stream's permission.
+- During initial sync, `InvalidArgument` from the client factory or the material
+  stream RPC fails construction without retry. `Unimplemented` from the material
+  stream RPC also fails construction, while a factory `Unimplemented` is retried
+  with backoff. After readiness, both statuses trigger reconnection with backoff
+  and leave the snapshot and its permission unchanged. Existing withdrawals and
+  normal usability checks, including expiry where applicable, still apply.
+  Retrying `InvalidArgument` after readiness is a deliberate availability
+  exception. [SPIFFE Workload Endpoint §6](https://github.com/spiffe/spiffe/blob/88f6cddc4a6ab7998d9664f692fced0290d18f53/standards/SPIFFE_Workload_Endpoint.md#6-error-codes)
 - Source health and coalescing update notifications distinguish initial readiness,
   unchanged re-delivery, rotation, withdrawal/recovery, and terminal closure.
   Immutable source observations expose revision, permission, usability, and final
@@ -150,6 +157,9 @@ trust anchor is outside the protection this library can provide.
 - rustls performs certificate path, signature, and validity-time verification
   using that trust-domain bundle. DNS/IP hostname validation is intentionally
   not used for SPIFFE authentication.
+- Both TLS verification directions rely on trust-bundle changes and certificate
+  expiry for revocation-related effects. They do not enforce Workload API CRLs
+  or stapled OCSP. The Workload API client discards delivered CRL bytes.
 - A non-anchor intermediate whose `KeyUsage` extension is present must include
   `keyCertSign` in a unique, minimal DER encoding. Malformed or duplicate
   `KeyUsage` makes that intermediate ineligible. Missing `KeyUsage` remains

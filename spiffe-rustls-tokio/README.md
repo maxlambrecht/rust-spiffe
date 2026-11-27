@@ -162,16 +162,10 @@ The server listens on `127.0.0.1:8443` by default. Both examples demonstrate:
 
 ## Peer Identity Extraction
 
-After a successful TLS handshake, the peer's SPIFFE ID is extracted from their certificate's URI SAN.
-
-According to the SPIFFE specification, an X.509-SVID must contain **exactly one** SPIFFE ID. When using `spiffe-rustls` verifiers correctly, this is enforced during the TLS handshake.
-
-**API behavior:**
-- **Exactly one SPIFFE ID**: Extracted and stored in `PeerIdentity::spiffe_id`
-- **Missing/multiple SPIFFE IDs or no peer certificates**: `spiffe_id` is `None` (no error; `accept()`/`connect()` succeed)
-- **Certificate parse failure**: Returns `Error::CertParse` (`accept()`/`connect()` fail)
-
-A `None` value for `spiffe_id` is unexpected in SPIFFE-compliant configurations and may indicate misconfiguration or a non-SPIFFE peer.
+After a successful TLS handshake, the wrapper extracts the SPIFFE ID from the
+peer leaf certificate's URI SAN. The configured TLS verifier determines how
+the peer is authenticated. See the [`PeerIdentity` API documentation](src/identity.rs)
+for extraction outcomes.
 
 ## License
 

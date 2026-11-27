@@ -19,6 +19,12 @@ type ServerConfigCustomizer = Box<dyn FnOnce(&mut ServerConfig) + Send>;
 /// * requires and validates client certificates (mTLS)
 /// * authorizes the client by SPIFFE ID (URI SAN)
 ///
+/// ## Revocation
+///
+/// Peer verification does not enforce Workload API CRLs or stapled OCSP.
+/// Operators are responsible for revocation policy beyond trust-bundle changes
+/// and certificate expiry.
+///
 /// ## Trust Domain Selection
 ///
 /// The builder uses the bundle set from `X509Source`, which may contain bundles

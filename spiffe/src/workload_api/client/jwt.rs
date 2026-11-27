@@ -33,7 +33,7 @@ impl WorkloadApiClient {
         Self::parse_jwt_bundle_set_from_grpc_response(response)
     }
 
-    /// Fetches a `JwtSvid` for the given audience and optional SPIFFE ID.
+    /// Fetches the first [`JwtSvid`] for the given audience and optional SPIFFE ID.
     ///
     /// If `spiffe_id` is `None`, the request asks for all authorized identities.
     /// This method parses every entry and returns the first in response order.
@@ -140,16 +140,23 @@ impl WorkloadApiClient {
             .ok_or_else(|| WorkloadApiError::HintNotFound(hint.to_owned()))
     }
 
-    /// Fetches a JWT-SVID token string for the given audience and optional SPIFFE ID.
+    /// Fetches the first JWT-SVID token string for the given audience and optional SPIFFE ID.
     ///
     /// If `spiffe_id` is `None`, the request asks for all authorized identities.
-    /// This method returns the first token string in response order without parsing
-    /// it or checking its subject against a supplied SPIFFE ID.
+    /// The client requires a nonempty response list and nonempty token and
+    /// identity fields on every entry. It then returns the first token verbatim
+    /// as an opaque string. This can include formats rejected by the typed parser.
+    /// The client does not parse the tokens, check their subjects against a
+    /// supplied SPIFFE ID, or authenticate them.
+    ///
+    /// To authenticate a token, use [`Self::validate_jwt_token`] with a trusted
+    /// Workload API endpoint or `JwtSvid::parse_and_validate` with an offline
+    /// verification backend and trusted bundles.
     ///
     /// # Errors
     ///
-    /// Returns a [`WorkloadApiError`] if the token request fails or the Workload API
-    /// returns an invalid or empty response.
+    /// Returns a [`WorkloadApiError`] if the request fails or a required response
+    /// field is missing or empty.
     #[cfg(feature = "jwt")]
     pub async fn fetch_jwt_token<I>(
         &self,
@@ -170,10 +177,10 @@ impl WorkloadApiClient {
 
     /// Validates a JWT-SVID token for the given audience and returns the parsed [`JwtSvid`].
     ///
-    /// Validation is performed by the SPIRE agent via the Workload API. After successful
-    /// validation, the token is parsed locally for structured access. The use of
-    /// `parse_insecure` is safe here because the security property comes from the agent's
-    /// validation, not from local signature verification.
+    /// The trusted Workload API endpoint performs validation. After a successful
+    /// RPC and response structure checks, [`JwtSvid::parse_insecure`] parses the
+    /// submitted token for structured access. Agent acceptance can still be
+    /// followed by a local parse error.
     ///
     /// # Errors
     ///

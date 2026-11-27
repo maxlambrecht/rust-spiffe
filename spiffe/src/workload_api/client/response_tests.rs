@@ -956,6 +956,40 @@ async fn jwt_public_svid_methods_reject_malformed_later_token() {
 
 #[cfg(feature = "jwt")]
 #[tokio::test]
+async fn raw_jwt_fetch_only_checks_required_fields() {
+    for invalid_first in [true, false] {
+        let mut response = jwt();
+        response.svids.push(response.svids.first().unwrap().clone());
+        let entry = if invalid_first {
+            response.svids.first_mut().unwrap()
+        } else {
+            response.svids.last_mut().unwrap()
+        };
+        entry.svid = "opaque token".into();
+        let expected = response.svids.first().unwrap().svid.clone();
+        let (client, _server) = client(Responses {
+            jwt: response,
+            ..Default::default()
+        })
+        .await;
+
+        let id = crate::SpiffeId::new("spiffe://example.org/workload").unwrap();
+        assert_eq!(
+            client
+                .fetch_jwt_token(["receiver"], Some(&id))
+                .await
+                .unwrap(),
+            expected
+        );
+        assert!(matches!(
+            client.fetch_jwt_svid(["receiver"], None).await,
+            Err(WorkloadApiError::JwtSvid(_))
+        ));
+    }
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
 async fn jwt_bundle_public_methods_validate_required_map_and_all_entries() {
     let (client, _server) = client(Responses::default()).await;
     missing(
@@ -1209,6 +1243,47 @@ async fn validate_jwt_public_method_preserves_agent_validation_and_optional_clai
     assert!(
         matches!(client.validate_jwt_token("receiver", &token()).await, Err(WorkloadApiError::PermissionDenied(message)) if message == "denied")
     );
+}
+
+#[cfg(feature = "jwt")]
+#[tokio::test]
+async fn agent_validated_jwt_uses_local_parser_constraints() {
+    use base64ct::{Base64UrlUnpadded, Encoding as _};
+
+    let (client, _server) = client(Responses {
+        validation: Some(Ok(validation())),
+        ..Default::default()
+    })
+    .await;
+    for (alg, kid, exp, accepted) in [
+        ("ES512", Some("k1"), "4294967295", true),
+        ("ES256", None, "4294967295", false),
+        ("ES256", Some("k1"), "4294967295.5", false),
+        ("ML-DSA-44", Some("k1"), "4294967295", false),
+        ("ML-DSA-65", Some("k1"), "4294967295", false),
+        ("ML-DSA-87", Some("k1"), "4294967295", false),
+    ] {
+        let header = match kid {
+            Some(kid) => serde_json::json!({ "alg": alg, "kid": kid }),
+            None => serde_json::json!({ "alg": alg }),
+        };
+        let claims =
+            format!(r#"{{"sub":"spiffe://example.org/workload","aud":"receiver","exp":{exp}}}"#);
+        let token = format!(
+            "{}.{}.sig",
+            Base64UrlUnpadded::encode_string(header.to_string().as_bytes()),
+            Base64UrlUnpadded::encode_string(claims.as_bytes())
+        );
+        let parsed = crate::JwtSvid::parse_insecure(&token);
+        assert_eq!(parsed.is_ok(), accepted, "{alg}, {kid:?}, {exp}");
+
+        let agent_validated = client.validate_jwt_token("receiver", &token).await;
+        if accepted {
+            assert_eq!(agent_validated.unwrap(), parsed.unwrap());
+        } else {
+            assert!(matches!(agent_validated, Err(WorkloadApiError::JwtSvid(_))));
+        }
+    }
 }
 
 #[cfg(feature = "jwt")]
