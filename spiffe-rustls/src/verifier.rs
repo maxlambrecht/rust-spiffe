@@ -20,6 +20,8 @@ use spiffe::SpiffeId;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::{self, Debug};
 use std::sync::Arc;
+use x509_parser::extensions::KeyUsage;
+use x509_parser::prelude::FromDer as _;
 
 #[cfg(feature = "parking-lot")]
 use parking_lot::{Condvar, Mutex, MutexGuard};
@@ -271,19 +273,21 @@ fn leaf_constraint_check(
         }
     }
 
-    match cert.key_usage().map_err(|e| e.to_string())? {
-        Some(ku) => {
-            if ku.value.key_cert_sign() {
-                return Err("keyCertSign key usage is set".into());
-            }
-            if ku.value.crl_sign() {
-                return Err("cRLSign key usage is set".into());
-            }
-            if !ku.value.digital_signature() {
-                return Err("digitalSignature key usage is not set".into());
-            }
-        }
-        None => return Err("key usage extension is missing".into()),
+    let extension = cert
+        .get_extension_unique(&oid_registry::OID_X509_EXT_KEY_USAGE)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "key usage extension is missing".to_owned())?;
+    let Ok(([], ku)) = KeyUsage::from_der(extension.value) else {
+        return Err(x509_parser::error::X509Error::InvalidExtensions.to_string());
+    };
+    if ku.key_cert_sign() {
+        return Err("keyCertSign key usage is set".into());
+    }
+    if ku.crl_sign() {
+        return Err("cRLSign key usage is set".into());
+    }
+    if !ku.digital_signature() {
+        return Err("digitalSignature key usage is not set".into());
     }
 
     if spiffe_id.path().is_empty() {

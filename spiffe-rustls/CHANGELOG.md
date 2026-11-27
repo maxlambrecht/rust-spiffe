@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Both peer verifiers reject trailing data inside a leaf Key Usage extension before authorization.
+
 ## [0.11.0] - 2026-10-28
 
 ### Security
