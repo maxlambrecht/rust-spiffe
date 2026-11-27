@@ -1,7 +1,7 @@
 //! Authorization abstractions for SPIFFE ID-based access control.
 
 use crate::error::{AuthorizerConfigError, Result};
-use spiffe::{SpiffeId, TrustDomain};
+use spiffe::{spiffe_id::SPIFFE_SCHEME, SpiffeId, TrustDomain};
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
@@ -95,6 +95,56 @@ impl Authorizer for Exact {
     }
 }
 
+/// Converts an entry for a [`TrustDomainAllowList`] into a trust domain.
+///
+/// Implementations for `&str` and `String` accept bare trust-domain names and
+/// pathless SPIFFE IDs. A [`TrustDomain`] is accepted directly.
+pub trait TryIntoAllowListTrustDomain {
+    /// Converts the entry to a validated trust domain for the allow-list.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`AuthorizerConfigError`] if the entry is invalid.
+    fn try_into_allow_list_trust_domain(
+        self,
+    ) -> std::result::Result<TrustDomain, AuthorizerConfigError>;
+}
+
+impl TryIntoAllowListTrustDomain for &str {
+    fn try_into_allow_list_trust_domain(
+        self,
+    ) -> std::result::Result<TrustDomain, AuthorizerConfigError> {
+        if self
+            .split_once("://")
+            .is_some_and(|(scheme, authority_and_path)| {
+                scheme.eq_ignore_ascii_case(SPIFFE_SCHEME) && authority_and_path.contains('/')
+            })
+        {
+            return Err(AuthorizerConfigError::InvalidTrustDomain(
+                "SPIFFE ID contains a path".into(),
+            ));
+        }
+
+        TrustDomain::new(self).map_err(|e| AuthorizerConfigError::InvalidTrustDomain(e.to_string()))
+    }
+}
+
+impl TryIntoAllowListTrustDomain for String {
+    fn try_into_allow_list_trust_domain(
+        self,
+    ) -> std::result::Result<TrustDomain, AuthorizerConfigError> {
+        self.as_str().try_into_allow_list_trust_domain()
+    }
+}
+
+impl TryIntoAllowListTrustDomain for TrustDomain {
+    fn try_into_allow_list_trust_domain(
+        self,
+    ) -> std::result::Result<TrustDomain, AuthorizerConfigError> {
+        Ok(self)
+    }
+}
+
 /// Authorizes any SPIFFE ID whose trust domain is in the allow-list.
 #[must_use]
 #[derive(Debug, Clone)]
@@ -115,24 +165,26 @@ pub type TrustDomains = TrustDomainAllowList;
 impl TrustDomainAllowList {
     /// Creates a new `TrustDomainAllowList` authorizer.
     ///
+    /// Pass bare trust-domain names, pathless SPIFFE IDs, or [`TrustDomain`] values.
+    /// To intentionally extract a domain from a workload SPIFFE ID, pass the result
+    /// of [`TrustDomain::new`]. Callers with a custom `TryInto<TrustDomain>` converter
+    /// can convert their entries to `TrustDomain` before calling this constructor.
+    ///
     /// If the iterator is empty, the authorizer authorizes nothing.
     ///
     /// # Errors
     ///
-    /// Returns `Error::AuthorizerConfig` if any trust domain cannot be parsed.
+    /// Returns `Error::AuthorizerConfig` if any entry is invalid or a SPIFFE ID
+    /// string contains a path, including a trailing slash.
     pub fn new<I>(domains: I) -> Result<Self>
     where
         I: IntoIterator,
-        I::Item: TryInto<TrustDomain>,
-        <I::Item as TryInto<TrustDomain>>::Error: std::fmt::Display,
+        I::Item: TryIntoAllowListTrustDomain,
     {
         let mut allowed = BTreeSet::new();
 
         for domain in domains {
-            let td = domain
-                .try_into()
-                .map_err(|e| AuthorizerConfigError::InvalidTrustDomain(e.to_string()))?;
-            allowed.insert(td);
+            allowed.insert(domain.try_into_allow_list_trust_domain()?);
         }
 
         Ok(Self { allowed })
@@ -207,16 +259,17 @@ where
 
 /// Returns an authorizer that accepts any SPIFFE ID from the given trust domains.
 ///
-/// # Arguments
-///
-/// * `domains` - An iterator of trust domains (or types that can be converted to `TrustDomain`)
+/// Pass bare trust-domain names, pathless SPIFFE IDs, or [`TrustDomain`] values.
+/// For intentional domain extraction or migration from a custom `TryInto<TrustDomain>`
+/// converter, see [`TrustDomainAllowList::new`].
 ///
 /// If the iterator is empty, the resulting authorizer will authorize no trust domains
 /// (all authorization checks will return `false`).
 ///
 /// # Errors
 ///
-/// Returns `Error::AuthorizerConfig` if any trust domain is invalid.
+/// Returns `Error::AuthorizerConfig` if any entry is invalid or a SPIFFE ID string
+/// contains a path, including a trailing slash.
 ///
 /// # Examples
 ///
@@ -226,15 +279,14 @@ where
 /// // Pass string literals directly - trust_domains() will convert them
 /// let auth = authorizer::trust_domains([
 ///     "broker.example",
-///     "stockmarket.example",
+///     "spiffe://stockmarket.example",
 /// ])?;
 /// # Ok::<(), spiffe_rustls::Error>(())
 /// ```
 pub fn trust_domains<I>(domains: I) -> Result<TrustDomainAllowList>
 where
     I: IntoIterator,
-    I::Item: TryInto<TrustDomain>,
-    <I::Item as TryInto<TrustDomain>>::Error: std::fmt::Display,
+    I::Item: TryIntoAllowListTrustDomain,
 {
     TrustDomainAllowList::new(domains)
 }
@@ -293,6 +345,100 @@ mod tests {
         assert!(valid.authorize(&id1));
         assert!(valid.authorize(&id2));
         assert!(!valid.authorize(&id3));
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_rejects_borrowed_path() {
+        for input in [
+            "spiffe://example.org/workload",
+            "SpIfFe://EXAMPLE.ORG/workload",
+            "spiffe://example.org/",
+        ] {
+            let result = TrustDomainAllowList::new([input]);
+            assert!(
+                matches!(
+                    result,
+                    Err(crate::Error::AuthorizerConfig(
+                        AuthorizerConfigError::InvalidTrustDomain(_)
+                    ))
+                ),
+                "expected an authorizer configuration error for {input}, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_rejects_owned_path() {
+        let result = trust_domains([String::from("spiffe://example.org/workload")]);
+        assert!(
+            matches!(
+                result,
+                Err(crate::Error::AuthorizerConfig(
+                    AuthorizerConfigError::InvalidTrustDomain(_)
+                ))
+            ),
+            "expected an authorizer configuration error, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_rejects_path_even_with_matching_bare_domain() {
+        let result = TrustDomainAllowList::new(["example.org", "spiffe://example.org/workload"]);
+        assert!(matches!(
+            result,
+            Err(crate::Error::AuthorizerConfig(
+                AuthorizerConfigError::InvalidTrustDomain(message)
+            )) if message.contains("contains a path")
+        ));
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_accepts_canonical_duplicates() {
+        let domains = ["EXAMPLE.ORG", "SpIfFe://example.org"];
+        let allowed = SpiffeId::new("spiffe://example.org/workload").unwrap();
+        let denied = SpiffeId::new("spiffe://other.org/workload").unwrap();
+        for auth in [
+            TrustDomainAllowList::new(domains).unwrap(),
+            trust_domains(domains.map(String::from)).unwrap(),
+        ] {
+            assert_eq!(auth.allowed.len(), 1);
+            assert_eq!(auth.allowed.first().unwrap().as_str(), "example.org");
+            assert!(auth.authorize(&allowed));
+            assert!(!auth.authorize(&denied));
+        }
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_accepts_explicit_domain_extracted_from_path() {
+        let domain = TrustDomain::new("spiffe://EXAMPLE.ORG/workload").unwrap();
+        assert_eq!(domain.as_str(), "example.org");
+        let auth = TrustDomainAllowList::new([domain]).unwrap();
+        assert!(auth.authorize(&SpiffeId::new("spiffe://example.org/another").unwrap()));
+    }
+
+    #[test]
+    fn test_trust_domains_authorizer_accepts_explicitly_converted_custom_entry() {
+        struct ConfigDomain<'a>(&'a str);
+
+        impl TryFrom<ConfigDomain<'_>> for TrustDomain {
+            type Error = spiffe::SpiffeIdError;
+
+            fn try_from(domain: ConfigDomain<'_>) -> std::result::Result<Self, Self::Error> {
+                Self::new(domain.0)
+            }
+        }
+
+        let config = String::from("example.org");
+        let domain = TrustDomain::try_from(ConfigDomain(&config)).unwrap();
+        let auth = TrustDomainAllowList::new([domain]).unwrap();
+        assert!(auth.authorize(&SpiffeId::new("spiffe://example.org/workload").unwrap()));
+    }
+
+    #[test]
+    fn test_local_only_still_accepts_domain_converted_from_path() {
+        let policy = crate::LocalOnly("spiffe://example.org/workload".try_into().unwrap());
+        assert!(policy.allows(&TrustDomain::new("example.org").unwrap()));
+        assert!(!policy.allows(&TrustDomain::new("other.org").unwrap()));
     }
 
     #[test]

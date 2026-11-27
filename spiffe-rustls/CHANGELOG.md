@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Breaking changes
+
+- `TrustDomainAllowList::new` and `authorizer::trust_domains` reject SPIFFE ID strings with a path, including a trailing slash, with `Error::AuthorizerConfig`. Bare trust-domain names, pathless SPIFFE IDs, and `TrustDomain` values are still accepted. To intentionally extract a domain from a workload SPIFFE ID, pass the result of `TrustDomain::new`.
+- Both entry points now use `authorizer::TryIntoAllowListTrustDomain` in place of `TryInto<TrustDomain>`. Callers with custom converters can convert their entries to `TrustDomain` before passing them to the allow-list.
+
 ### Fixed
 
 - Both peer verifiers reject trailing data inside a leaf Key Usage extension before authorization.
