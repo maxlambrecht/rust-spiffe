@@ -153,6 +153,8 @@ issue("leaf", "leaf", leaf, "issuer", issuer, **leaf_options)
 peer_leaf_options = dict(**leaf_options,
     eku=["1.3.6.1.5.5.7.3.1", "1.3.6.1.5.5.7.3.2"])
 issue("leaf-basic-constraints", "leaf", leaf, "issuer", issuer, **peer_leaf_options)
+issue("leaf-suffix-ku", "leaf", leaf, "issuer", issuer,
+      **dict(peer_leaf_options, ku=peer_leaf_options["ku"] + b"\x05\x00"))
 issue("leaf-no-basic-constraints", "leaf", leaf, "issuer", issuer,
       bc=None, **peer_leaf_options)
 issue("leaf-ca", "leaf", leaf, "issuer", issuer,

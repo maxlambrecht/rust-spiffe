@@ -7,6 +7,7 @@ enum Rejection {
     Missing,
     Ca,
     Malformed,
+    KeyUsageEncoding,
     Domain,
     Unauthorized,
 }
@@ -31,6 +32,12 @@ fn assert_rejection(err: &rustls::Error, expected: Rejection) {
             assert_eq!(
                 reason,
                 "basic constraints CA is set to true (signing certificate)"
+            );
+        }
+        (Rejection::KeyUsageEncoding, Error::InvalidLeaf(reason)) => {
+            assert_eq!(
+                reason,
+                &x509_parser::error::X509Error::InvalidExtensions.to_string()
             );
         }
         (Rejection::Domain, Error::TrustDomainNotAllowed(domain)) => {
@@ -72,6 +79,10 @@ fn handshake_matrix(version: &'static rustls::SupportedProtocolVersion) {
             (
                 fixture!("leaf-no-basic-constraints"),
                 Some(Rejection::Missing),
+            ),
+            (
+                fixture!("leaf-suffix-ku"),
+                Some(Rejection::KeyUsageEncoding),
             ),
             (fixture!("leaf-ca"), Some(Rejection::Ca)),
             (

@@ -4,6 +4,7 @@ use crate::cert::error::{CertificateError, X509ExtensionId, X509ParseError};
 use crate::cert::Certificate;
 use crate::spiffe_id::uri_has_spiffe_scheme;
 use crate::SpiffeId;
+use x509_parser::asn1_rs::{Any, FromDer as _};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::der_parser::oid::Oid;
 use x509_parser::error::X509Error;
@@ -145,7 +146,24 @@ pub(crate) fn get_x509_extension<'a>(
         None => Err(CertificateError::MissingX509Extension(
             X509ExtensionId::new(oid),
         )),
-        Some(ext) => Ok(ext.parsed_extension()),
+        Some(ext) => {
+            let parsed = ext.parsed_extension();
+            // x509-parser discards the typed parser's remainder. Each of these
+            // values is one DER object. Check its boundary without decoding the
+            // contents again (in particular, without allocating a second SAN).
+            if matches!(
+                parsed,
+                ParsedExtension::BasicConstraints(_)
+                    | ParsedExtension::KeyUsage(_)
+                    | ParsedExtension::SubjectAlternativeName(_)
+            ) && !matches!(Any::from_der(ext.value), Ok(([], _)))
+            {
+                return Err(CertificateError::ParseX509Certificate(X509ParseError::new(
+                    X509Error::InvalidExtensions,
+                )));
+            }
+            Ok(parsed)
+        }
     }
 }
 

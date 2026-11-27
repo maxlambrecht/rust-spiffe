@@ -26,6 +26,7 @@ any variant, independently of that variant's KU eligibility or higher path.
 | `issuer-noncritical.der`                                      | Noncritical digitalSignature-only KU                                                              |
 | `issuer-wrong-tag.der`                                        | BOOLEAN instead of BIT STRING                                                                     |
 | `issuer-duplicate.der`                                        | Two identical signing-permitted KU extensions; re-signed after injection                          |
+| `leaf-suffix-ku.der`                                          | Leaf digitalSignature BIT STRING followed by inner NULL                                           |
 | `issuer-trailing.der`                                         | Signing-permitted BIT STRING followed by inner NULL                                               |
 | `issuer-truncated.der`, `issuer-empty.der`                    | Truncated or empty BIT STRING                                                                     |
 | `issuer-invalid-unused.der`, `issuer-invalid-padding.der`     | Unused count 8 or nonzero padding                                                                 |

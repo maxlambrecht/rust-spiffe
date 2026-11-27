@@ -395,6 +395,65 @@ mod x509_svid_tests {
         certs
     }
 
+    // Each fixture is one certificate from 1-svid-chain.der with DER NULL
+    // appended inside the named extension and enclosing lengths adjusted.
+    // Local admission does not verify signatures.
+    #[test]
+    fn leaf_extension_suffix() {
+        use spiffe::cert::{spiffe_id_from_der, Certificate};
+        let key = include_bytes!("testdata/svid/x509/1-key.der");
+        let chain = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        let leaf = split_der_chain(chain).into_iter().next().unwrap();
+        let expected = X509Svid::parse_from_der(&leaf, key).unwrap();
+        for der in [
+            include_bytes!("testdata/svid/x509/leaf-suffix-bc.der").as_slice(),
+            include_bytes!("testdata/svid/x509/leaf-suffix-ku.der").as_slice(),
+        ] {
+            let cert = Certificate::try_from(der).unwrap();
+            assert_eq!(&cert.spiffe_id().unwrap(), expected.spiffe_id());
+            assert_eq!(&spiffe_id_from_der(der).unwrap(), expected.spiffe_id());
+            assert!(matches!(
+                X509Svid::parse_from_der(der, key),
+                Err(X509SvidError::Certificate(
+                    CertificateError::ParseX509Certificate(_)
+                ))
+            ));
+        }
+        let der = include_bytes!("testdata/svid/x509/leaf-suffix-san.der").as_slice();
+        let cert = Certificate::try_from(der).unwrap();
+        for identity in [cert.spiffe_id(), spiffe_id_from_der(der)] {
+            assert!(matches!(
+                identity,
+                Err(CertificateError::ParseX509Certificate(_))
+            ));
+        }
+        assert!(matches!(
+            X509Svid::parse_from_der(der, key),
+            Err(X509SvidError::Certificate(
+                CertificateError::ParseX509Certificate(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn signing_extension_suffix() {
+        let key = include_bytes!("testdata/svid/x509/1-key.der");
+        let chain = include_bytes!("testdata/svid/x509/1-svid-chain.der");
+        X509Svid::parse_from_der(chain, key).unwrap();
+        let leaf = split_der_chain(chain).into_iter().next().unwrap();
+        for issuer in [
+            include_bytes!("testdata/svid/x509/signing-suffix-bc.der").as_slice(),
+            include_bytes!("testdata/svid/x509/signing-suffix-ku.der").as_slice(),
+        ] {
+            assert!(matches!(
+                X509Svid::parse_from_der(&[leaf.as_slice(), issuer].concat(), key),
+                Err(X509SvidError::Certificate(
+                    CertificateError::ParseX509Certificate(_)
+                ))
+            ));
+        }
+    }
+
     // --- Unparseable extension tests ---
     //
     // These tests verify that certificates with malformed (present but unparseable)

@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Reject trailing data inside Basic Constraints and Key Usage during local X.509-SVID admission, and inside Subject Alternative Name when extracting a SPIFFE ID.
 - Typed Workload API JWT-SVID fetches, including `JwtSource`, reject a response with `InvalidResponseField` if any token subject differs from an explicitly requested SPIFFE ID. Document response-order selection when the ID is omitted and first-match selection by hint.
 - SPIFFE ID extraction and local X.509-SVID admission now reject malformed URI-typed SAN entries with `CertificateError::ParseX509Certificate`. Certificates that previously yielded an identity despite a corrupt URI SAN are no longer accepted. The exactly-one-URI requirement and support for valid non-URI SANs are preserved.
 - `X509Source` now publishes a new context and advances its revision when the Workload API default SVID changes, even if a custom picker selects the same credential. Reorders that preserve both the default and the picker selection still suppress notifications when the remaining material is equivalent.
