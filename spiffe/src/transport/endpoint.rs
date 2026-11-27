@@ -2,6 +2,8 @@
 //!
 //! Defines a SPIFFE-specific endpoint abstraction used by SPIFFE-related APIs
 //! (SPIFFE Workload API, SPIRE Agent Admin API). Not a general-purpose networking endpoint.
+//!
+//! Unix paths are percent-decoded once into filesystem paths. See [`Endpoint::parse`].
 
 use std::net::IpAddr;
 use std::path::PathBuf;
@@ -90,17 +92,73 @@ pub enum EndpointError {
     /// TCP endpoints must not include a non-empty path.
     #[error("tcp: endpoint socket URI must not include a path")]
     TcpUnexpectedPath,
+
+    /// The Unix endpoint contains a raw ASCII control or leading or trailing space.
+    ///
+    /// Raw controls are rejected instead of being stripped or re-encoded. A
+    /// percent-encoded control other than NUL is path data; see [`Endpoint::parse`].
+    #[error("unix: endpoint socket path contains an invalid character")]
+    UnixInvalidCharacter,
+
+    /// A `%` in the Unix path is not followed by two hexadecimal digits.
+    #[error("unix: endpoint socket path contains a malformed percent escape")]
+    UnixBadPercentEscape,
+
+    /// The Unix path percent-encodes `/`, which is a separator rather than data.
+    #[error("unix: endpoint socket path must not percent-encode a path separator")]
+    UnixEncodedSeparator,
+
+    /// The Unix path percent-encodes a NUL byte.
+    #[error("unix: endpoint socket path must not contain a NUL byte")]
+    UnixEncodedNul,
+
+    /// The Unix path percent-decodes to bytes that are not UTF-8.
+    #[error("unix: endpoint socket path is not valid UTF-8")]
+    UnixPathNotUtf8,
 }
 
 impl Endpoint {
     /// Parse and validate a SPIFFE endpoint URI.
     ///
-    /// ## Accepted formats
+    /// `SPIFFE_ENDPOINT_SOCKET` and `SPIRE_ADMIN_ENDPOINT_SOCKET` use this
+    /// grammar. There is one Unix path rule for both.
     ///
-    /// - `unix:///path/to/socket`
-    /// - `unix:/path/to/socket` (accepted in practice)
-    /// - `tcp://1.2.3.4:8081`
-    /// - `tcp:1.2.3.4:8081` (accepted in practice)
+    /// ## Unix
+    ///
+    /// Accepted forms, with a case-insensitive `unix` scheme:
+    ///
+    /// - `unix:///absolute/path` — empty authority, as in the Workload Endpoint example
+    /// - `unix:/absolute/path` — the same absolute path with the authority omitted
+    ///
+    /// The path component is an absolute filesystem path. After the structural
+    /// checks, `%XX` is decoded once and that UTF-8 string becomes the
+    /// [`PathBuf`] passed to `connect`. Decoding happens after splitting on
+    /// literal `/`, so an encoded slash is not a separator. `.` and `..`
+    /// segments and repeated slashes are kept for the operating system.
+    ///
+    /// A literal space, quotation mark, caret, or other non-delimiter octet is
+    /// path data. `unix:///tmp/agent sock` and `unix:///tmp/agent%20sock` name
+    /// the same socket. Those raw octets are outside the strict RFC 3986
+    /// alphabet; a filename space at either end of the whole endpoint must be
+    /// written `%20`, and a literal `%` must be written `%25`.
+    ///
+    /// Raw ASCII controls (U+0000–U+001F and U+007F) are rejected, including tab
+    /// and newline. The same octets are path data when percent-encoded, except
+    /// NUL (`%00`), which is rejected in both forms. `%2F` and `%2f` are
+    /// rejected. A `%` that is not two hex digits is rejected, as are decoded
+    /// bytes that are not UTF-8.
+    ///
+    /// A non-empty authority, user info, query, fragment, or non-absolute path
+    /// is rejected. `unix:tmp/sock`, `unix://`, and `unix:///` are rejected.
+    ///
+    /// ## TCP
+    ///
+    /// - `tcp://<ip>:<port>`
+    /// - `tcp:<ip>:<port>` (accepted in practice)
+    ///
+    /// The host must be an IP address. An empty path is allowed. Any other
+    /// path, user info, query, or fragment is rejected. A percent-encoded host
+    /// that is not an IP address is rejected. TCP parsing is otherwise unchanged.
     ///
     /// ## Errors
     ///
@@ -125,24 +183,7 @@ impl Endpoint {
         }
 
         match url.scheme() {
-            UNIX_SCHEME => {
-                if url.host_str().is_some() {
-                    return Err(EndpointError::UnixAuthorityNotAllowed);
-                }
-
-                let path = url.path();
-                if path.is_empty() || path == "/" {
-                    return Err(EndpointError::UnixMissingPath);
-                }
-
-                // Require absolute paths (must start with "/")
-                // This ensures `unix:tmp/sock` fails deterministically.
-                if !path.starts_with('/') {
-                    return Err(EndpointError::UnixMissingPath);
-                }
-
-                Ok(Self::Unix(PathBuf::from(path)))
-            }
+            UNIX_SCHEME => parse_unix_endpoint(&normalized, &url),
 
             TCP_SCHEME => {
                 let host = match url.host() {
@@ -195,6 +236,125 @@ fn normalize_endpoint_uri(input: &str) -> String {
     }
 
     input.to_owned()
+}
+
+/// Unix filesystem path for `normalized`, which is the string passed to `Url::parse`.
+///
+/// `Url::path()` is the WHATWG serialization: it percent-encodes bytes outside
+/// its path set and removes `.` and `..` segments. That string is a different
+/// file from the path the URI denotes, so `connect` must not receive it.
+///
+/// The slice is taken only after checks that `Url` would otherwise rewrite.
+/// `Url` trims leading and trailing C0 controls and spaces, and it skips tab,
+/// LF, and CR anywhere. Those inputs are rejected first. The region scan then
+/// enforces the Unix structure on the same bytes it slices, so the path never
+/// depends on how `Url` serialized the input.
+fn parse_unix_endpoint(normalized: &str, url: &Url) -> Result<Endpoint, EndpointError> {
+    if url.host_str().is_some() {
+        return Err(EndpointError::UnixAuthorityNotAllowed);
+    }
+    if unix_endpoint_has_forbidden_chars(normalized) {
+        return Err(EndpointError::UnixInvalidCharacter);
+    }
+
+    let path = unix_path_region(normalized)?;
+    if path.is_empty() || path == "/" {
+        return Err(EndpointError::UnixMissingPath);
+    }
+
+    // `path` starts with a literal `/` and is longer than one byte, so the
+    // decoded string is also absolute and is not exactly `/`.
+    let decoded = decode_unix_path(path)?;
+    Ok(Endpoint::Unix(PathBuf::from(decoded)))
+}
+
+fn unix_endpoint_has_forbidden_chars(input: &str) -> bool {
+    let bytes = input.as_bytes();
+    bytes.first() == Some(&b' ')
+        || bytes.last() == Some(&b' ')
+        || bytes.iter().any(u8::is_ascii_control)
+}
+
+/// Path substring of a Unix endpoint that contains no ASCII controls and no
+/// leading or trailing space. The result is empty or starts with `/`.
+fn unix_path_region(input: &str) -> Result<&str, EndpointError> {
+    // `Url` already reported the `unix` scheme. A mismatch here means the two
+    // views of the input disagree, so fail closed.
+    let Some((scheme, rest)) = input.split_once(':') else {
+        return Err(EndpointError::UnixInvalidCharacter);
+    };
+    if !scheme.eq_ignore_ascii_case(UNIX_SCHEME) {
+        return Err(EndpointError::UnixInvalidCharacter);
+    }
+
+    let path = if let Some(after_slashes) = rest.strip_prefix("//") {
+        // `find` returns a char boundary, so the split cannot panic.
+        let authority_end = after_slashes
+            .find(['/', '?', '#'])
+            .unwrap_or(after_slashes.len());
+        let (authority, path) = after_slashes.split_at(authority_end);
+        // `Url` drops empty user info (`unix://:@/path`) and reports no host,
+        // so a non-empty authority can reach this point.
+        if authority.contains('@') {
+            return Err(EndpointError::HasUserInfo);
+        }
+        if !authority.is_empty() {
+            return Err(EndpointError::UnixAuthorityNotAllowed);
+        }
+        path
+    } else if rest.starts_with('/') {
+        rest
+    } else {
+        return Err(EndpointError::UnixMissingPath);
+    };
+
+    if path.contains('?') {
+        return Err(EndpointError::HasQuery);
+    }
+    if path.contains('#') {
+        return Err(EndpointError::HasFragment);
+    }
+    Ok(path)
+}
+
+fn decode_unix_path(path: &str) -> Result<String, EndpointError> {
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while let Some(&byte) = bytes.get(index) {
+        if byte != b'%' {
+            decoded.push(byte);
+            index += 1;
+            continue;
+        }
+        let Some(value) = percent_byte(bytes, index) else {
+            return Err(EndpointError::UnixBadPercentEscape);
+        };
+        if value == b'/' {
+            return Err(EndpointError::UnixEncodedSeparator);
+        }
+        if value == 0 {
+            return Err(EndpointError::UnixEncodedNul);
+        }
+        decoded.push(value);
+        index += 3;
+    }
+    String::from_utf8(decoded).map_err(|_invalid| EndpointError::UnixPathNotUtf8)
+}
+
+fn percent_byte(bytes: &[u8], index: usize) -> Option<u8> {
+    let high = hex_value(*bytes.get(index + 1)?)?;
+    let low = hex_value(*bytes.get(index + 2)?)?;
+    Some((high << 4) | low)
+}
+
+const fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -445,5 +605,453 @@ mod tests {
             err.to_string(),
             "tcp: endpoint socket URI must include a port"
         );
+    }
+
+    #[test]
+    fn parse_unix_paths_preserve_decoded_filesystem_names() {
+        let cases = [
+            (
+                "unix:///tmp/spire-agent/public/api.sock",
+                "/tmp/spire-agent/public/api.sock",
+            ),
+            (
+                "unix:/tmp/spire-agent/public/api.sock",
+                "/tmp/spire-agent/public/api.sock",
+            ),
+            ("UNIX:///tmp/api.sock", "/tmp/api.sock"),
+            ("Unix:/tmp/api.sock", "/tmp/api.sock"),
+            ("unix:///tmp/agent%20sock", "/tmp/agent sock"),
+            ("unix:///tmp/agent sock", "/tmp/agent sock"),
+            ("unix:/tmp/agent%20sock", "/tmp/agent sock"),
+            ("UNIX:/tmp/agent sock", "/tmp/agent sock"),
+            ("unix:///tmp/agent%25sock", "/tmp/agent%sock"),
+            ("unix:///tmp/agent%2520sock", "/tmp/agent%20sock"),
+            ("unix:///tmp/%C3%A5gent.sock", "/tmp/\u{e5}gent.sock"),
+            ("unix:///tmp/\u{e5}gent.sock", "/tmp/\u{e5}gent.sock"),
+            ("unix:///tmp/api%3Fsock", "/tmp/api?sock"),
+            ("unix:///tmp/api%23sock", "/tmp/api#sock"),
+            (
+                "unix:///tmp/missing/../real.sock",
+                "/tmp/missing/../real.sock",
+            ),
+            (
+                "unix:///tmp/missing/%2E%2E/real.sock",
+                "/tmp/missing/../real.sock",
+            ),
+            ("unix:///tmp/%2E/real.sock", "/tmp/./real.sock"),
+            ("unix:///tmp/foo%2Ebar", "/tmp/foo.bar"),
+            ("unix:////tmp/api.sock", "//tmp/api.sock"),
+            ("unix:///tmp//api.sock", "/tmp//api.sock"),
+            ("unix:///tmp/api.sock/", "/tmp/api.sock/"),
+            ("unix:/tmp//api.sock//", "/tmp//api.sock//"),
+            ("unix:///tmp/foo\\bar", "/tmp/foo\\bar"),
+            ("unix:///tmp/foo%5Cbar", "/tmp/foo\\bar"),
+            ("unix:///tmp/foo\"bar", "/tmp/foo\"bar"),
+            ("unix:///tmp/foo%22bar", "/tmp/foo\"bar"),
+            ("unix:///tmp/foo^bar", "/tmp/foo^bar"),
+            ("unix:///tmp/foo%5Ebar", "/tmp/foo^bar"),
+            ("unix:///tmp/foo@bar", "/tmp/foo@bar"),
+            ("unix:///tmp/foo%40bar", "/tmp/foo@bar"),
+            ("unix:///tmp/foo:80/bar", "/tmp/foo:80/bar"),
+            ("unix:///tmp/%252Fagent.sock", "/tmp/%2Fagent.sock"),
+            ("unix:///tmp/foo%09bar", "/tmp/foo\tbar"),
+            ("unix:///tmp/foo%0Abar", "/tmp/foo\nbar"),
+            ("unix:///tmp/foo%0Dbar", "/tmp/foo\rbar"),
+            ("unix:///tmp/foo%1Fbar", "/tmp/foo\u{1F}bar"),
+            ("unix:///tmp/foo%7Fbar", "/tmp/foo\u{7F}bar"),
+            ("unix:///tmp/foo%0Bbar", "/tmp/foo\u{0B}bar"),
+            ("unix:///tmp/%c3%a5gent.sock", "/tmp/\u{e5}gent.sock"),
+            ("unix:///./real.sock", "/./real.sock"),
+            ("unix:///./", "/./"),
+            ("unix:///.", "/."),
+            ("unix:///..", "/.."),
+            ("unix:///tmp/foo/..", "/tmp/foo/.."),
+            ("unix:///tmp/foo/../", "/tmp/foo/../"),
+            ("unix:////", "//"),
+            ("unix:///tmp/{foo}", "/tmp/{foo}"),
+            ("unix:///tmp/%7Bfoo%7D", "/tmp/{foo}"),
+            ("unix:///tmp/foo%60bar", "/tmp/foo`bar"),
+            ("unix:///tmp/sock\u{00A0}", "/tmp/sock\u{00A0}"),
+        ];
+
+        for (input, expected) in cases {
+            let endpoint = Endpoint::parse(input).unwrap_or_else(|error| {
+                panic!("{input} should parse, got {error}");
+            });
+            let Endpoint::Unix(path) = &endpoint else {
+                panic!("{input} parsed as {endpoint:?}");
+            };
+            // `PathBuf` equality compares components, which ignores repeated
+            // separators, `.` segments, and a trailing `/`. Compare the exact
+            // string passed to `connect`.
+            assert_eq!(path.to_str(), Some(expected), "{input}");
+        }
+    }
+
+    #[test]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the Unix rejection matrix is one table"
+    )]
+    fn parse_unix_paths_reject_ambiguous_or_illegal_encodings() {
+        let invalid_character = "unix: endpoint socket path contains an invalid character";
+        let bad_escape = "unix: endpoint socket path contains a malformed percent escape";
+        let encoded_separator =
+            "unix: endpoint socket path must not percent-encode a path separator";
+        let encoded_nul = "unix: endpoint socket path must not contain a NUL byte";
+        let not_utf8 = "unix: endpoint socket path is not valid UTF-8";
+        let missing_path = "unix: endpoint socket URI must include a path";
+        let authority = "unix: endpoint socket URI must not include an authority";
+        let user_info = "endpoint socket URI must not include user info";
+
+        let cases = [
+            (
+                "unix:///tmp/agent%2Fsock",
+                EndpointError::UnixEncodedSeparator,
+                encoded_separator,
+            ),
+            (
+                "unix:///tmp/agent%2fsock",
+                EndpointError::UnixEncodedSeparator,
+                encoded_separator,
+            ),
+            (
+                "unix:///tmp/agent%2F%2Fsock",
+                EndpointError::UnixEncodedSeparator,
+                encoded_separator,
+            ),
+            (
+                "unix:///%2Ftmp/sock",
+                EndpointError::UnixEncodedSeparator,
+                encoded_separator,
+            ),
+            (
+                "unix:///tmp/agent%00sock",
+                EndpointError::UnixEncodedNul,
+                encoded_nul,
+            ),
+            (
+                "unix:///tmp/%00agent.sock",
+                EndpointError::UnixEncodedNul,
+                encoded_nul,
+            ),
+            (
+                "unix:///tmp/agent%sock",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%2",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%ZZsock",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%2Gsock",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%2gsock",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/%%20sock",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/agent%20%",
+                EndpointError::UnixBadPercentEscape,
+                bad_escape,
+            ),
+            (
+                "unix:///tmp/%FFgent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/%80gent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/%C3gent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/%C3%28gent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/%C0%AFgent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/%C0%80gent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/\u{e5}%FFgent.sock",
+                EndpointError::UnixPathNotUtf8,
+                not_utf8,
+            ),
+            (
+                "unix:///tmp/api\tsock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api\nsock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api\rsock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api\u{000B}sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api\u{007F}sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/a\0b",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "uni\tx:///tmp/api.sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:/\t//tmp/api.sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///\ttmp/api.sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix://\t/tmp/api.sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                " unix:///tmp/api.sock",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api.sock ",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:///tmp/api.sock\t",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "  unix:///tmp/api.sock  ",
+                EndpointError::UnixInvalidCharacter,
+                invalid_character,
+            ),
+            (
+                "unix:%2Ftmp/sock",
+                EndpointError::UnixMissingPath,
+                missing_path,
+            ),
+            (
+                "unix://%2e%2e/tmp/sock",
+                EndpointError::UnixAuthorityNotAllowed,
+                authority,
+            ),
+            (
+                "unix://foo%40bar/tmp",
+                EndpointError::UnixAuthorityNotAllowed,
+                authority,
+            ),
+            (
+                "unix://tmp/sock\t",
+                EndpointError::UnixAuthorityNotAllowed,
+                authority,
+            ),
+            (
+                "unix://tm\tp/sock",
+                EndpointError::UnixAuthorityNotAllowed,
+                authority,
+            ),
+            // `Url` drops empty user info and reports no host for these.
+            (
+                "unix://:@/tmp/api.sock",
+                EndpointError::HasUserInfo,
+                user_info,
+            ),
+            (
+                "Unix://:@/tmp/api.sock",
+                EndpointError::HasUserInfo,
+                user_info,
+            ),
+            ("unix://@", EndpointError::HasUserInfo, user_info),
+            ("unix://:@", EndpointError::HasUserInfo, user_info),
+        ];
+
+        for (input, expected, message) in cases {
+            let err = match Endpoint::parse(input) {
+                Ok(endpoint) => panic!("{input} parsed as {endpoint:?}"),
+                Err(err) => err,
+            };
+            assert_eq!(
+                std::mem::discriminant(&err),
+                std::mem::discriminant(&expected),
+                "{input}: {err:?}"
+            );
+            assert_eq!(err.to_string(), message, "{input}");
+        }
+
+        for input in [
+            "unix:// /tmp/sock",
+            "\u{00A0}unix:///tmp/sock",
+            "unix://foo\\bar/baz",
+            "unix://@/tmp/sock",
+            "unix://user@/tmp/sock",
+            "unix://user:pass@/tmp/sock",
+        ] {
+            let err = match Endpoint::parse(input) {
+                Ok(endpoint) => panic!("{input} parsed as {endpoint:?}"),
+                Err(err) => err,
+            };
+            assert!(matches!(err, EndpointError::Parse(_)), "{input}: {err:?}");
+            assert_eq!(err.to_string(), "endpoint socket is not a valid URI");
+        }
+    }
+
+    #[test]
+    fn parse_tcp_endpoint_behavior_is_unchanged() {
+        let ep = Endpoint::parse("tcp://127.0.0.1:8080 ").unwrap();
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: "127.0.0.1".parse().unwrap(),
+                port: 8080
+            }
+        );
+
+        let ep = Endpoint::parse("tcp://127.0.0.1:8080\t").unwrap();
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: "127.0.0.1".parse().unwrap(),
+                port: 8080
+            }
+        );
+
+        let ep = Endpoint::parse("Tcp://[::1]:8080").unwrap();
+        assert_eq!(
+            ep,
+            Endpoint::Tcp {
+                host: "::1".parse().unwrap(),
+                port: 8080
+            }
+        );
+
+        let err = Endpoint::parse("tcp://127%2e0%2e0%2e1:8080").unwrap_err();
+        assert!(matches!(err, EndpointError::TcpHostNotIp));
+
+        let err = Endpoint::parse("TCP:127.0.0.1:8080").unwrap_err();
+        assert!(matches!(err, EndpointError::TcpHostNotIp));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn percent_encoded_and_literal_space_connect_to_the_decoded_socket() {
+        use std::io::ErrorKind;
+        use std::os::unix::net::{UnixListener, UnixStream};
+
+        let dir = PathBuf::from(format!(
+            "/tmp/spiffe-f02-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).expect("temp dir");
+        let _cleanup = DirCleanup(dir.clone());
+
+        let space_path = dir.join("agent sock");
+        let encoded_path = dir.join("agent%20sock");
+        let space_listener = UnixListener::bind(&space_path).expect("bind space socket");
+        let encoded_listener = UnixListener::bind(&encoded_path).expect("bind encoded socket");
+        space_listener
+            .set_nonblocking(true)
+            .expect("space nonblocking");
+        encoded_listener
+            .set_nonblocking(true)
+            .expect("encoded nonblocking");
+
+        let space_uri = format!("unix://{}", space_path.display());
+        let encoded_uri = format!("unix://{}", encoded_path.display());
+
+        for uri in [&space_uri, &encoded_uri] {
+            let endpoint = Endpoint::parse(uri).unwrap_or_else(|error| panic!("{uri}: {error}"));
+            let Endpoint::Unix(path) = &endpoint else {
+                panic!("{uri} parsed as {endpoint:?}");
+            };
+            assert_eq!(path, &space_path, "{uri}");
+            let client = UnixStream::connect(path).unwrap_or_else(|error| {
+                panic!("{uri} parsed as {path:?} and connect failed: {error}");
+            });
+            drop(client);
+
+            let space_hit = match space_listener.accept() {
+                Ok(_) => true,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+                Err(error) => panic!("space accept: {error}"),
+            };
+            let encoded_hit = match encoded_listener.accept() {
+                Ok(_) => true,
+                Err(error) if error.kind() == ErrorKind::WouldBlock => false,
+                Err(error) => panic!("encoded accept: {error}"),
+            };
+            assert!(
+                space_hit && !encoded_hit,
+                "{uri} parsed as {path:?}; space={space_hit} encoded={encoded_hit}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    struct DirCleanup(PathBuf);
+
+    #[cfg(unix)]
+    impl Drop for DirCleanup {
+        fn drop(&mut self) {
+            drop(std::fs::remove_dir_all(&self.0));
+        }
     }
 }

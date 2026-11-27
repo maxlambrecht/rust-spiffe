@@ -941,4 +941,47 @@ mod tests {
             DelegateAttestationRequestError::EmptyAudience
         );
     }
+
+    #[test]
+    #[expect(
+        unsafe_code,
+        reason = "the test sets SPIRE_ADMIN_ENDPOINT_SOCKET and restores it before releasing the lock"
+    )]
+    fn admin_endpoint_from_env_matches_parse_for_percent_encoded_unix_path() {
+        let _lock = ADMIN_ENV_LOCK.lock().expect("admin env lock");
+        let value = "unix:///tmp/agent%20sock";
+        // SAFETY: `set_var` is unsafe because another thread can read the environment
+        // at the same time. This test is the only writer of `SPIRE_ADMIN_ENDPOINT_SOCKET`,
+        // holds `ADMIN_ENV_LOCK` across the read, does not spawn threads, and removes
+        // the variable before the lock is released.
+        unsafe {
+            std::env::set_var(ADMIN_SOCKET_ENV, value);
+        }
+        let _restore = AdminEnvRestore(ADMIN_SOCKET_ENV);
+
+        let endpoint = admin_endpoint_from_env().expect("encoded admin endpoint");
+        assert_eq!(endpoint, Endpoint::parse(value).expect("parse"));
+        assert_eq!(
+            endpoint,
+            Endpoint::Unix(std::path::PathBuf::from("/tmp/agent sock"))
+        );
+    }
+
+    static ADMIN_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct AdminEnvRestore(&'static str);
+
+    #[expect(
+        unsafe_code,
+        reason = "restores SPIRE_ADMIN_ENDPOINT_SOCKET after the endpoint environment test"
+    )]
+    impl Drop for AdminEnvRestore {
+        fn drop(&mut self) {
+            // SAFETY: paired with the `set_var` in the test above, which still
+            // holds `ADMIN_ENV_LOCK` while this guard drops.
+            unsafe {
+                std::env::remove_var(self.0);
+            }
+        }
+    }
 }

@@ -400,6 +400,8 @@ the resolved endpoint is used for the life of the source, including reconnects.
 Valid TCP endpoints with absent services and Unix endpoints with absent sockets
 still retry.
 Use a URI such as `unix:/tmp/spire-agent/public/api.sock`, rather than a bare path.
+Unix paths are percent-decoded once: `unix:///tmp/agent%20sock` is the socket file
+`agent sock`. Write a literal `%` as `%25`. `%2F` is rejected, not treated as a directory separator.
 
 During initial synchronization, `UNIMPLEMENTED` from `FetchX509SVID` or
 `FetchJWTBundles` returns the source-specific `UnsupportedRpc` error. It identifies
