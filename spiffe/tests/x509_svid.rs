@@ -486,14 +486,14 @@ mod x509_svid_tests {
         clippy::unwrap_used,
         reason = "test helper generating known-valid X.509 certs"
     )]
-    fn generate_leaf_cert_with_uri_sans(uris: &[&str]) -> (Vec<u8>, Vec<u8>) {
+    fn generate_leaf_cert_with_san(san: openssl::x509::X509Extension) -> (Vec<u8>, Vec<u8>) {
         use openssl::asn1::Asn1Time;
         use openssl::bn::BigNum;
         use openssl::hash::MessageDigest;
         use openssl::nid::Nid;
         use openssl::pkey::PKey;
         use openssl::rsa::Rsa;
-        use openssl::x509::extension::{BasicConstraints, KeyUsage, SubjectAlternativeName};
+        use openssl::x509::extension::{BasicConstraints, KeyUsage};
         use openssl::x509::{X509NameBuilder, X509};
 
         let rsa = Rsa::generate(2048).unwrap();
@@ -532,12 +532,6 @@ mod x509_svid_tests {
         let key_usage = KeyUsage::new().digital_signature().build().unwrap();
         builder.append_extension(key_usage).unwrap();
 
-        let context = builder.x509v3_context(None, None);
-        let mut san_builder = SubjectAlternativeName::new();
-        for uri in uris {
-            san_builder.uri(uri);
-        }
-        let san = san_builder.build(&context).unwrap();
         builder.append_extension(san).unwrap();
 
         builder.sign(&pkey, MessageDigest::sha256()).unwrap();
@@ -548,6 +542,155 @@ mod x509_svid_tests {
         let key_der = pkey.private_key_to_pkcs8().unwrap();
 
         (cert_der, key_der)
+    }
+
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test helper operating on generated X.509 fixtures"
+    )]
+    fn generate_leaf_cert_with_uri_sans(uris: &[&str]) -> (Vec<u8>, Vec<u8>) {
+        let builder = openssl::x509::X509::builder().unwrap();
+        let context = builder.x509v3_context(None, None);
+        let mut san = openssl::x509::extension::SubjectAlternativeName::new();
+        for uri in uris {
+            san.uri(uri);
+        }
+        generate_leaf_cert_with_san(san.build(&context).unwrap())
+    }
+
+    /// Encodes a short `GeneralNames` sequence directly so OpenSSL cannot normalize
+    /// the invalid UTF-8 URI value before the certificate is signed.
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test helper operating on generated X.509 fixtures"
+    )]
+    fn generate_leaf_cert_with_raw_san(names: &[u8]) -> (Vec<u8>, Vec<u8>) {
+        use openssl::asn1::{Asn1Object, Asn1OctetString};
+        use openssl::x509::X509Extension;
+
+        assert!(names.len() < 128);
+        let mut san_der = vec![0x30, u8::try_from(names.len()).unwrap()];
+        san_der.extend_from_slice(names);
+        let oid = Asn1Object::from_str("2.5.29.17").unwrap();
+        let value = Asn1OctetString::new_from_bytes(&san_der).unwrap();
+        let san = X509Extension::new_from_der(&oid, false, &value).unwrap();
+        generate_leaf_cert_with_san(san)
+    }
+
+    const VALID_URI_SAN: &[u8] = b"\x86\x1dspiffe://example.org/workload";
+    const INVALID_URI_SAN: &[u8] = b"\x86\x01\xff";
+
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test helper operating on generated X.509 fixtures"
+    )]
+    fn leaf_with_malformed_uri_san(invalid_first: bool) -> (Vec<u8>, Vec<u8>) {
+        let names = if invalid_first {
+            [INVALID_URI_SAN, VALID_URI_SAN].concat()
+        } else {
+            [VALID_URI_SAN, INVALID_URI_SAN].concat()
+        };
+        let (cert, key) = generate_leaf_cert_with_raw_san(&names);
+        let (_, parsed) = x509_parser::parse_x509_certificate(&cert).unwrap();
+        let san = parsed.subject_alternative_name().unwrap().unwrap();
+        let invalid = if invalid_first {
+            san.value.general_names.first()
+        } else {
+            san.value.general_names.last()
+        };
+        assert!(matches!(
+            invalid,
+            Some(x509_parser::extensions::GeneralName::Invalid(tag, bytes))
+                if tag.0 == 6 && *bytes == [0xff]
+        ));
+        (cert, key)
+    }
+
+    #[expect(
+        clippy::unwrap_used,
+        reason = "test helper operating on generated X.509 fixtures"
+    )]
+    fn assert_malformed_uri_extraction_rejected(invalid_first: bool) {
+        let (cert, _) = leaf_with_malformed_uri_san(invalid_first);
+        assert!(matches!(
+            spiffe::cert::spiffe_id_from_der(&cert),
+            Err(CertificateError::ParseX509Certificate(_))
+        ));
+        let certificate = spiffe::cert::Certificate::try_from(cert).unwrap();
+        assert!(matches!(
+            certificate.spiffe_id(),
+            Err(CertificateError::ParseX509Certificate(_))
+        ));
+    }
+
+    #[test]
+    fn test_extraction_malformed_uri_san_first() {
+        assert_malformed_uri_extraction_rejected(true);
+    }
+
+    #[test]
+    fn test_extraction_malformed_uri_san_last() {
+        assert_malformed_uri_extraction_rejected(false);
+    }
+
+    fn assert_malformed_uri_admission_rejected(invalid_first: bool) {
+        let (cert, key) = leaf_with_malformed_uri_san(invalid_first);
+        assert!(matches!(
+            X509Svid::parse_from_der(&cert, &key),
+            Err(X509SvidError::Certificate(
+                CertificateError::ParseX509Certificate(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_admission_malformed_uri_san_first() {
+        assert_malformed_uri_admission_rejected(true);
+    }
+
+    #[test]
+    fn test_admission_malformed_uri_san_last() {
+        assert_malformed_uri_admission_rejected(false);
+    }
+
+    #[test]
+    fn test_single_malformed_uri_san_is_rejected() {
+        let (cert, key) = generate_leaf_cert_with_raw_san(INVALID_URI_SAN);
+        assert!(matches!(
+            spiffe::cert::spiffe_id_from_der(&cert),
+            Err(CertificateError::ParseX509Certificate(_))
+        ));
+        assert!(matches!(
+            X509Svid::parse_from_der(&cert, &key),
+            Err(X509SvidError::Certificate(
+                CertificateError::ParseX509Certificate(_)
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_uri_san_controls() {
+        // Non-URI names do not contribute to URI cardinality. An invalid DNS
+        // decode must not be mistaken for an invalid URI decode either.
+        for extra in [
+            &b""[..],
+            &b"\x82\x0bexample.org"[..],
+            &b"\x87\x04\x7f\x00\x00\x01"[..],
+            &b"\x81\x0da@example.org"[..],
+            &b"\xa4\x02\x30\x00"[..],
+            &b"\x82\x01\xff"[..],
+        ] {
+            let names = [VALID_URI_SAN, extra].concat();
+            let (cert, key) = generate_leaf_cert_with_raw_san(&names);
+            let expected = SpiffeId::new("spiffe://example.org/workload").unwrap();
+            assert_eq!(spiffe::cert::spiffe_id_from_der(&cert).unwrap(), expected);
+            let certificate = spiffe::cert::Certificate::try_from(cert.as_slice()).unwrap();
+            assert_eq!(certificate.spiffe_id().unwrap(), expected);
+            assert_eq!(
+                X509Svid::parse_from_der(&cert, &key).unwrap().spiffe_id(),
+                &expected
+            );
+        }
     }
 
     fn generate_leaf_cert_with_spiffe_uri(uri: &str) -> (Vec<u8>, Vec<u8>) {
@@ -592,17 +735,32 @@ mod x509_svid_tests {
 
     #[test]
     fn test_leaf_with_multiple_uri_sans_is_rejected() {
-        let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&[
-            "spiffe://example.org/workload",
-            "https://example.org/not-allowed",
-        ]);
-
-        let result = X509Svid::parse_from_der(&cert_der, &key_der);
-
-        assert!(matches!(
-            result.unwrap_err(),
-            X509SvidError::Certificate(CertificateError::MultipleUriSanEntries)
-        ));
+        for uris in [
+            [
+                "spiffe://example.org/workload",
+                "https://example.org/not-allowed",
+            ],
+            [
+                "https://example.org/not-allowed",
+                "spiffe://example.org/workload",
+            ],
+            [
+                "spiffe://example.org/workload",
+                "spiffe://example.org/other",
+            ],
+        ] {
+            let (cert_der, key_der) = generate_leaf_cert_with_uri_sans(&uris);
+            assert!(matches!(
+                spiffe::cert::spiffe_id_from_der(&cert_der),
+                Err(CertificateError::MultipleUriSanEntries)
+            ));
+            assert!(matches!(
+                X509Svid::parse_from_der(&cert_der, &key_der),
+                Err(X509SvidError::Certificate(
+                    CertificateError::MultipleUriSanEntries
+                ))
+            ));
+        }
     }
 
     #[test]

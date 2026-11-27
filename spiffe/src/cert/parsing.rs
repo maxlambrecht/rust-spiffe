@@ -166,6 +166,13 @@ pub(crate) fn extract_spiffe_ids_from_uri_san(
     for name in &san.general_names {
         let uri = match name {
             GeneralName::URI(u) => *u,
+            // GeneralName uniformResourceIdentifier is context-specific tag 6.
+            // A failed URI decode must not disappear from the single-URI check.
+            GeneralName::Invalid(tag, _) if tag.0 == 6 => {
+                return Err(CertificateError::ParseX509Certificate(X509ParseError::new(
+                    X509Error::InvalidExtensions,
+                )));
+            }
             _ => continue,
         };
 

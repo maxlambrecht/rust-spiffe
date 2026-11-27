@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- SPIFFE ID extraction and local X.509-SVID admission now reject malformed URI-typed SAN entries with `CertificateError::ParseX509Certificate`. Certificates that previously yielded an identity despite a corrupt URI SAN are no longer accepted. The exactly-one-URI requirement and support for valid non-URI SANs are preserved.
 - `X509Source` now publishes a new context and advances its revision when the Workload API default SVID changes, even if a custom picker selects the same credential. Reorders that preserve both the default and the picker selection still suppress notifications when the remaining material is equivalent.
 - Reject SPIFFE IDs with a path as Workload API bundle-map keys. Pathless SPIFFE IDs and bare trust domain names are still accepted. Sources retain the last accepted snapshot when they reject an update for this reason.
 - Reject Workload API bundle maps with duplicate normalized trust domains. X.509 contexts also reject local/federated overlap and conflicting local bundles for the same trust domain. Sources discard the entire ambiguous update and retain the last accepted material.
