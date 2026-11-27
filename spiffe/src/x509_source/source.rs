@@ -433,6 +433,10 @@ impl X509Source {
 
     /// Returns the current X.509 context (SVID + bundles) as a single value.
     ///
+    /// A change to the Workload API default SVID advances the material revision
+    /// even if the configured picker still selects the same SVID for [`Self::svid`].
+    /// A reorder that preserves both SVIDs and all other material is suppressed.
+    ///
     /// # Errors
     ///
     /// Returns an [`X509SourceError`] if the X.509 context is not available or
@@ -866,8 +870,8 @@ impl Inner {
     }
 }
 
-/// Returns true when two contexts select the same SVID and carry the same SVID multiset and
-/// bundle set.
+/// Returns true when two contexts have the same default and selected SVIDs, SVID multiset,
+/// and bundle set.
 ///
 /// Exercises the update equality rules in tests: re-delivery that only reshuffles
 /// non-selected SVIDs or bundle authority order is unchanged. A reorder that changes
@@ -890,6 +894,9 @@ fn same_material_for_update(
 }
 
 fn same_context_material(current: &X509Context, incoming: &X509Context) -> bool {
+    if current.default_svid() != incoming.default_svid() {
+        return false;
+    }
     if !bundle_set_equal_for_update(current.bundle_set(), incoming.bundle_set()) {
         return false;
     }
@@ -1909,7 +1916,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_update_suppresses_reorder_when_picker_selection_is_unchanged() {
+    fn test_apply_update_publishes_default_reorder_with_stable_picker_for_hints() {
         let cert = include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der");
         let key = include_bytes!("../../tests/testdata/svid/x509/1-key.der");
         let selected = Arc::new(
@@ -1924,7 +1931,7 @@ mod tests {
         ));
         let reordered = Arc::new(X509Context::new([other, selected], bundle_set));
         let source = X509Source::new_for_test(
-            Arc::clone(&initial),
+            initial,
             ReconnectConfig::default(),
             ResourceLimits::default(),
             None,
@@ -1933,10 +1940,70 @@ mod tests {
 
         let result = source.inner.apply_update(reordered).unwrap();
 
-        assert_eq!(result, ApplyUpdateResult::Unchanged);
-        assert_eq!(source.updated().last(), 0);
-        assert_eq!(source.x509_context().unwrap().as_ref(), initial.as_ref());
+        assert_eq!(result, ApplyUpdateResult::Applied);
+        assert_eq!(source.updated().last(), 1);
+        assert_eq!(source.state().revision(), 1);
+        let context = source.x509_context().unwrap();
+        assert_eq!(context.default_svid().unwrap().hint(), Some("other"));
         assert_eq!(source.svid().unwrap().hint(), Some("selected"));
+    }
+
+    #[test]
+    fn test_apply_update_publishes_default_reorder_with_stable_picker_for_distinct_ids() {
+        let selected = Arc::new(
+            X509Svid::parse_from_der_with_hint(
+                include_bytes!("../../tests/testdata/svid/x509/1-svid-chain.der"),
+                include_bytes!("../../tests/testdata/svid/x509/1-key.der"),
+                Some("selected".into()),
+            )
+            .unwrap(),
+        );
+        let other = Arc::new(
+            X509Svid::parse_from_der(
+                include_bytes!("../../tests/testdata/svid/x509/empty-subject-name.der"),
+                include_bytes!("../../tests/testdata/svid/x509/empty-subject-name-key.der"),
+            )
+            .unwrap(),
+        );
+        assert_ne!(selected.spiffe_id(), other.spiffe_id());
+
+        let bundle_set = Arc::new(X509BundleSet::new());
+        let initial = Arc::new(X509Context::new(
+            [Arc::clone(&selected), Arc::clone(&other)],
+            Arc::clone(&bundle_set),
+        ));
+        let reordered = Arc::new(X509Context::new(
+            [Arc::clone(&other), Arc::clone(&selected)],
+            bundle_set,
+        ));
+        let source = X509Source::new_for_test(
+            initial,
+            ReconnectConfig::default(),
+            ResourceLimits::default(),
+            None,
+            Some(Box::new(HintPicker("selected"))),
+        );
+        let before = source.state();
+        assert_eq!(before.revision(), 0);
+        assert_eq!(before.context().unwrap().default_svid().unwrap(), &selected);
+        assert_eq!(before.svid().unwrap(), selected);
+
+        let result = source.inner.apply_update(reordered).unwrap();
+
+        let context = source.x509_context().unwrap();
+        assert_eq!(
+            context.default_svid().unwrap().spiffe_id(),
+            other.spiffe_id()
+        );
+        assert_eq!(source.svid().unwrap(), selected);
+        assert_eq!(result, ApplyUpdateResult::Applied);
+        assert_eq!(source.updated().last(), 1);
+
+        let after = source.state();
+        assert_eq!(after.revision(), 1);
+        assert_eq!(after.context().unwrap(), context);
+        assert_eq!(after.svid().unwrap(), selected);
+        assert_eq!(before.context().unwrap().default_svid().unwrap(), &selected);
     }
 
     #[test]
