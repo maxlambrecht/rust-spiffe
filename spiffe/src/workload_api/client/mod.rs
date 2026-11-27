@@ -110,6 +110,8 @@ impl WorkloadApiClient {
     /// - `unix:/tmp/spire-agent/public/api.sock` or `unix:///tmp/spire-agent/public/api.sock`
     /// - `tcp:127.0.0.1:8081` or `tcp://127.0.0.1:8081`
     ///
+    /// Unix paths are percent-decoded by [`Endpoint::parse`](crate::transport::Endpoint::parse).
+    ///
     /// # Errors
     ///
     /// Returns a [`WorkloadApiError`] if the endpoint string is invalid, the endpoint

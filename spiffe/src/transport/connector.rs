@@ -3,7 +3,8 @@
 //! Builds a `tonic::transport::Channel` from a parsed [`Endpoint`].
 //!
 //! Supported transports:
-//! - `unix:///path` or `unix:/path` (Unix domain sockets; Unix platforms only)
+//! - `unix:///path` or `unix:/path` (Unix domain sockets; Unix platforms only).
+//!   The path is the percent-decoded filesystem path from [`Endpoint::parse`](crate::transport::Endpoint::parse).
 //! - `tcp://1.2.3.4:port` or `tcp:1.2.3.4:port`
 //!
 //! Available when the `transport-grpc` feature is enabled (or any feature that enables it,
