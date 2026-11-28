@@ -75,6 +75,7 @@ even a defect that fails early enough to finish in seconds can write millions
 of lines:
 
 ```bash
+mkdir -p loom-tests/target
 LOOM_LOG=info cargo test --locked --manifest-path loom-tests/Cargo.toml --features defect-torn-observe -- --nocapture rotation_then_withdrawal > loom-tests/target/loom-trace.log 2>&1
 ```
 
@@ -133,8 +134,10 @@ model in the same pull request, or explain there why the model is unaffected.
 ## Assumptions
 
 `ArcSwap::load_full` and `store` are taken to be linearizable. Tokio `watch`
-is taken to wake a subscriber for every `send_replace` that happens after
-`subscribe`. The model does not check either crate.
+`changed` is taken to complete while the receiver has an unseen version,
+including one sent after `subscribe` and before the call. Several sends can
+coalesce into one completion, so a subscriber can skip intermediate versions.
+The model does not check either crate.
 
 Only the supervisor publishes, so revisions are unique and increase by
 construction. A run covers three revisions, two overlapping acquisitions, and

@@ -163,8 +163,10 @@ Taken as given, and not checked:
 - `load_full` and `store` are linearizable, and a load returns one whole value
   that was previously stored.
 - `send_replace` replaces the value and advances the version together.
-  `subscribe` marks the current version as seen. `changed` completes for every
-  later send.
+  `subscribe` marks the current version as seen. `changed` completes once there
+  is an unseen version, even one sent before the call, and marks the latest as
+  seen. Several sends can coalesce into one completion, so intermediate
+  versions may be skipped.
 - Only the supervisor publishes source state.
 
 Some production behavior is simplified on purpose.
