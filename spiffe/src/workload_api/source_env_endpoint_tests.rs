@@ -141,25 +141,40 @@ fn env_endpoint_invalid_syntax_fails_on_first_poll_without_echoing_user_info() {
 
 #[cfg(unix)]
 #[test]
-fn env_endpoint_not_unicode_fails_on_first_poll() {
+fn env_endpoint_not_unicode_fails_on_first_poll_without_echoing_the_value() {
     use std::os::unix::ffi::OsStrExt as _;
+    const RAW: &[u8] = b"tcp://user:secret@127.0.0.1\xff:80";
     in_env_child(
-        "env_endpoint_not_unicode_fails_on_first_poll",
-        Some(OsStr::from_bytes(b"unix:/tmp/agent\xff.sock")),
+        "env_endpoint_not_unicode_fails_on_first_poll_without_echoing_the_value",
+        Some(OsStr::from_bytes(RAW)),
         "not-unicode",
         || {
             current_thread_runtime().block_on(async {
                 let mut build = Box::pin(Source::builder().build());
                 let result = poll_once(build.as_mut()).await;
-                assert!(
-                    matches!(
-                        result,
-                        std::task::Poll::Ready(Err(SourceError::Source(
-                            WorkloadApiError::NotUnicodeEndpointSocket(_)
-                        )))
-                    ),
-                    "non-Unicode endpoint must fail on first poll: {result:?}"
+                let std::task::Poll::Ready(Err(error)) = result else {
+                    panic!("non-Unicode endpoint must fail on first poll: {result:?}");
+                };
+                let SourceError::Source(inner @ WorkloadApiError::NotUnicodeEndpointSocket(raw)) =
+                    &error
+                else {
+                    panic!("expected a non-Unicode endpoint error: {error:?}");
+                };
+                assert_eq!(raw.as_bytes(), RAW, "the typed error keeps the raw value");
+                assert_eq!(
+                    format!("{inner:?}"),
+                    "NotUnicodeEndpointSocket(<redacted>)"
                 );
+                for text in [
+                    error.to_string(),
+                    format!("{error:?}"),
+                    format!("{error:#?}"),
+                    inner.to_string(),
+                ] {
+                    for fragment in ["user", "secret", "127.0.0.1"] {
+                        assert!(!text.contains(fragment), "endpoint value leaked: {text}");
+                    }
+                }
             });
         },
     );
