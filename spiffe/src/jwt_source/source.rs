@@ -7,7 +7,7 @@ use super::types::ClientFactory;
 use crate::bundle::BundleSource;
 use crate::prelude::{debug, warn};
 use crate::transport::{GrpcStatusCode, TransportError};
-use crate::workload_api::supervisor_common::{SourceOwner, SupervisorTask};
+use crate::workload_api::supervisor_common::{with_initial_deadline, SourceOwner, SupervisorTask};
 use crate::workload_api::WorkloadApiClient;
 use crate::{JwtBundle, JwtBundleSet, JwtSvid, SpiffeId, TrustDomain, WorkloadApiError};
 use arc_swap::ArcSwap;
@@ -779,16 +779,15 @@ impl JwtSource {
         }
     }
 
+    /// Awaits an initial sync future that has already applied the construction deadline.
     async fn build_with_initial_sync<F>(
         parts: BuildParts,
-        initial_sync_timeout: Option<Duration>,
         initial_sync: F,
     ) -> Result<Self, JwtSourceError>
     where
         F: Future<Output = Result<Arc<JwtBundleSet>, JwtSourceError>>,
     {
-        let initial_bundle_set =
-            initial_sync_with_timeout(initial_sync, &parts.cancel, initial_sync_timeout).await?;
+        let initial_bundle_set = initial_sync.await?;
 
         Ok(Self::build_from_synced_bundle_set(
             parts,
@@ -813,14 +812,27 @@ impl JwtSource {
         let initial_sync_cancel = cancel.clone();
         let initial_sync_metrics = metrics.clone();
         let initial_sync = async move {
-            initial_sync_with_retry(
-                &initial_sync_make_client,
+            let mut last_error = None;
+            let outcome = with_initial_deadline(
+                initial_sync_with_retry(
+                    &initial_sync_make_client,
+                    &initial_sync_cancel,
+                    reconnect,
+                    limits,
+                    initial_sync_metrics.as_deref(),
+                    &mut last_error,
+                ),
                 &initial_sync_cancel,
-                reconnect,
-                limits,
-                initial_sync_metrics.as_deref(),
+                initial_sync_timeout,
             )
-            .await
+            .await;
+            // The initial sync future, and its borrow of `last_error`, has been dropped.
+            match outcome {
+                Some(result) => result,
+                None => Err(JwtSourceError::InitialSyncTimeout {
+                    last_error: last_error.map(Box::new),
+                }),
+            }
         };
 
         let parts = BuildParts {
@@ -834,7 +846,7 @@ impl JwtSource {
             update_tx,
         };
 
-        Self::build_with_initial_sync(parts, initial_sync_timeout, initial_sync).await
+        Self::build_with_initial_sync(parts, initial_sync).await
     }
 
     /// Test-only constructor that creates a `JwtSource` with a provided initial bundle set
@@ -1022,27 +1034,6 @@ impl Inner {
         bundle_set: &JwtBundleSet,
     ) -> Result<(), JwtSourceError> {
         validate_bundle_set(bundle_set, self.limits, self.metrics.as_deref())
-    }
-}
-
-async fn initial_sync_with_timeout<T, F>(
-    initial_sync: F,
-    cancel: &CancellationToken,
-    timeout: Option<Duration>,
-) -> Result<T, JwtSourceError>
-where
-    F: Future<Output = Result<T, JwtSourceError>>,
-{
-    let Some(timeout) = timeout else {
-        return initial_sync.await;
-    };
-
-    match tokio::time::timeout(timeout, initial_sync).await {
-        Ok(result) => result,
-        Err(_elapsed) => {
-            cancel.cancel();
-            Err(JwtSourceError::InitialSyncTimeout)
-        }
     }
 }
 
@@ -1368,48 +1359,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn initial_sync_timeout_returns_timeout_and_cancels_token() {
-        let cancel = CancellationToken::new();
-
-        let result = initial_sync_with_timeout(
-            std::future::pending::<Result<(), JwtSourceError>>(),
-            &cancel,
-            Some(Duration::ZERO),
-        )
-        .await;
-
-        assert!(matches!(result, Err(JwtSourceError::InitialSyncTimeout)));
-        assert!(cancel.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn initial_sync_timeout_allows_success_before_timeout() {
-        let cancel = CancellationToken::new();
-
-        let result = initial_sync_with_timeout(
-            async { Ok::<_, JwtSourceError>("synced") },
-            &cancel,
-            Some(Duration::from_secs(60)),
-        )
-        .await;
-
-        assert_eq!(result.unwrap(), "synced");
-        assert!(!cancel.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn initial_sync_without_timeout_waits_for_future() {
-        let cancel = CancellationToken::new();
-
-        let result =
-            initial_sync_with_timeout(async { Ok::<_, JwtSourceError>("synced") }, &cancel, None)
-                .await;
-
-        assert_eq!(result.unwrap(), "synced");
-        assert!(!cancel.is_cancelled());
-    }
-
-    #[tokio::test]
     async fn build_with_initial_sync_timeout_does_not_eagerly_create_jwt_client() {
         let (update_tx, _update_rx) = watch::channel(0u64);
         let cancel = CancellationToken::new();
@@ -1436,7 +1385,6 @@ mod tests {
                     shutdown_guard,
                     update_tx,
                 },
-                Some(Duration::from_millis(50)),
                 async { Ok::<_, JwtSourceError>(create_test_bundle_set()) },
             ),
         )
