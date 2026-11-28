@@ -39,7 +39,7 @@ time = { version = ">=0.3.47, <0.4", optional = true }
 base64ct = { version = "1.8", features = ["alloc"], optional = true }
 
 # Optional JWT verification backend
-jsonwebtoken = { version = "11", optional = true, default-features = false }
+jsonwebtoken = { version = "12", optional = true, default-features = false }
 
 # Workload API (async + runtime helpers)
 futures = { version = "0.3", default-features = false, optional = true }
