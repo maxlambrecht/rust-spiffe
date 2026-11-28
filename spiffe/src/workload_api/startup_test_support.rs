@@ -222,6 +222,36 @@ pub(crate) async fn server(steps: Vec<Step>) -> Server {
     )
 }
 
+/// Serializes unavailable endpoints, the only listeners on IPv6 loopback.
+static UNAVAILABLE_TCP: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A TCP address with nothing listening until the owning test binds it.
+///
+/// Clients keep retrying this address while its port is released, and the OS may
+/// assign that port number to another test. Mock servers listen on IPv4 loopback,
+/// so an IPv6 loopback address keeps those retries from consuming their scripted
+/// steps. Hold this value until every client dialing the address is gone.
+pub(crate) struct UnavailableTcp {
+    addr: std::net::SocketAddr,
+    _exclusive: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl UnavailableTcp {
+    pub(crate) async fn new() -> Self {
+        let exclusive = UNAVAILABLE_TCP.lock().await;
+        let listener = tokio::net::TcpListener::bind((std::net::Ipv6Addr::LOCALHOST, 0))
+            .await
+            .unwrap();
+        Self {
+            addr: listener.local_addr().unwrap(),
+            _exclusive: exclusive,
+        }
+    }
+    pub(crate) const fn addr(&self) -> std::net::SocketAddr {
+        self.addr
+    }
+}
+
 #[cfg(unix)]
 pub(crate) struct UnixSocket(pub std::path::PathBuf);
 #[cfg(unix)]
@@ -255,4 +285,32 @@ pub(crate) fn serve_unix_steps(socket: &UnixSocket, steps: Vec<Step>) -> Server 
         Some((io, listener))
     });
     serve_incoming(socket.endpoint(), incoming, steps)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unavailable_tcp_endpoint_cannot_reach_a_mock_server_with_the_same_port() {
+        // Bind the released port number where mock servers listen, as the OS may.
+        let (unavailable, mock) = loop {
+            let unavailable = UnavailableTcp::new().await;
+            let port = unavailable.addr().port();
+            match std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)) {
+                Ok(listener) => break (unavailable, listener),
+                Err(error) => assert_eq!(error.kind(), std::io::ErrorKind::AddrInUse),
+            }
+        };
+        mock.set_nonblocking(true).unwrap();
+        // Only routing matters here: a completed handshake would be queued on `mock`.
+        let _outcome = tokio::net::TcpStream::connect(unavailable.addr()).await;
+        assert_eq!(
+            mock.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+        let server = server(vec![Step::Valid]).await;
+        assert!(server.endpoint.starts_with("tcp://127.0.0.1:"));
+        drop(unavailable);
+    }
 }

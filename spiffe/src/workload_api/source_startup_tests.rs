@@ -552,9 +552,8 @@ async fn initial_timeout_cause_does_not_expose_endpoint_user_info() {
 
 #[tokio::test]
 async fn unavailable_tcp_endpoint_recovers_without_rebuilding() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
+    let unavailable = support::UnavailableTcp::new().await;
+    let addr = unavailable.addr();
     let (tx, mut errors) = mpsc::channel(128);
     let build = Source::builder()
         .endpoint(format!("tcp://{addr}"))
@@ -570,13 +569,13 @@ async fn unavailable_tcp_endpoint_recovers_without_rebuilding() {
     let source = watchdog(build).await.unwrap();
     source.bundle_set().unwrap();
     watchdog(source.shutdown()).await;
+    drop(unavailable);
 }
 
 #[tokio::test]
 async fn valid_unavailable_endpoint_keeps_initial_timeout() {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
+    let unavailable = support::UnavailableTcp::new().await;
+    let addr = unavailable.addr();
     let (tx, mut errors) = mpsc::channel(128);
     let result = watchdog(
         Source::builder()
@@ -597,6 +596,7 @@ async fn valid_unavailable_endpoint_keeps_initial_timeout() {
         watchdog(errors.recv()).await.unwrap(),
         MetricsErrorKind::ClientCreation
     );
+    drop(unavailable);
 }
 
 #[tokio::test]
