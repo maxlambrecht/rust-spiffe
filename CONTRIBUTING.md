@@ -164,6 +164,7 @@ Pull requests are checked using automated CI, including:
 
 * Formatting and linting
 * Unit and integration tests
+* Loom protocol models (`make loom` on Rust 1.88)
 * Dependency vulnerability scanning (`cargo-audit`)
 * Dependency, license, and source policy checks (`cargo-deny`)
 

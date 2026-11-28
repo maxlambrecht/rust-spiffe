@@ -1,0 +1,44 @@
+[package]
+name = "spiffe-loom-models"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+license = "Apache-2.0"
+publish = false
+description = "Loom protocol models of rust-spiffe concurrency invariants (not part of the workspace)"
+
+# Independent workspace boundary: this crate never joins the rust-spiffe
+# workspace, its Cargo.lock, or its cargo-deny/cargo-audit scope.
+[workspace]
+
+[dependencies]
+# Pinned with the committed Cargo.lock. generator is held at 0.8.11 because
+# 0.8.12 requires Rust 1.95 (MSRV is 1.88).
+loom = "=0.7.3"
+
+# At most one feature may be enabled at a time (enforced in src/lib.rs).
+# `make loom` checks every feature against its expected outcome.
+[features]
+# Deliberate defects. Each must be detected for its expected reason.
+defect-torn-observe = []
+defect-no-revision-gate = []
+defect-notify-before-store = []
+defect-observe-before-subscribe = []
+# Benign variants. Each must pass with complete exploration.
+variant-source-first = []
+variant-torn-revision-first = []
+
+[lints.rust]
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+
+[profile.test]
+opt-level = 3
+debug-assertions = true
