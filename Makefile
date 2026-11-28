@@ -27,6 +27,7 @@ SHELL := /bin/bash
 LOCKED := --locked
 
 -include make/fuzz.mk
+-include make/loom.mk
 
 MSRV ?= 1.88.0
 
@@ -99,6 +100,7 @@ help:
 	@echo "  make audit | deny        Dependency checks"
 	@echo "  make release-check CRATE=<name>"
 	@echo "  make fuzz                Fuzz targets (see make/fuzz.mk)"
+	@echo "  make loom                Loom protocol models (see loom-tests/README.md)"
 	@echo "  make lanes               Print lane definitions"
 
 clean:
