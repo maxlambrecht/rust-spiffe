@@ -23,6 +23,7 @@ LOOM_VARIANTS := \
 	variant-torn-revision-first \
 	defect-torn-observe \
 	defect-no-revision-gate \
+	defect-gate-applied-revision \
 	defect-notify-before-store \
 	defect-observe-before-subscribe
 

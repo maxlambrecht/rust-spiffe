@@ -39,7 +39,7 @@ cargo test --locked --manifest-path loom-tests/Cargo.toml --features defect-torn
 ## Bounds
 
 Canonical runs use preemption bound 3. Exact interleaving counts are checked
-only at that bound. Bound 4 takes about two and a half minutes for every
+only at that bound. Bound 4 takes about three minutes for every
 variant:
 
 ```bash
@@ -67,8 +67,20 @@ A failing test names the variant, the scenario, the bound, and one of
 `MUTATION NOT DETECTED`, `DETECTED FOR THE WRONG REASON`, or
 `UNEXPECTED FAILURE`. Loom's panic is printed above that line.
 
-`LOOM_LOG=1` prints the execution trace for one scenario. `LOOM_LOCATION=1`
-adds source locations. Checkpoint replay stays off.
+`LOOM_LOG` is a `tracing` filter. `info` prints each thread switch and `trace`
+adds every Loom operation; `1` selects errors only and prints no trace. With
+`trace`, `LOOM_LOCATION=1` adds source locations. Pass `--nocapture`, run one
+scenario, and redirect to a file. Every explored interleaving is printed, so
+even a defect that fails early enough to finish in seconds can write millions
+of lines:
+
+```bash
+LOOM_LOG=info cargo test --locked --manifest-path loom-tests/Cargo.toml --features defect-torn-observe -- --nocapture rotation_then_withdrawal > loom-tests/target/loom-trace.log 2>&1
+```
+
+Lines carry an `iter{N}` span. The failing execution is the last one, and `N`
+matches the interleaving number the harness reports. Checkpoint replay stays
+off.
 
 ## Dependencies
 
@@ -127,6 +139,10 @@ is taken to wake a subscriber for every `send_replace` that happens after
 Only the supervisor publishes, so revisions are unique and increase by
 construction. A run covers three revisions, two overlapping acquisitions, and
 the configured preemption bound.
+
+The model does not check that one observation's revision and material come from
+the same snapshot. `variant-torn-revision-first` mixes two snapshots and passes,
+because the assertions apply to what acquisition returns.
 
 Left out: terminal policy and source closure, expiry, conversion errors,
 several watchers, verifier caches, and `JwtSource`. Production

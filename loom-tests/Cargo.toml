@@ -16,12 +16,18 @@ description = "Loom protocol models of rust-spiffe concurrency invariants (not p
 # 0.8.12 requires Rust 1.95 (MSRV is 1.88).
 loom = "=0.7.3"
 
+[dev-dependencies]
+# Prints Loom's execution trace under LOOM_LOG. Already in the graph as a Loom
+# dependency.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 # At most one feature may be enabled at a time (enforced in src/lib.rs).
 # `make loom` checks every feature against its expected outcome.
 [features]
 # Deliberate defects. Each must be detected for its expected reason.
 defect-torn-observe = []
 defect-no-revision-gate = []
+defect-gate-applied-revision = []
 defect-notify-before-store = []
 defect-observe-before-subscribe = []
 # Benign variants. Each must pass with complete exploration.
