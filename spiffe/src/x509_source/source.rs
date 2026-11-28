@@ -2437,6 +2437,7 @@ mod startup_tests {
     use crate::workload_api::lifecycle_test_support::Factory;
     const RPC: &str = "FetchX509SVID";
     include!("../workload_api/source_startup_tests.rs");
+    include!("../workload_api/source_env_endpoint_tests.rs");
 
     #[derive(Debug)]
     struct RejectAll;

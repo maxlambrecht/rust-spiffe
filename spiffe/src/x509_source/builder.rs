@@ -505,18 +505,16 @@ impl X509SourceBuilder {
     /// initial synchronization timeout. After correcting a terminal failure, build
     /// a new source.
     pub async fn build(self) -> Result<X509Source, X509SourceError> {
-        // Only explicit fixed configuration is validated here. Environment discovery
-        // and custom factories retain their existing retry behavior.
+        // Endpoint configuration is resolved and validated once, before any connection
+        // attempt. Invalid configuration is terminal; an unavailable valid endpoint is
+        // retried. The resolved endpoint is reused for the source's lifetime. Custom
+        // factories are called on every attempt and keep their own retry behavior.
         let make_client: ClientFactory = if let Some(raw) = self.endpoint {
-            let endpoint = Endpoint::parse(&raw).map_err(WorkloadApiError::from)?;
-            Arc::new(move || {
-                let endpoint = endpoint.clone();
-                Box::pin(async move { WorkloadApiClient::connect(endpoint).await })
-            })
+            fixed_endpoint_factory(Endpoint::parse(&raw).map_err(WorkloadApiError::from)?)
+        } else if let Some(factory) = self.make_client {
+            factory
         } else {
-            self.make_client.unwrap_or_else(|| {
-                Arc::new(|| Box::pin(async { WorkloadApiClient::connect_env().await }))
-            })
+            fixed_endpoint_factory(crate::workload_api::endpoint::from_env()?)
         };
 
         X509Source::build_with(
@@ -530,6 +528,14 @@ impl X509SourceBuilder {
         )
         .await
     }
+}
+
+/// Connects every attempt to the same resolved endpoint.
+fn fixed_endpoint_factory(endpoint: Endpoint) -> ClientFactory {
+    Arc::new(move || {
+        let endpoint = endpoint.clone();
+        Box::pin(async move { WorkloadApiClient::connect(endpoint).await })
+    })
 }
 
 #[cfg(test)]

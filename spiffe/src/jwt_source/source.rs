@@ -2230,4 +2230,35 @@ mod startup_tests {
     use crate::workload_api::lifecycle_test_support::Factory;
     const RPC: &str = "FetchJWTBundles";
     include!("../workload_api/source_startup_tests.rs");
+    include!("../workload_api/source_env_endpoint_tests.rs");
+
+    #[cfg(unix)]
+    #[test]
+    fn env_endpoint_resolved_at_build_is_used_for_lazy_jwt_svid_client() {
+        after_env_endpoint_change(
+            "env_endpoint_resolved_at_build_is_used_for_lazy_jwt_svid_client",
+            vec![Step::Valid],
+            async |source, mut a, mut b| {
+                assert_eq!(
+                    watchdog(a.calls.recv()).await.unwrap(),
+                    "/SpiffeWorkloadAPI/FetchJWTBundles"
+                );
+                // The test server denies the request; only the endpoint it reached matters.
+                let _denied = watchdog(source.fetch_jwt_svid(["audience"])).await;
+                let mut saw_fetch = false;
+                while let Ok(path) = a.calls.try_recv() {
+                    saw_fetch |= path == "/SpiffeWorkloadAPI/FetchJWTSVID";
+                }
+                assert!(
+                    saw_fetch,
+                    "lazy JWT-SVID client must use the build-time endpoint"
+                );
+                assert!(
+                    matches!(b.calls.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+                    "a later SPIFFE_ENDPOINT_SOCKET value must not be used"
+                );
+                watchdog(source.shutdown()).await;
+            },
+        );
+    }
 }
