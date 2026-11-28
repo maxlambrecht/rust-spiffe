@@ -32,45 +32,43 @@ pub fn from_env() -> Result<Endpoint, WorkloadApiError> {
 }
 
 #[cfg(test)]
-#[expect(
-    unsafe_code,
-    reason = "the test sets SPIFFE_ENDPOINT_SOCKET and restores it before releasing the lock"
-)]
 mod tests {
     use super::{from_env, WORKLOAD_API_ENDPOINT_ENV};
     use crate::transport::Endpoint;
     use std::path::PathBuf;
-    use std::sync::Mutex;
+    use std::process::Command;
 
-    static ENDPOINT_ENV_LOCK: Mutex<()> = Mutex::new(());
+    /// Marks the child process that makes the environment assertions.
+    const CHILD_ENV: &str = "RUST_SPIFFE_TEST_ENDPOINT_ENV_CHILD";
 
     #[test]
     fn from_env_matches_parse_for_percent_encoded_unix_path() {
-        let _lock = ENDPOINT_ENV_LOCK.lock().expect("endpoint env lock");
         let value = "unix:///tmp/agent%20sock";
-        // SAFETY: `set_var` is unsafe because another thread can read the environment
-        // at the same time. This test is the only writer of `SPIFFE_ENDPOINT_SOCKET`,
-        // holds `ENDPOINT_ENV_LOCK` across the read, does not spawn threads, and
-        // removes the variable before the lock is released.
-        unsafe {
-            std::env::set_var(WORKLOAD_API_ENDPOINT_ENV, value);
+
+        if std::env::var_os(CHILD_ENV).is_some() {
+            let endpoint = from_env().expect("encoded unix endpoint");
+            assert_eq!(endpoint, Endpoint::parse(value).expect("parse"));
+            assert_eq!(endpoint, Endpoint::Unix(PathBuf::from("/tmp/agent sock")));
+            return;
         }
-        let _restore = EnvRestore(WORKLOAD_API_ENDPOINT_ENV);
 
-        let endpoint = from_env().expect("encoded unix endpoint");
-        assert_eq!(endpoint, Endpoint::parse(value).expect("parse"));
-        assert_eq!(endpoint, Endpoint::Unix(PathBuf::from("/tmp/agent sock")));
-    }
-
-    struct EnvRestore(&'static str);
-
-    impl Drop for EnvRestore {
-        fn drop(&mut self) {
-            // SAFETY: paired with the `set_var` in the test above, which still
-            // holds `ENDPOINT_ENV_LOCK` while this guard drops.
-            unsafe {
-                std::env::remove_var(self.0);
-            }
-        }
+        // Changing this process's environment is unsound while other test threads
+        // run, so rerun only this test in a child that starts with the variable set.
+        let (_, module) = module_path!().split_once("::").expect("crate prefix");
+        let test = format!("{module}::from_env_matches_parse_for_percent_encoded_unix_path");
+        let output = Command::new(std::env::current_exe().expect("test binary path"))
+            .args([test.as_str(), "--exact"])
+            .env(CHILD_ENV, "1")
+            .env(WORKLOAD_API_ENDPOINT_ENV, value)
+            .output()
+            .expect("run child test process");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        // A filter that matches nothing also exits successfully.
+        assert!(
+            output.status.success() && stdout.contains("1 passed"),
+            "child test failed ({}):\n{stdout}\n{}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
