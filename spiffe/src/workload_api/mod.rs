@@ -1,8 +1,9 @@
 //! A client to interact with the SPIFFE Workload API to fetch X.509 and JWT materials.
 //!
 //! Higher-level types like [`crate::X509Source`] and [`crate::JwtSource`] provide automatic caching
-//! and reconnection. Source construction rejects invalid fixed endpoint syntax and
-//! `UNIMPLEMENTED` from the required material RPC before initial synchronization succeeds.
+//! and reconnection. Source construction rejects invalid endpoint configuration, fixed or
+//! from `SPIFFE_ENDPOINT_SOCKET`, and `UNIMPLEMENTED` from the required material RPC
+//! before initial synchronization succeeds.
 //! Transient transport, provisioning, and rejected response failures remain retriable.
 //! After initialization, unsupported RPC statuses retain the existing reconnect policy.
 //! Low-level client calls return errors directly and do not apply source retry policy.

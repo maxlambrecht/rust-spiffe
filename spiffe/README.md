@@ -168,6 +168,11 @@ Permission denial on its bundle stream withdraws JWT bundles with the same
 recovery contract. An independently denied JWT issuance request does not withdraw
 bundles or X.509 material, and issuance success cannot restore withdrawn bundles.
 
+A ready `JwtSource` holds JWT bundles; it does not imply that the workload can be
+issued a JWT-SVID. For example, a SPIRE agent with `allow_unauthenticated_verifiers`
+enabled serves bundles to unregistered workloads, whose `fetch_jwt_svid` then fails.
+Applications that issue JWT-SVIDs should fetch one at startup.
+
 
 ```rust
 use spiffe::{BundleSource, TrustDomain, JwtSource};
@@ -388,8 +393,12 @@ Use this mode when:
 
 Both source builders synchronize before returning. A fixed `.endpoint(...)` URI
 is parsed once during `build()`; invalid syntax or unsupported schemes return
-`Source(WorkloadApiError::Endpoint(_))` before any connection attempt. Valid TCP
-endpoints with absent services and Unix endpoints with absent sockets still retry.
+`Source(WorkloadApiError::Endpoint(_))` before any connection attempt. Without
+`.endpoint(...)` or `.client_factory(...)`, `build()` reads `SPIFFE_ENDPOINT_SOCKET`
+once in the same way: an unset, non-Unicode or invalid value fails immediately, and
+the resolved endpoint is used for the life of the source, including reconnects.
+Valid TCP endpoints with absent services and Unix endpoints with absent sockets
+still retry.
 Use a URI such as `unix:/tmp/spire-agent/public/api.sock`, rather than a bare path.
 
 During initial synchronization, `UNIMPLEMENTED` from `FetchX509SVID` or
@@ -404,17 +413,45 @@ after either terminal failure.
 `Unavailable`, connection/HTTP2 failures, `DeadlineExceeded`, `PermissionDenied`,
 `NoIdentityIssued`, `Unauthenticated`, `Internal`, `Unknown`, and `Cancelled` remain
 retriable. Rejected malformed/over-limit responses retain their existing rejection
-and retry contract. No retry-count limit or mandatory deadline is introduced;
-`initial_sync_timeout(...)` continues to bound recoverable startup failures.
-Other factory errors, including `UNIMPLEMENTED`, and environment discovery
-errors are retried with backoff.
+and retry contract. Custom factory errors, including `UNIMPLEMENTED` and endpoint
+errors, are retried with backoff.
+
+By default `build()` waits indefinitely, including for an unregistered workload.
+`initial_sync_timeout(...)` bounds the whole startup. On expiry the error carries the
+most recent recoverable failure observed before it was returned, which is a diagnostic,
+not necessarily what the pending attempt was waiting on:
+
+```rust
+use spiffe::{X509Source, X509SourceError};
+use std::time::Duration;
+
+match X509Source::builder()
+    .initial_sync_timeout(Duration::from_secs(30))
+    .build()
+    .await
+{
+    Ok(source) => { /* ready */ }
+    Err(X509SourceError::InitialSyncTimeout { last_error, .. }) => {
+        // `None`: no attempt had failed when the timeout was returned.
+        eprintln!("startup timed out; last error: {last_error:?}");
+    }
+    Err(e) => { /* terminal: configuration or unsupported RPC */ }
+}
+```
+
+The timeout does not change which failures are retried. See the startup policy for
+bounding, cancelling and application-managed retries.
 
 After readiness, both statuses trigger reconnection with backoff and leave the
 snapshot and its permission unchanged. Existing withdrawals and normal usability
 checks still apply.
 
 See [Workload API startup policy](../docs/workload-api-startup.md) for the full
-classification and recovery contract.
+classification and recovery contract, including
+[bounding and cancelling startup](../docs/workload-api-startup.md#bounding-and-cancelling-startup),
+[application-managed retries](../docs/workload-api-startup.md#application-managed-retries),
+[preliminary probes](../docs/workload-api-startup.md#preliminary-probes), and
+[Kubernetes](../docs/workload-api-startup.md#kubernetes).
 
 ## Source shutdown
 
@@ -729,10 +766,17 @@ This layered design allows you to use only what you need, minimizing dependencie
 - **Cause**: SPIRE agent not running or socket path incorrect
 - **Solution**: Verify `SPIFFE_ENDPOINT_SOCKET` environment variable or socket path
 
-#### "Empty response from Workload API"
+#### `build()` does not return / "no identity issued"
 
-- **Cause**: Workload not registered with SPIRE agent
-- **Solution**: Ensure your workload is properly attested and registered
+- **Cause**: SPIRE returns `PermissionDenied` with "no identity issued" when no
+  registration entry matches the workload's selectors. On Kubernetes, registration
+  may lag pod start. Sources retry this during startup, so an unbounded `build()`
+  keeps waiting.
+- **Diagnose**: enable the `logging` or `tracing` feature (a rate-limited warning is
+  emitted), watch the `no_identity_issued` metrics kind, or set
+  `initial_sync_timeout(...)` and inspect `last_error` on `InitialSyncTimeout`.
+- **Solution**: check the registration entry's selectors and parent ID against the
+  workload and the agent serving it.
 
 ---
 

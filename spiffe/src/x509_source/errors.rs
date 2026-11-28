@@ -12,8 +12,8 @@ pub enum X509SourceError {
     /// During the initial synchronization performed by [`X509Source::new`](crate::X509Source::new)/
     /// [`X509SourceBuilder::build`](crate::X509SourceBuilder::build), most underlying
     /// [`WorkloadApiError`]s (e.g. transient connectivity failures, `NoIdentityIssued`)
-    /// are retried with backoff rather than surfaced immediately. Fixed endpoint syntax
-    /// is validated before synchronization. gRPC `INVALID_ARGUMENT` fails initial sync
+    /// are retried with backoff rather than surfaced immediately. Endpoint configuration,
+    /// fixed or from `SPIFFE_ENDPOINT_SOCKET`, is validated before synchronization. gRPC `INVALID_ARGUMENT` fails initial sync
     /// immediately; an unsupported `FetchX509SVID` returns [`Self::UnsupportedRpc`].
     /// Steady-state reconnects continue retrying after successful initial sync.
     #[error("x509 source error: {0}")]
@@ -53,18 +53,20 @@ pub enum X509SourceError {
     /// [`X509SourceBuilder::initial_sync_timeout`](crate::X509SourceBuilder::initial_sync_timeout).
     ///
     /// `last_error` is the most recent recoverable failure observed before the
-    /// deadline. It is `None` when the first attempt was still in progress at the
-    /// deadline. [`std::error::Error::source`] returns the same error; downcast it as
-    /// `Box<X509SourceError>`, or match the field directly.
+    /// timeout was returned. It is `None` if no attempt had failed by then. The
+    /// deadline is not a cutoff for this field: a task polled after the deadline
+    /// advances the sync once more before returning the timeout, so the failure may
+    /// have been observed after the deadline. [`std::error::Error::source`] returns
+    /// the same error; downcast it as `Box<X509SourceError>`, or match the field directly.
     ///
     /// The last error is a retrospective diagnostic, not the definitive cause of the
     /// timeout: a later attempt may have been pending, for a different reason, when
-    /// the deadline fired. Terminal failures are never wrapped here; they are returned
+    /// the timeout was returned. Terminal failures are never wrapped here; they are returned
     /// directly without waiting for the deadline.
     #[error("initial synchronization timed out{}", LastError::new(.last_error.as_deref()))]
     #[non_exhaustive]
     InitialSyncTimeout {
-        /// The most recent recoverable failure, if any attempt failed before the deadline.
+        /// The most recent recoverable failure, if any attempt failed before the timeout.
         #[source]
         last_error: Option<Box<Self>>,
     },

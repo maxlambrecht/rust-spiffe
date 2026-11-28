@@ -30,13 +30,11 @@ pub enum WorkloadApiError {
     ///
     /// This error can occur when:
     /// - The gRPC stream ends unexpectedly
-    /// - No SVIDs are available for the requested identity
-    /// - The Workload API is misconfigured or the workload is not registered
+    /// - A response carries no SVIDs or bundles for the request
+    /// - A non-conforming Workload API implementation omits the requested material
     ///
-    /// **Common causes:**
-    /// - Workload selectors don't match
-    /// - SPIRE agent is not running
-    /// - Network connectivity issues
+    /// An unregistered workload, or one whose selectors match no registration entry,
+    /// is reported by SPIRE as [`Self::NoIdentityIssued`], not as an empty response.
     #[error("empty Workload API response")]
     EmptyResponse,
 
@@ -66,7 +64,18 @@ pub enum WorkloadApiError {
     /// The Workload API denied issuing an identity for this workload (e.g. selectors do not match).
     ///
     /// This error occurs when the SPIRE agent cannot match the workload to any
-    /// registration entry based on the workload's selectors.
+    /// registration entry based on the workload's selectors. On Kubernetes, the entry
+    /// may be created after the workload starts.
+    ///
+    /// It is mapped from a gRPC `PERMISSION_DENIED` status whose message contains
+    /// "no identity issued". The SPIFFE Workload API specifies only `PERMISSION_DENIED`;
+    /// the message is SPIRE-specific, and other implementations surface
+    /// [`Self::PermissionDenied`] instead.
+    ///
+    /// `X509Source` and `JwtSource` retry this error during construction, so an
+    /// unbounded `build()` keeps waiting; set `initial_sync_timeout` to bound it. After
+    /// construction, receiving it on the monitored stream withdraws the affected
+    /// material until a valid complete response reauthorizes it.
     #[error("no identity issued")]
     NoIdentityIssued,
 

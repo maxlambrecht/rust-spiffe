@@ -20,6 +20,41 @@
 //! successful issuance cannot reauthorize the bundle stream. [`JwtSource::state`] exposes the
 //! coherent revision, permission, bundle material, and terminal status.
 //!
+//! # Startup
+//!
+//! Construction waits for an accepted JWT bundle set, so a ready source implies trust
+//! bundles only, not that a JWT-SVID can be issued to this workload: JWT-SVIDs are
+//! requested separately, on demand. For example, a SPIRE agent with
+//! `allow_unauthenticated_verifiers` enabled serves bundles to unregistered workloads.
+//! Applications that issue JWT-SVIDs should fetch one at startup:
+//!
+//! ```no_run
+//! # #[cfg(feature = "jwt-source")]
+//! # async fn example() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//! use spiffe::{JwtSource, JwtSourceError};
+//! use std::time::Duration;
+//!
+//! let source = match JwtSource::builder()
+//!     .initial_sync_timeout(Duration::from_secs(30))
+//!     .build()
+//!     .await
+//! {
+//!     Ok(source) => source,
+//!     Err(JwtSourceError::InitialSyncTimeout { last_error, .. }) => {
+//!         return Err(format!("JWT bundles unavailable; last error: {last_error:?}").into());
+//!     }
+//!     Err(error) => return Err(error.into()),
+//! };
+//! // Bundles are ready; confirm that this workload can also be issued a JWT-SVID.
+//! let _svid = source.fetch_jwt_svid(["startup-check"]).await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`JwtSourceBuilder::initial_sync_timeout`] bounds construction; on expiry the error
+//! carries the most recent recoverable failure as a diagnostic, without changing which
+//! failures are retried.
+//!
 //! Primary types are re-exported at the crate root. For advanced configuration types
 //! (e.g., `LimitKind`, `MetricsErrorKind`, `MetricsRecorder`), import from this module.
 //!

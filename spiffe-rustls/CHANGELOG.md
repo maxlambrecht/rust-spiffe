@@ -11,6 +11,10 @@
 
 - Both peer verifiers reject trailing data inside a leaf Key Usage extension before authorization.
 
+### Docs
+
+- `mtls_client` and `mtls_server` examples keep a clone of the `X509Source` and shut it down. Clones share one supervisor, so the retained clone is the shutdown handle; established TLS sessions are not affected.
+
 ## [0.11.0] - 2026-10-28
 
 ### Security

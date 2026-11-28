@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Breaking changes
+
+- `X509SourceError::InitialSyncTimeout` and `JwtSourceError::InitialSyncTimeout` are now non-exhaustive struct variants with `last_error: Option<Box<Self>>`: the most recent recoverable failure observed before the timeout was returned, or `None` if none was observed. A task polled after the deadline advances the sync once more first, so that poll can record a newer failure, or complete `build()` instead of timing out. It is a retrospective diagnostic, not necessarily what the pending attempt was waiting on, and it does not change which failures are retried. The cause is included in `Display` and returned by `source()` (downcast it as `Box<X509SourceError>` / `Box<JwtSourceError>`). Migration: match `InitialSyncTimeout { .. }` or `InitialSyncTimeout { last_error, .. }` instead of `InitialSyncTimeout`. The variants cannot be constructed outside the crate.
+
+### Changed
+
+- Without `.endpoint(...)` or `.client_factory(...)`, source `build()` now reads and validates `SPIFFE_ENDPOINT_SOCKET` once, before any connection attempt. An unset, non-Unicode, or invalid value returns `Source(MissingEndpointSocket)`, `Source(NotUnicodeEndpointSocket(_))`, or `Source(Endpoint(_))` immediately instead of retrying until a timeout. A valid endpoint whose agent or socket is not yet available is still retried. The resolved endpoint is reused for the life of the source, including steady-state reconnects and `JwtSource`'s lazily created JWT-SVID client; later changes to the variable are not read. This supersedes the 0.19.0 note that environment discovery retains retries. Custom factories and `WorkloadApiClient::connect_env()` are unchanged.
+- A `NoIdentityIssued` error read from an open material stream is now recorded as `MetricsErrorKind::NoIdentityIssued` instead of `StreamError`, during initial synchronization and steady state. SPIRE reports this status when opening the stream, so this mainly affects other Workload API implementations.
+- The per-attempt "no identity issued" backoff log messages during initial synchronization and steady state are now `debug`. The rate-limited warning emitted when the stream cannot be opened is unchanged.
+
+### Added
+
+- `MetricsErrorKind::NoIdentityIssued` (`"no_identity_issued"`) for `X509Source` and `JwtSource`, recorded when the material RPC reports that no identity is issued, during initial synchronization and steady state. `InitialSyncFailed` is still recorded once per failed initial attempt.
+
 ### Fixed
 
 - Reject trailing data inside Basic Constraints and Key Usage during local X.509-SVID admission, and inside Subject Alternative Name when extracting a SPIFFE ID.

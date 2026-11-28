@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Docs
+
+- README examples keep a clone of the `X509Source` passed to `mtls_client` and shut it down; established TLS sessions are not affected.
+
 ## [0.7.0] - 2026-10-28
 
 ### Breaking changes
