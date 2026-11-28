@@ -31,6 +31,42 @@ fn status_cause<'a>(error: &'a (dyn std::error::Error + 'static)) -> &'a tonic::
     )
 }
 
+/// The cause carried by an initial synchronization timeout.
+fn timeout_last_error(error: &SourceError) -> Option<&SourceError> {
+    match error {
+        SourceError::InitialSyncTimeout { last_error, .. } => last_error.as_deref(),
+        other => panic!("expected InitialSyncTimeout, got {other:?}"),
+    }
+}
+
+fn chain(error: &(dyn std::error::Error + 'static)) -> Vec<String> {
+    std::iter::successors(Some(error), |e| e.source())
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// Asserts that a timeout only adds fixed text around its cause: Display, Debug and
+/// the `source()` chain expose exactly what the wrapped error exposes, nothing more.
+fn assert_timeout_wraps_cause(error: &SourceError) -> &SourceError {
+    let cause = timeout_last_error(error).expect("a failed attempt preceded the deadline");
+    assert_eq!(
+        error.to_string(),
+        format!("initial synchronization timed out; last error: {cause}")
+    );
+    assert_eq!(
+        format!("{error:?}"),
+        format!("InitialSyncTimeout {{ last_error: Some({cause:?}) }}")
+    );
+    let source = std::error::Error::source(error).expect("timeout cause is the error source");
+    // The boxed field is the `source()` node, so downcasting goes through the box.
+    let boxed = source
+        .downcast_ref::<Box<SourceError>>()
+        .expect("source is the boxed source error");
+    assert!(std::ptr::eq(std::ptr::from_ref(&**boxed), cause));
+    assert!(chain(error).into_iter().skip(1).eq(chain(cause)));
+    cause
+}
+
 #[tokio::test]
 async fn unsupported_rpc_headers_and_trailers_fail_once_with_original_status() {
     for trailers in [false, true] {
@@ -278,7 +314,20 @@ async fn recoverable_initial_timeout_and_construction_cancellation_drop_owned_fu
         tokio::select! { _ = entered => {}, _ = &mut build => panic!("factory must remain pending") }
         if timeout {
             tokio::time::advance(Duration::from_secs(5)).await;
-            assert!(matches!(build.await, Err(SourceError::InitialSyncTimeout)));
+            let error = build.await.unwrap_err();
+            assert!(
+                timeout_last_error(&error).is_none(),
+                "the first attempt was still pending at the deadline: {error:?}"
+            );
+            assert_eq!(
+                error.to_string(),
+                "initial synchronization timed out before the first attempt completed"
+            );
+            assert!(std::error::Error::source(&error).is_none());
+            assert_eq!(
+                format!("{error:?}"),
+                "InitialSyncTimeout { last_error: None }"
+            );
         } else {
             drop(build);
         }
@@ -300,8 +349,144 @@ async fn repeated_recoverable_errors_respect_configured_initial_timeout() {
         .initial_sync_timeout(Duration::from_secs(5))
         .build()
         .await;
-    assert!(matches!(result, Err(SourceError::InitialSyncTimeout)));
+    let error = result.unwrap_err();
+    let cause = assert_timeout_wraps_cause(&error);
+    assert!(
+        matches!(cause, SourceError::Source(WorkloadApiError::NoIdentityIssued)),
+        "unexpected cause: {cause:?}"
+    );
+    assert!(error.to_string().contains("no identity issued"));
     assert!(attempts.load(Ordering::SeqCst) >= 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn initial_timeout_reports_last_failure_not_first_while_later_attempt_is_pending() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&attempts);
+    let factory: Factory = Arc::new(move || {
+        let n = count.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            match n {
+                0 => Err(WorkloadApiError::EmptyResponse),
+                1 => Err(WorkloadApiError::NoIdentityIssued),
+                _ => std::future::pending().await,
+            }
+        })
+    });
+    let error = Source::builder()
+        .client_factory(factory)
+        .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(1))
+        .initial_sync_timeout(Duration::from_secs(5))
+        .build()
+        .await
+        .unwrap_err();
+    // The third attempt was pending at the deadline; the cause is the second failure.
+    assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    let cause = assert_timeout_wraps_cause(&error);
+    assert!(
+        matches!(cause, SourceError::Source(WorkloadApiError::NoIdentityIssued)),
+        "the most recent failure replaces earlier ones: {cause:?}"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn terminal_error_after_recoverable_failure_is_returned_instead_of_timeout() {
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = Arc::clone(&attempts);
+    let factory: Factory = Arc::new(move || {
+        let n = count.fetch_add(1, Ordering::SeqCst);
+        Box::pin(async move {
+            if n == 0 {
+                Err(WorkloadApiError::EmptyResponse)
+            } else {
+                Err(WorkloadApiError::from_status(tonic::Status::invalid_argument(
+                    "bad request",
+                )))
+            }
+        })
+    });
+    let error = Source::builder()
+        .client_factory(factory)
+        .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(1))
+        .initial_sync_timeout(Duration::from_secs(5))
+        .build()
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&error, SourceError::Source(e) if e.is_invalid_argument()),
+        "the terminal error is returned, not a timeout wrapping the earlier failure: {error:?}"
+    );
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn initial_timeout_cause_preserves_server_status_without_adding_material() {
+    let factory: Factory = Arc::new(|| {
+        Box::pin(async {
+            let mut status = tonic::Status::with_details(
+                tonic::Code::Unavailable,
+                "agent warming up",
+                b"startup-probe".as_slice().into(),
+            );
+            status
+                .metadata_mut()
+                .insert("failure-stage", "connect".parse().unwrap());
+            Err(WorkloadApiError::from_status(status))
+        })
+    });
+    let error = Source::builder()
+        .client_factory(factory)
+        .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(1))
+        .initial_sync_timeout(Duration::from_secs(5))
+        .build()
+        .await
+        .unwrap_err();
+    let cause = assert_timeout_wraps_cause(&error);
+    assert!(matches!(cause, SourceError::Source(WorkloadApiError::Transport(_))));
+    assert!(
+        error
+            .to_string()
+            .ends_with("gRPC status unavailable: agent warming up"),
+        "server status message is reported as the wrapped error reports it: {error}"
+    );
+    let status = status_cause(&error);
+    assert_eq!(status.code(), tonic::Code::Unavailable);
+    assert_eq!(status.details(), b"startup-probe");
+    assert_eq!(status.metadata().get("failure-stage").unwrap(), "connect");
+}
+
+#[tokio::test(start_paused = true)]
+async fn initial_timeout_cause_does_not_expose_endpoint_user_info() {
+    let factory: Factory = Arc::new(|| {
+        Box::pin(crate::WorkloadApiClient::connect_to(
+            "tcp://user:secret@127.0.0.1:1",
+        ))
+    });
+    let error = Source::builder()
+        .client_factory(factory)
+        .reconnect_backoff(Duration::from_secs(1), Duration::from_secs(1))
+        .initial_sync_timeout(Duration::from_secs(5))
+        .build()
+        .await
+        .unwrap_err();
+    let cause = assert_timeout_wraps_cause(&error);
+    assert!(
+        matches!(
+            cause,
+            SourceError::Source(WorkloadApiError::Endpoint(EndpointError::HasUserInfo))
+        ),
+        "custom factory endpoint errors remain recoverable: {cause:?}"
+    );
+    let rendered = [
+        error.to_string(),
+        format!("{error:?}"),
+        format!("{error:#?}"),
+        chain(&error).join(" | "),
+    ];
+    for text in rendered {
+        assert!(!text.contains("secret"), "user info leaked: {text}");
+        assert!(!text.contains("user:"), "user info leaked: {text}");
+    }
 }
 
 #[tokio::test]
@@ -341,7 +526,12 @@ async fn valid_unavailable_endpoint_keeps_initial_timeout() {
             .build(),
     )
     .await;
-    assert!(matches!(result, Err(SourceError::InitialSyncTimeout)));
+    let error = result.unwrap_err();
+    let cause = assert_timeout_wraps_cause(&error);
+    assert!(
+        matches!(cause, SourceError::Source(WorkloadApiError::Transport(_))),
+        "client creation failure is the cause: {cause:?}"
+    );
     assert_eq!(
         watchdog(errors.recv()).await.unwrap(),
         MetricsErrorKind::ClientCreation

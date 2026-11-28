@@ -5,6 +5,7 @@
 
 use futures::future::{Map, Shared};
 use futures::FutureExt as _;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -196,6 +197,46 @@ pub(crate) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) ->
     }
 }
 
+/// Bounds the whole initial synchronization future by the configured deadline.
+///
+/// Returns `None` when the deadline elapsed. The future is dropped before this
+/// returns, and `cancel` is cancelled. A `None` timeout waits without a deadline.
+pub(crate) async fn with_initial_deadline<F: Future>(
+    initial_sync: F,
+    cancel: &CancellationToken,
+    timeout: Option<Duration>,
+) -> Option<F::Output> {
+    let Some(timeout) = timeout else {
+        return Some(initial_sync.await);
+    };
+
+    match tokio::time::timeout(timeout, initial_sync).await {
+        Ok(output) => Some(output),
+        Err(_elapsed) => {
+            cancel.cancel();
+            None
+        }
+    }
+}
+
+/// Formats the optional cause of an initial synchronization timeout.
+pub(crate) struct LastError<'a, E>(Option<&'a E>);
+
+impl<'a, E> LastError<'a, E> {
+    pub(crate) const fn new(last_error: Option<&'a E>) -> Self {
+        Self(last_error)
+    }
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for LastError<'_, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(error) => write!(f, "; last error: {error}"),
+            None => f.write_str(" before the first attempt completed"),
+        }
+    }
+}
+
 /// Exponential backoff with small jitter.
 ///
 /// Computes the next backoff duration by:
@@ -250,6 +291,58 @@ pub(crate) fn next_backoff_for_no_identity(current: Duration, max: Duration) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn initial_deadline_elapse_returns_none_drops_future_and_cancels_token() {
+        let cancel = CancellationToken::new();
+        let (drop_tx, dropped) = tokio::sync::oneshot::channel::<()>();
+        let pending = async move {
+            let _drop_tx = drop_tx;
+            std::future::pending::<()>().await;
+        };
+
+        let outcome = with_initial_deadline(pending, &cancel, Some(Duration::from_secs(5))).await;
+
+        assert!(outcome.is_none());
+        assert!(cancel.is_cancelled());
+        assert!(
+            dropped.await.is_err(),
+            "the timed-out future is dropped before the helper returns"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn initial_deadline_returns_output_completed_before_deadline() {
+        let cancel = CancellationToken::new();
+
+        let outcome =
+            with_initial_deadline(async { "synced" }, &cancel, Some(Duration::from_secs(60))).await;
+
+        assert_eq!(outcome, Some("synced"));
+        assert!(!cancel.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn no_initial_deadline_passes_output_through() {
+        let cancel = CancellationToken::new();
+
+        let outcome = with_initial_deadline(async { "synced" }, &cancel, None).await;
+
+        assert_eq!(outcome, Some("synced"));
+        assert!(!cancel.is_cancelled());
+    }
+
+    #[test]
+    fn last_error_formats_cause_or_absence() {
+        assert_eq!(
+            LastError::new(Some(&"no identity issued")).to_string(),
+            "; last error: no identity issued"
+        );
+        assert_eq!(
+            LastError::<&str>::new(None).to_string(),
+            " before the first attempt completed"
+        );
+    }
 
     #[test]
     fn next_backoff_at_max_preserves_jitter() {

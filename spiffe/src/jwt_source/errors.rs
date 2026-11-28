@@ -1,4 +1,5 @@
 use crate::workload_api::error::WorkloadApiError;
+use crate::workload_api::supervisor_common::LastError;
 use std::fmt;
 use thiserror::Error;
 
@@ -43,13 +44,25 @@ pub enum JwtSourceError {
     #[error("source is closed")]
     Closed,
 
-    /// Initial synchronization timeout exceeded.
+    /// Initial synchronization did not complete within the configured
+    /// [`JwtSourceBuilder::initial_sync_timeout`](crate::JwtSourceBuilder::initial_sync_timeout).
     ///
-    /// This error occurs when `JwtSourceBuilder::initial_sync_timeout()` is configured
-    /// and the initial synchronization performed during source construction does not
-    /// complete within the specified timeout.
-    #[error("initial synchronization timed out")]
-    InitialSyncTimeout,
+    /// `last_error` is the most recent recoverable failure observed before the
+    /// deadline. It is `None` when the first attempt was still in progress at the
+    /// deadline. [`std::error::Error::source`] returns the same error; downcast it as
+    /// `Box<JwtSourceError>`, or match the field directly.
+    ///
+    /// The last error is a retrospective diagnostic, not the definitive cause of the
+    /// timeout: a later attempt may have been pending, for a different reason, when
+    /// the deadline fired. Terminal failures are never wrapped here; they are returned
+    /// directly without waiting for the deadline.
+    #[error("initial synchronization timed out{}", LastError::new(.last_error.as_deref()))]
+    #[non_exhaustive]
+    InitialSyncTimeout {
+        /// The most recent recoverable failure, if any attempt failed before the deadline.
+        #[source]
+        last_error: Option<Box<Self>>,
+    },
 
     /// The workload API stream ended.
     ///

@@ -7,14 +7,13 @@ use crate::bundle::BundleSource;
 use crate::cert::Certificate;
 use crate::prelude::warn;
 use crate::svid::SvidSource;
-use crate::workload_api::supervisor_common::{SourceOwner, SupervisorTask};
+use crate::workload_api::supervisor_common::{with_initial_deadline, SourceOwner, SupervisorTask};
 use crate::workload_api::x509_context::X509Context;
 use crate::x509_source::types::{ClientFactory, SvidPicker};
 use crate::{TrustDomain, X509Bundle, X509BundleSet, X509SourceBuilder, X509Svid};
 use arc_swap::ArcSwap;
 use std::cmp::Ordering as CmpOrdering;
 use std::fmt::Debug;
-use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -656,16 +655,28 @@ impl X509Source {
         let cancel = CancellationToken::new();
         let shutdown_guard = Arc::new(SourceOwner::new(cancel.clone()));
 
-        let initial_sync = initial_sync_with_retry(
-            &make_client,
-            svid_picker.as_deref(),
+        let mut last_error = None;
+        let outcome = with_initial_deadline(
+            initial_sync_with_retry(
+                &make_client,
+                svid_picker.as_deref(),
+                &cancel,
+                reconnect,
+                limits,
+                metrics.as_deref(),
+                &mut last_error,
+            ),
             &cancel,
-            reconnect,
-            limits,
-            metrics.as_deref(),
-        );
-        let (initial_ctx, selected_svid) =
-            initial_sync_with_timeout(initial_sync, &cancel, initial_sync_timeout).await?;
+            initial_sync_timeout,
+        )
+        .await;
+        // The initial sync future, and its borrow of `last_error`, has been dropped.
+        let Some(result) = outcome else {
+            return Err(X509SourceError::InitialSyncTimeout {
+                last_error: last_error.map(Box::new),
+            });
+        };
+        let (initial_ctx, selected_svid) = result?;
         let snapshot = Arc::new(Snapshot {
             ctx: initial_ctx,
             expiry_unix: selected_svid.expiry_unix(),
@@ -954,27 +965,6 @@ fn cmp_cert_chain_for_update(a: &[Certificate], b: &[Certificate]) -> CmpOrderin
         .cmp(b.iter().map(Certificate::as_bytes))
 }
 
-async fn initial_sync_with_timeout<T, F>(
-    initial_sync: F,
-    cancel: &CancellationToken,
-    timeout: Option<Duration>,
-) -> Result<T, X509SourceError>
-where
-    F: Future<Output = Result<T, X509SourceError>>,
-{
-    let Some(timeout) = timeout else {
-        return initial_sync.await;
-    };
-
-    match tokio::time::timeout(timeout, initial_sync).await {
-        Ok(result) => result,
-        Err(_elapsed) => {
-            cancel.cancel();
-            Err(X509SourceError::InitialSyncTimeout)
-        }
-    }
-}
-
 impl SvidSource for X509Source {
     type Item = X509Svid;
     type Error = X509SourceError;
@@ -1103,48 +1093,6 @@ mod tests {
         })
         .await
         .expect("supervisor termination task should not panic");
-    }
-
-    #[tokio::test]
-    async fn initial_sync_timeout_returns_timeout_and_cancels_token() {
-        let cancel = CancellationToken::new();
-
-        let result = initial_sync_with_timeout(
-            std::future::pending::<Result<(), X509SourceError>>(),
-            &cancel,
-            Some(Duration::ZERO),
-        )
-        .await;
-
-        assert!(matches!(result, Err(X509SourceError::InitialSyncTimeout)));
-        assert!(cancel.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn initial_sync_timeout_allows_success_before_timeout() {
-        let cancel = CancellationToken::new();
-
-        let result = initial_sync_with_timeout(
-            async { Ok::<_, X509SourceError>("synced") },
-            &cancel,
-            Some(Duration::from_secs(60)),
-        )
-        .await;
-
-        assert_eq!(result.unwrap(), "synced");
-        assert!(!cancel.is_cancelled());
-    }
-
-    #[tokio::test]
-    async fn initial_sync_without_timeout_waits_for_future() {
-        let cancel = CancellationToken::new();
-
-        let result =
-            initial_sync_with_timeout(async { Ok::<_, X509SourceError>("synced") }, &cancel, None)
-                .await;
-
-        assert_eq!(result.unwrap(), "synced");
-        assert!(!cancel.is_cancelled());
     }
 
     fn set_selected_svid_expiry_for_test(source: &X509Source, expiry_unix: i64) {
@@ -2489,4 +2437,32 @@ mod startup_tests {
     use crate::workload_api::lifecycle_test_support::Factory;
     const RPC: &str = "FetchX509SVID";
     include!("../workload_api/source_startup_tests.rs");
+
+    #[derive(Debug)]
+    struct RejectAll;
+    impl crate::x509_source::SvidPicker for RejectAll {
+        fn pick_svid(&self, _svids: &[Arc<crate::X509Svid>]) -> Option<usize> {
+            None
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_timeout_reports_rejected_identity_material() {
+        let server = support::server(vec![Step::Valid]).await;
+        let error = watchdog(
+            Source::builder()
+                .endpoint(&server.endpoint)
+                .picker(RejectAll)
+                .reconnect_backoff(Duration::from_millis(10), Duration::from_millis(10))
+                .initial_sync_timeout(Duration::from_secs(1))
+                .build(),
+        )
+        .await
+        .unwrap_err();
+        let cause = assert_timeout_wraps_cause(&error);
+        assert!(
+            matches!(cause, SourceError::NoSuitableSvid),
+            "unexpected cause: {cause:?}"
+        );
+    }
 }

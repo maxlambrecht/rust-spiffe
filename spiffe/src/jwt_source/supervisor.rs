@@ -179,6 +179,7 @@ pub(super) async fn initial_sync_with_retry(
     reconnect: ReconnectConfig,
     limits: ResourceLimits,
     metrics: Option<&dyn MetricsRecorder>,
+    last_error: &mut Option<JwtSourceError>,
 ) -> Result<Arc<JwtBundleSet>, JwtSourceError> {
     let mut backoff = reconnect.min_backoff;
     let mut error_tracker = ErrorTracker::new(MAX_CONSECUTIVE_SAME_ERROR);
@@ -213,23 +214,27 @@ pub(super) async fn initial_sync_with_retry(
                         return Err(e);
                     }
                 }
+                let no_identity = matches!(
+                    e,
+                    JwtSourceError::Source(WorkloadApiError::NoIdentityIssued)
+                );
+                // Only recoverable errors reach this point. Keep the most recent one for
+                // a construction timeout; the previous one is dropped.
+                *last_error = Some(e);
                 if sleep_or_cancel(cancel, backoff).await {
                     return Err(JwtSourceError::Closed);
                 }
                 // Choose backoff policy based on error type
-                match &e {
-                    JwtSourceError::Source(WorkloadApiError::NoIdentityIssued) => {
-                        // Use slower backoff for "no identity issued" (expected transient state)
-                        backoff = next_backoff_for_no_identity(backoff, reconnect.max_backoff);
-                        warn!(
-                            "Initial sync: no identity issued, using backoff_ms={}",
-                            backoff.as_millis()
-                        );
-                    }
-                    _ => {
-                        // Use standard exponential backoff for other errors
-                        backoff = next_backoff(backoff, reconnect.max_backoff);
-                    }
+                if no_identity {
+                    // Use slower backoff for "no identity issued" (expected transient state)
+                    backoff = next_backoff_for_no_identity(backoff, reconnect.max_backoff);
+                    warn!(
+                        "Initial sync: no identity issued, using backoff_ms={}",
+                        backoff.as_millis()
+                    );
+                } else {
+                    // Use standard exponential backoff for other errors
+                    backoff = next_backoff(backoff, reconnect.max_backoff);
                 }
             }
         }
@@ -552,6 +557,7 @@ mod tests {
         // hanging the test suite.
         let reconnect = ReconnectConfig::new(Duration::from_secs(30), Duration::from_secs(60));
 
+        let mut last_error = None;
         let result = tokio::time::timeout(
             Duration::from_millis(500),
             initial_sync_with_retry(
@@ -560,10 +566,15 @@ mod tests {
                 reconnect,
                 ResourceLimits::default(),
                 None,
+                &mut last_error,
             ),
         )
         .await
         .expect("initial sync should fail fast instead of retrying on INVALID_ARGUMENT");
+        assert!(
+            last_error.is_none(),
+            "terminal errors are returned directly and never kept as a timeout cause"
+        );
 
         assert!(
             matches!(
