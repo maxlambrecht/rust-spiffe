@@ -269,6 +269,8 @@ impl JwtSourceBuilder {
     /// connection attempts or initial synchronization. Invalid fixed configuration
     /// fails immediately; an unavailable valid endpoint is retried with backoff.
     /// The last call to `endpoint()` or `client_factory()` selects the client setup.
+    /// When neither is called, `build()` reads `SPIFFE_ENDPOINT_SOCKET` once, with the
+    /// same validation, and uses that endpoint for the life of the source.
     ///
     /// # Examples
     ///
@@ -404,13 +406,25 @@ impl JwtSourceBuilder {
     /// Sets an optional timeout for the initial synchronization performed by `build()`.
     ///
     /// By default this is `None`: recoverable transport, provisioning, and response
-    /// failures retry until initial sync succeeds. Invalid fixed endpoint syntax,
-    /// gRPC `INVALID_ARGUMENT`, and `UNIMPLEMENTED` from the required material RPC
-    /// return immediately without waiting for this timeout.
+    /// failures retry until initial sync succeeds, so `build()` can wait indefinitely,
+    /// including for a workload that is not registered (`NoIdentityIssued`). Invalid
+    /// endpoint configuration (fixed or from `SPIFFE_ENDPOINT_SOCKET`), gRPC
+    /// `INVALID_ARGUMENT`, and `UNIMPLEMENTED` from the required material RPC return
+    /// immediately without waiting for this timeout.
     ///
-    /// When configured, the timeout bounds only the initial sync performed during source
-    /// construction. It does not bound future background reconnects or update retries after the
-    /// source has been constructed.
+    /// When configured, the timeout is a single deadline around the whole initial sync,
+    /// including pending attempts and backoff sleeps. On timeout `build()` returns
+    /// [`JwtSourceError::InitialSyncTimeout`] carrying the most recent recoverable failure
+    /// observed before the timeout was returned, or `None` if none was observed.
+    /// That failure is a diagnostic; the timeout does not change which failures retry.
+    ///
+    /// Each wake-up advances the sync before checking the deadline. If the task is
+    /// polled late, that poll can still complete `build()` with a source or a terminal
+    /// error, or record a newer failure before the timeout is returned.
+    ///
+    /// The timeout bounds only the initial sync performed during source construction.
+    /// It does not bound background reconnects or update retries after the source has
+    /// been constructed.
     ///
     /// # Examples
     ///
@@ -432,6 +446,12 @@ impl JwtSourceBuilder {
     ///
     /// On success, the returned source has completed an initial synchronization with
     /// the Workload API and will continue updating in the background.
+    /// Readiness means JWT bundles only: it does not imply that a JWT-SVID can be
+    /// issued to this workload. For example, a SPIRE agent with
+    /// `allow_unauthenticated_verifiers` enabled serves bundles to unregistered
+    /// workloads, whose [`JwtSource::fetch_jwt_svid`] then fails with
+    /// `FetchJwtSvid(NoIdentityIssued)` or `FetchJwtSvid(PermissionDenied(_))`.
+    /// Applications that issue JWT-SVIDs should fetch one at startup.
     /// The initial bundle set may contain no JWT signing authorities; in that case,
     /// [`JwtSource::is_healthy`] may report `false` until usable authorities arrive.
     /// The on-demand JWT SVID client is created lazily on the first
@@ -443,7 +463,10 @@ impl JwtSourceBuilder {
     /// Returns a [`JwtSourceError`] if the Workload API endpoint cannot be resolved
     /// or connected to, or the initial synchronization fails or times out.
     /// Invalid fixed endpoint syntax returns `Source(WorkloadApiError::Endpoint(_))`
-    /// before initialization. The required material RPC returning `UNIMPLEMENTED`
+    /// before initialization. Without `endpoint()` or `client_factory()`,
+    /// `SPIFFE_ENDPOINT_SOCKET` is read once: unset, non-Unicode, or invalid values
+    /// return `Source(_)` before initialization, and the resolved endpoint is used for
+    /// the life of the source. The required material RPC returning `UNIMPLEMENTED`
     /// returns `UnsupportedRpc`; the original status remains its diagnostic cause.
     /// Transient connection and provisioning failures retry, subject to the optional
     /// initial synchronization timeout. After correcting a terminal failure, build

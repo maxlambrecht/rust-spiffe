@@ -32,14 +32,23 @@ use spiffe_rustls::{authorizer, mtls_client};
 
 let source = spiffe::X509Source::new().await?;
 
-// Authorize only specific server SPIFFE IDs
-let client_cfg = mtls_client(source)
+// Authorize only specific server SPIFFE IDs. Clones share one source;
+// keep one to shut it down.
+let client_cfg = mtls_client(source.clone())
     .authorize(authorizer::exact([
         "spiffe://example.org/myservice",
         "spiffe://example.org/myservice2",
     ])?)
     .build()?;
+
+// ... use `client_cfg` ...
+
+source.shutdown_configured().await?;
 ```
+
+Source clones share one supervisor, so the retained clone is the shutdown handle.
+Shutting it down stops background updates; established TLS sessions are not affected,
+and new handshakes follow the configured `TerminalSourcePolicy`.
 
 The resulting `ClientConfig` can be used directly with `rustls`, or integrated into
 [`spiffe-rustls-tokio`](https://crates.io/crates/spiffe-rustls-tokio), `tokio-rustls`, `tonic-rustls`, or similar libraries.

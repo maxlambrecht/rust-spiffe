@@ -104,14 +104,24 @@ pub use spiffe::{SpiffeId, TrustDomain};
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// let client_config = mtls_client(source)
+/// // Clones share one source; keep one to shut it down.
+/// let client_config = mtls_client(source.clone())
 ///     .authorize(authorizer::exact([
 ///         "spiffe://example.org/myservice",
 ///     ])?)
 ///     .build()?;
+///
+/// // ... use `client_config` ...
+///
+/// source.shutdown_configured().await?;
 /// # Ok(())
 /// # }
 /// ```
+///
+/// The builder takes ownership of an [`spiffe::X509Source`] handle. Clones share one
+/// supervisor, so a retained clone is the handle for stopping background updates with
+/// [`spiffe::X509Source::shutdown_configured`]. Established TLS sessions are not
+/// affected; new handshakes then follow the configured [`TerminalSourcePolicy`].
 pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
     ClientConfigBuilder::new(source)
 }
@@ -137,12 +147,22 @@ pub fn mtls_client(source: spiffe::X509Source) -> ClientConfigBuilder {
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let source = spiffe::X509Source::new().await?;
 ///
-/// let server_config = mtls_server(source)
+/// // Clones share one source; keep one to shut it down.
+/// let server_config = mtls_server(source.clone())
 ///     .authorize(authorizer::trust_domains(["example.org"])?)
 ///     .build()?;
+///
+/// // ... serve with `server_config` ...
+///
+/// source.shutdown_configured().await?;
 /// # Ok(())
 /// # }
 /// ```
+///
+/// The builder takes ownership of an [`spiffe::X509Source`] handle. Clones share one
+/// supervisor, so a retained clone is the handle for stopping background updates with
+/// [`spiffe::X509Source::shutdown_configured`]. Established TLS sessions are not
+/// affected; new handshakes then follow the configured [`TerminalSourcePolicy`].
 pub fn mtls_server(source: spiffe::X509Source) -> ServerConfigBuilder {
     ServerConfigBuilder::new(source)
 }

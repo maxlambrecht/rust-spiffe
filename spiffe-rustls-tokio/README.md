@@ -37,7 +37,8 @@ use spiffe::X509Source;
 use spiffe_rustls::{authorizer, mtls_client};
 
 let source = X509Source::new().await?;
-let client_config = mtls_client(source)
+// Clones share one source; keep one to shut it down.
+let client_config = mtls_client(source.clone())
     .authorize(authorizer::any())
     .build()?;
 ```
@@ -76,7 +77,8 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let source = X509Source::new().await?;
-    let client_config = mtls_client(source)
+    // Clones share one source; keep one to shut it down.
+    let client_config = mtls_client(source.clone())
         .authorize(authorizer::any())
         .build()?;
 
@@ -95,6 +97,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Err(e) => eprintln!("Connection failed: {}", e),
     }
 
+    // Stops background updates; established TLS sessions are not affected.
+    source.shutdown_configured().await?;
     Ok(())
 }
 ```

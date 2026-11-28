@@ -199,8 +199,13 @@ pub(crate) async fn sleep_or_cancel(token: &CancellationToken, dur: Duration) ->
 
 /// Bounds the whole initial synchronization future by the configured deadline.
 ///
-/// Returns `None` when the deadline elapsed. The future is dropped before this
-/// returns, and `cancel` is cancelled. A `None` timeout waits without a deadline.
+/// Returns `None` on timeout. The future is dropped before this returns, and
+/// `cancel` is cancelled. A `None` timeout waits without a deadline.
+///
+/// The deadline is not a cutoff for the future's progress: each wake-up polls the
+/// future before the timer. If the task resumes after the deadline, that poll still
+/// runs. Output that is ready in it is returned instead of a timeout, and state it
+/// records before returning pending is visible to the caller.
 pub(crate) async fn with_initial_deadline<F: Future>(
     initial_sync: F,
     cancel: &CancellationToken,
@@ -319,6 +324,59 @@ mod tests {
             with_initial_deadline(async { "synced" }, &cancel, Some(Duration::from_secs(60))).await;
 
         assert_eq!(outcome, Some("synced"));
+        assert!(!cancel.is_cancelled());
+    }
+
+    async fn is_pending_after_one_poll<F: Future>(mut future: std::pin::Pin<&mut F>) -> bool {
+        std::future::poll_fn(|cx| std::task::Poll::Ready(future.as_mut().poll(cx).is_pending()))
+            .await
+    }
+
+    /// A task that resumes after the deadline polls the future once more before the
+    /// timer, so a failure recorded in that poll replaces the earlier one.
+    #[tokio::test(start_paused = true)]
+    async fn initial_deadline_late_poll_records_failure_before_timing_out() {
+        let cancel = CancellationToken::new();
+        let (fail, failure) = tokio::sync::oneshot::channel();
+        let mut last_error = None;
+        {
+            let attempts = async {
+                last_error = Some("before the deadline");
+                last_error = Some(failure.await.unwrap());
+                std::future::pending::<()>().await;
+            };
+            let mut bounded = std::pin::pin!(with_initial_deadline(
+                attempts,
+                &cancel,
+                Some(Duration::from_secs(5))
+            ));
+            assert!(is_pending_after_one_poll(bounded.as_mut()).await);
+
+            // The failure arrives, but the task is not polled until after the deadline.
+            tokio::time::advance(Duration::from_secs(10)).await;
+            fail.send("after the deadline").unwrap();
+
+            assert_eq!(bounded.await, None);
+        }
+        assert_eq!(last_error, Some("after the deadline"));
+        assert!(cancel.is_cancelled());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn initial_deadline_late_poll_with_ready_output_is_not_a_timeout() {
+        let cancel = CancellationToken::new();
+        let (complete, completion) = tokio::sync::oneshot::channel();
+        let mut bounded = std::pin::pin!(with_initial_deadline(
+            completion,
+            &cancel,
+            Some(Duration::from_secs(5))
+        ));
+        assert!(is_pending_after_one_poll(bounded.as_mut()).await);
+
+        tokio::time::advance(Duration::from_secs(10)).await;
+        complete.send("synced").unwrap();
+
+        assert_eq!(bounded.await, Some(Ok("synced")));
         assert!(!cancel.is_cancelled());
     }
 
