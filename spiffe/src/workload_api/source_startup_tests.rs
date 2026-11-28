@@ -182,6 +182,67 @@ async fn recoverable_rpc_statuses_and_no_identity_retry_until_valid() {
     }
 }
 
+fn drain(errors: &mut mpsc::Receiver<MetricsErrorKind>) -> Vec<MetricsErrorKind> {
+    std::iter::from_fn(|| errors.try_recv().ok()).collect()
+}
+
+#[tokio::test]
+async fn initial_no_identity_records_its_own_kind_when_opening_or_reading_stream() {
+    for step in [Step::NoIdentity, Step::NoIdentityTrailers] {
+        let server = support::server(vec![step, Step::Valid]).await;
+        let (tx, mut errors) = mpsc::channel(128);
+        let source = watchdog(
+            Source::builder()
+                .endpoint(&server.endpoint)
+                .reconnect_backoff(Duration::from_millis(1), Duration::from_millis(1))
+                .metrics(Arc::new(Metrics(tx)))
+                .build(),
+        )
+        .await
+        .unwrap();
+        // One specific kind and one aggregate per failed attempt; no StreamConnect or
+        // StreamError for the same failure.
+        assert_eq!(
+            drain(&mut errors),
+            [
+                MetricsErrorKind::NoIdentityIssued,
+                MetricsErrorKind::InitialSyncFailed
+            ],
+            "{step:?}"
+        );
+        watchdog(source.shutdown()).await;
+    }
+}
+
+#[tokio::test]
+async fn steady_state_no_identity_records_its_own_kind_when_opening_or_reading_stream() {
+    for step in [Step::NoIdentity, Step::NoIdentityTrailers] {
+        let server = support::server(vec![Step::Valid, step, Step::Valid]).await;
+        let (tx, mut errors) = mpsc::channel(128);
+        let source = watchdog(
+            Source::builder()
+                .endpoint(&server.endpoint)
+                .reconnect_backoff(Duration::from_millis(1), Duration::from_millis(1))
+                .metrics(Arc::new(Metrics(tx)))
+                .build(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(drain(&mut errors), [], "construction succeeded first time");
+        let mut updates = source.updated();
+        assert_eq!(
+            watchdog(errors.recv()).await.unwrap(),
+            MetricsErrorKind::NoIdentityIssued,
+            "{step:?}"
+        );
+        // Withdrawal (revision 1), then reauthorization by the next valid response.
+        while watchdog(updates.changed()).await.unwrap() < 2 {}
+        assert!(source.state().withdrawal().is_none());
+        assert_eq!(drain(&mut errors), [], "no duplicate classification: {step:?}");
+        watchdog(source.shutdown()).await;
+    }
+}
+
 #[tokio::test]
 async fn invalid_argument_headers_and_trailers_keep_existing_fast_failure() {
     for step in [

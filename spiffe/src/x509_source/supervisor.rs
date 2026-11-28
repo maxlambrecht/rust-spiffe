@@ -78,8 +78,9 @@ pub(super) async fn try_create_client(
 ///
 /// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
 ///
-/// On error, records `StreamConnect` metric. The caller should call `record_reconnect`
-/// for steady-state reconnections (not for initial sync).
+/// On error, records `NoIdentityIssued` for that status and `StreamConnect` otherwise.
+/// The caller should call `record_reconnect` for steady-state reconnections (not for
+/// initial sync).
 pub(super) async fn try_connect_stream(
     client: &WorkloadApiClient,
     backoff: Duration,
@@ -144,7 +145,9 @@ pub(super) async fn try_connect_stream(
                     );
                 }
 
-                // Don't record this as a stream error metric (it's expected/transient)
+                if let Some(m) = metrics {
+                    m.record_error(MetricsErrorKind::NoIdentityIssued);
+                }
                 return Err(e);
             }
 
@@ -205,8 +208,8 @@ pub(super) async fn initial_sync_with_retry(
             Err(e) => {
                 // Record InitialSyncFailed as an umbrella metric for any failed attempt.
                 // Specific metrics (ClientCreation, StreamConnect, StreamError, StreamEnded,
-                // LimitMaxSvids, LimitMaxBundles, LimitMaxBundleDerBytes, NoSuitableSvid)
-                // are already recorded in try_sync_once(). Detailed logs are also produced
+                // NoIdentityIssued, LimitMaxSvids, LimitMaxBundles, LimitMaxBundleDerBytes,
+                // NoSuitableSvid) are already recorded in try_sync_once(). Detailed logs are also produced
                 // by try_create_client/try_connect_stream/stream read, so we avoid duplicate
                 // outer logs here to reduce noise.
                 if let Some(m) = metrics {
@@ -240,7 +243,7 @@ pub(super) async fn initial_sync_with_retry(
                 if no_identity {
                     // Use slower backoff for "no identity issued" (expected transient state)
                     backoff = next_backoff_for_no_identity(backoff, reconnect.max_backoff);
-                    warn!(
+                    debug!(
                         "Initial sync: no identity issued, using backoff_ms={}",
                         backoff.as_millis()
                     );
@@ -300,14 +303,14 @@ async fn try_sync_once(
             Ok((Arc::new(ctx), selected_svid))
         }
         Some(Err(e)) => {
-            // Record StreamError for stream read errors.
+            // Record StreamError (or NoIdentityIssued) for stream read errors.
             if e.is_invalid_argument() || e.is_unimplemented() {
                 warn!("Initial sync: FetchX509SVID stream error; not retrying: error={e}");
             } else {
                 warn!("Initial sync: Workload API stream error; will retry: error={e}");
             }
             if let Some(m) = metrics {
-                m.record_error(MetricsErrorKind::StreamError);
+                m.record_error(stream_error_kind(&e));
             }
             Err(X509SourceError::initial_rpc_error(e))
         }
@@ -323,6 +326,15 @@ async fn try_sync_once(
 }
 
 pub(super) use supervisor_common::{next_backoff, next_backoff_for_no_identity, sleep_or_cancel};
+
+/// Metrics kind for an error read from an open material stream.
+const fn stream_error_kind(error: &WorkloadApiError) -> MetricsErrorKind {
+    if matches!(error, WorkloadApiError::NoIdentityIssued) {
+        MetricsErrorKind::NoIdentityIssued
+    } else {
+        MetricsErrorKind::StreamError
+    }
+}
 
 /// Result of processing a stream of updates.
 struct StreamResult {
@@ -415,7 +427,7 @@ impl Inner {
                             // Use slower backoff for "no identity issued" (expected transient state)
                             backoff =
                                 next_backoff_for_no_identity(backoff, self.reconnect().max_backoff);
-                            warn!(
+                            debug!(
                                 "No identity issued: using backoff_ms={}",
                                 backoff.as_millis()
                             );
@@ -519,7 +531,7 @@ impl Inner {
                         "Workload API stream error; reconnecting: id={}, error={}",
                         supervisor_id, e
                     );
-                    self.record_error(MetricsErrorKind::StreamError);
+                    self.record_error(stream_error_kind(&e));
                     return StreamResult {
                         cancelled: false,
                         had_valid_item,
@@ -545,6 +557,21 @@ mod tests {
     use crate::{TrustDomain, X509Bundle, X509BundleSet, X509Source};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tonic::codegen::http;
+
+    #[derive(Default)]
+    struct RecordedErrors(std::sync::Mutex<Vec<MetricsErrorKind>>);
+    impl RecordedErrors {
+        fn take(&self) -> Vec<MetricsErrorKind> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+    }
+    impl MetricsRecorder for RecordedErrors {
+        fn record_update(&self) {}
+        fn record_reconnect(&self) {}
+        fn record_error(&self, kind: MetricsErrorKind) {
+            self.0.lock().unwrap().push(kind);
+        }
+    }
 
     fn invalid_argument_error() -> WorkloadApiError {
         WorkloadApiError::from_status(tonic::Status::invalid_argument("bad request"))
@@ -749,17 +776,25 @@ mod tests {
     }
     #[tokio::test]
     async fn permission_denial_withdraws_until_valid_identical_reauthorization() {
-        for denial in [
-            WorkloadApiError::PermissionDenied("denied".into()),
-            WorkloadApiError::NoIdentityIssued,
+        for (denial, kind) in [
+            (
+                WorkloadApiError::PermissionDenied("denied".into()),
+                MetricsErrorKind::StreamError,
+            ),
+            (
+                WorkloadApiError::NoIdentityIssued,
+                MetricsErrorKind::NoIdentityIssued,
+            ),
         ] {
             let initial =
                 context_with_bundle(include_bytes!("../../tests/testdata/bundle/x509/cert1.der"));
+            let recorded = Arc::new(RecordedErrors::default());
+            let metrics: Arc<dyn MetricsRecorder> = Arc::<RecordedErrors>::clone(&recorded);
             let source = X509Source::new_for_test(
                 Arc::clone(&initial),
                 ReconnectConfig::default(),
                 ResourceLimits::default(),
-                None,
+                Some(metrics),
                 None,
             );
             let mut updates = source.updated();
@@ -778,6 +813,11 @@ mod tests {
                 "denial must withdraw response trust"
             );
             assert_eq!(updates.changed().await.unwrap(), 1);
+            assert_eq!(
+                recorded.take(),
+                [kind],
+                "one classification per stream error"
+            );
             let mut malformed = futures::stream::iter([Err(WorkloadApiError::EmptyResponse)]);
             source
                 .inner_for_test()
