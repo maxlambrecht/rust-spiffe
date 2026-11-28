@@ -24,6 +24,7 @@ pub(crate) enum Step {
     ValidThenTrailers(tonic::Code),
     ValidThenBundleKeyWithPath,
     NoIdentity,
+    NoIdentityTrailers,
     Eof,
     Valid,
     Malformed,
@@ -80,6 +81,9 @@ where
                 Step::NoIdentity => {
                     return Err(tonic::Status::permission_denied("no identity issued"))
                 }
+                Step::NoIdentityTrailers => Box::pin(futures::stream::iter([Err(
+                    tonic::Status::permission_denied("no identity issued"),
+                )])),
                 Step::Trailers(code) => {
                     Box::pin(futures::stream::iter([Err(status(code, "trailers"))]))
                 }

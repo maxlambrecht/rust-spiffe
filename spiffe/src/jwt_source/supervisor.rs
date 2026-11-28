@@ -77,8 +77,9 @@ pub(super) async fn try_create_client(
 ///
 /// Records metrics and logs errors. Does not modify backoff (caller manages backoff progression).
 ///
-/// On error, records `StreamConnect` metric. The caller should call `record_reconnect`
-/// for steady-state reconnections (not for initial sync).
+/// On error, records `NoIdentityIssued` for that status and `StreamConnect` otherwise.
+/// The caller should call `record_reconnect` for steady-state reconnections (not for
+/// initial sync).
 pub(super) async fn try_connect_stream(
     client: &WorkloadApiClient,
     backoff: Duration,
@@ -143,7 +144,9 @@ pub(super) async fn try_connect_stream(
                     );
                 }
 
-                // Don't record this as a stream error metric (it's expected/transient)
+                if let Some(m) = metrics {
+                    m.record_error(MetricsErrorKind::NoIdentityIssued);
+                }
                 return Err(e);
             }
 
@@ -194,7 +197,8 @@ pub(super) async fn initial_sync_with_retry(
             Err(e) => {
                 // Record InitialSyncFailed as an umbrella metric for any failed attempt.
                 // Specific metrics (ClientCreation, StreamConnect, StreamError, StreamEnded,
-                // LimitMaxBundles, LimitMaxBundleJwksBytes) are already recorded in try_sync_once().
+                // NoIdentityIssued, LimitMaxBundles, LimitMaxBundleJwksBytes) are already
+                // recorded in try_sync_once().
                 // Detailed logs are also produced by try_create_client/try_connect_stream/stream read,
                 // so we avoid duplicate outer logs here to reduce noise.
                 if let Some(m) = metrics {
@@ -228,7 +232,7 @@ pub(super) async fn initial_sync_with_retry(
                 if no_identity {
                     // Use slower backoff for "no identity issued" (expected transient state)
                     backoff = next_backoff_for_no_identity(backoff, reconnect.max_backoff);
-                    warn!(
+                    debug!(
                         "Initial sync: no identity issued, using backoff_ms={}",
                         backoff.as_millis()
                     );
@@ -284,14 +288,14 @@ async fn try_sync_once(
             Ok(Arc::new(bundle_set))
         }
         Some(Err(e)) => {
-            // Record StreamError for stream read errors.
+            // Record StreamError (or NoIdentityIssued) for stream read errors.
             if e.is_invalid_argument() || e.is_unimplemented() {
                 warn!("Initial sync: FetchJWTBundles stream error; not retrying: error={e}");
             } else {
                 warn!("Initial sync: Workload API stream error; will retry: error={e}");
             }
             if let Some(m) = metrics {
-                m.record_error(MetricsErrorKind::StreamError);
+                m.record_error(stream_error_kind(&e));
             }
             Err(JwtSourceError::initial_rpc_error(e))
         }
@@ -307,6 +311,15 @@ async fn try_sync_once(
 }
 
 pub(super) use supervisor_common::{next_backoff, next_backoff_for_no_identity, sleep_or_cancel};
+
+/// Metrics kind for an error read from an open material stream.
+const fn stream_error_kind(error: &WorkloadApiError) -> MetricsErrorKind {
+    if matches!(error, WorkloadApiError::NoIdentityIssued) {
+        MetricsErrorKind::NoIdentityIssued
+    } else {
+        MetricsErrorKind::StreamError
+    }
+}
 
 /// Result of processing a stream of updates.
 struct StreamResult {
@@ -400,7 +413,7 @@ impl Inner {
                             // Use slower backoff for "no identity issued" (expected transient state)
                             backoff =
                                 next_backoff_for_no_identity(backoff, self.reconnect().max_backoff);
-                            warn!(
+                            debug!(
                                 "No identity issued: using backoff_ms={}",
                                 backoff.as_millis()
                             );
@@ -510,7 +523,7 @@ impl Inner {
                 Some(Err(e)) => {
                     self.withdraw(&e);
                     warn!("Workload API stream error; reconnecting: id={supervisor_id}, error={e}");
-                    self.record_error(MetricsErrorKind::StreamError);
+                    self.record_error(stream_error_kind(&e));
                     return StreamResult {
                         cancelled: false,
                         had_valid_item,

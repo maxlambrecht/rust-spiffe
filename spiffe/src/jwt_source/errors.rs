@@ -156,6 +156,11 @@ pub enum MetricsErrorKind {
     StreamError,
     /// The Workload API stream ended unexpectedly.
     StreamEnded,
+    /// The Workload API reported that no identity is issued to this workload.
+    ///
+    /// Recorded instead of `StreamConnect` or `StreamError` when the material RPC
+    /// fails with this status, during initial synchronization and steady state.
+    NoIdentityIssued,
     /// Initial synchronization with the Workload API failed.
     InitialSyncFailed,
     /// Resource limit exceeded: maximum bundle count.
@@ -178,6 +183,7 @@ impl MetricsErrorKind {
             Self::StreamConnect => "stream_connect",
             Self::StreamError => "stream_error",
             Self::StreamEnded => "stream_ended",
+            Self::NoIdentityIssued => "no_identity_issued",
             Self::InitialSyncFailed => "initial_sync_failed",
             Self::LimitMaxBundles => "limit_max_bundles",
             Self::LimitMaxBundleJwksBytes => "limit_max_bundle_jwks_bytes",
@@ -190,5 +196,22 @@ impl MetricsErrorKind {
 impl fmt::Display for MetricsErrorKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MetricsErrorKind;
+
+    #[test]
+    fn no_identity_issued_metrics_label_is_stable() {
+        assert_eq!(
+            MetricsErrorKind::NoIdentityIssued.as_str(),
+            "no_identity_issued"
+        );
+        assert_eq!(
+            MetricsErrorKind::NoIdentityIssued.to_string(),
+            "no_identity_issued"
+        );
     }
 }
