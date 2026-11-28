@@ -96,7 +96,8 @@ impl<T> Register<T> {
 /// - `send_replace` atomically replaces the value and bumps the version;
 /// - `subscribe` marks the version current at subscription time as seen;
 /// - `changed` returns once the version differs from the last seen version,
-///   and never misses a send that happens after subscription.
+///   including after a send made before the call, and marks the latest version
+///   as seen. Several sends can coalesce into one return.
 #[derive(Debug)]
 pub struct Watch {
     state: Mutex<WatchState>,
