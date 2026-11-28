@@ -189,6 +189,10 @@ where
                     })
                     .await
                 }
+                // Records lazy JWT-SVID client use; the reply itself is not asserted.
+                "/SpiffeWorkloadAPI/FetchJWTSVID" => {
+                    tonic::Status::permission_denied("no identity issued").into_http()
+                }
                 _ => panic!("unexpected RPC: {path}"),
             };
             Ok::<_, std::convert::Infallible>(response)
@@ -237,10 +241,14 @@ impl Drop for UnixSocket {
 }
 #[cfg(unix)]
 pub(crate) fn serve_unix(socket: &UnixSocket) -> Server {
+    serve_unix_steps(socket, vec![Step::Valid])
+}
+#[cfg(unix)]
+pub(crate) fn serve_unix_steps(socket: &UnixSocket, steps: Vec<Step>) -> Server {
     let listener = tokio::net::UnixListener::bind(&socket.0).unwrap();
     let incoming = futures::stream::unfold(listener, async |listener| {
         let io = listener.accept().await.map(|(io, _)| io);
         Some((io, listener))
     });
-    serve_incoming(socket.endpoint(), incoming, vec![Step::Valid])
+    serve_incoming(socket.endpoint(), incoming, steps)
 }
