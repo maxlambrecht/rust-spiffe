@@ -18,6 +18,7 @@
 
 ### Fixed
 
+- `WorkloadApiError::NotUnicodeEndpointSocket` no longer includes the raw `SPIFFE_ENDPOINT_SOCKET` value, which can contain credentials, in `Display` or `Debug`. `Debug` shows `NotUnicodeEndpointSocket(<redacted>)`. The variant and its `OsString` field are unchanged.
 - Reject trailing data inside Basic Constraints and Key Usage during local X.509-SVID admission, and inside Subject Alternative Name when extracting a SPIFFE ID.
 - Typed Workload API JWT-SVID fetches, including `JwtSource`, reject a response with `InvalidResponseField` if any token subject differs from an explicitly requested SPIFFE ID. Document response-order selection when the ID is omitted and first-match selection by hint.
 - SPIFFE ID extraction and local X.509-SVID admission now reject malformed URI-typed SAN entries with `CertificateError::ParseX509Certificate`. Certificates that previously yielded an identity despite a corrupt URI SAN are no longer accepted. The exactly-one-URI requirement and support for valid non-URI SANs are preserved.

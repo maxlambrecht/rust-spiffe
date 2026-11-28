@@ -1,5 +1,7 @@
 //! Error types for Workload API operations.
 
+use std::fmt;
+
 use thiserror::Error;
 
 use crate::transport::EndpointError;
@@ -15,7 +17,7 @@ use crate::transport::GrpcStatusCode;
 use crate::transport::TransportError;
 
 /// Errors produced by Workload API operations.
-#[derive(Debug, Error)]
+#[derive(Error)]
 #[non_exhaustive]
 pub enum WorkloadApiError {
     /// `SPIFFE_ENDPOINT_SOCKET` is not set.
@@ -23,7 +25,10 @@ pub enum WorkloadApiError {
     MissingEndpointSocket,
 
     /// `SPIFFE_ENDPOINT_SOCKET` is not a valid UTF-8 string.
-    #[error("SPIFFE endpoint socket path is not a valid UTF-8 string: {}", .0.display())]
+    ///
+    /// The field holds the raw value, which may contain credentials. `Display` and
+    /// `Debug` omit it; take care when reading the field directly.
+    #[error("SPIFFE endpoint socket path is not a valid UTF-8 string")]
     NotUnicodeEndpointSocket(std::ffi::OsString),
 
     /// The Workload API returned an empty response.
@@ -115,6 +120,47 @@ pub enum WorkloadApiError {
     /// Failed to parse a SPIFFE identifier from the Workload API response.
     #[error("failed to parse SPIFFE ID: {0}")]
     SpiffeId(#[from] SpiffeIdError),
+}
+
+// Written by hand so that `NotUnicodeEndpointSocket` can omit its value. Every
+// other variant is formatted as `#[derive(Debug)]` would format it.
+impl fmt::Debug for WorkloadApiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingEndpointSocket => f.write_str("MissingEndpointSocket"),
+            // The raw value bypasses the endpoint parser and may contain user info.
+            Self::NotUnicodeEndpointSocket(_) => f
+                .debug_tuple("NotUnicodeEndpointSocket")
+                .field(&format_args!("<redacted>"))
+                .finish(),
+            Self::EmptyResponse => f.write_str("EmptyResponse"),
+            Self::MissingRequiredField { field } => f
+                .debug_struct("MissingRequiredField")
+                .field("field", field)
+                .finish(),
+            Self::InvalidResponseField { field } => f
+                .debug_struct("InvalidResponseField")
+                .field("field", field)
+                .finish(),
+            Self::Endpoint(inner) => f.debug_tuple("Endpoint").field(inner).finish(),
+            Self::NoIdentityIssued => f.write_str("NoIdentityIssued"),
+            Self::PermissionDenied(inner) => {
+                f.debug_tuple("PermissionDenied").field(inner).finish()
+            }
+            Self::HintNotFound(inner) => f.debug_tuple("HintNotFound").field(inner).finish(),
+            #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
+            Self::Transport(inner) => f.debug_tuple("Transport").field(inner).finish(),
+            #[cfg(feature = "x509")]
+            Self::X509Svid(inner) => f.debug_tuple("X509Svid").field(inner).finish(),
+            #[cfg(feature = "jwt")]
+            Self::JwtSvid(inner) => f.debug_tuple("JwtSvid").field(inner).finish(),
+            #[cfg(feature = "x509")]
+            Self::X509Bundle(inner) => f.debug_tuple("X509Bundle").field(inner).finish(),
+            #[cfg(feature = "jwt")]
+            Self::JwtBundle(inner) => f.debug_tuple("JwtBundle").field(inner).finish(),
+            Self::SpiffeId(inner) => f.debug_tuple("SpiffeId").field(inner).finish(),
+        }
+    }
 }
 
 #[cfg(any(feature = "workload-api-x509", feature = "workload-api-jwt"))]
