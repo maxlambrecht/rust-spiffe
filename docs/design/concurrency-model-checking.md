@@ -98,7 +98,15 @@ TLS callback:  observe source (rev)  ◀── compare ──▶  applied Materi
 | I8 | The watcher eventually converts the latest revision | Store before notify; subscribe before the initial observation |
 
 `spiffe` unit and lifecycle tests cover I1, I2, and I7. The Loom model covers
-I3–I6 and I8, which depend on interleavings across the two crates.
+I4–I6 and I8, which depend on interleavings across the two crates. It checks I4
+only for material that a successful acquisition returns.
+
+The model does not check I3. Its baseline `observe` copies production's single
+`load_full`, and no assertion inspects an observation. Under
+`variant-torn-revision-first`, an observation can pair revision 1 with revision
+2's withdrawal, and the builder's initial conversion can store `K1` labelled
+as revision 0. That variant still passes: the gate never returns the
+mislabelled material in these scenarios.
 
 ## What runs under Loom
 
@@ -184,12 +192,13 @@ absent.
 
 | Property | Kind | Result |
 | --- | --- | --- |
-| S1. Returned material equals the history entry for the returned revision | Safety, I4 | Fails under `defect-torn-observe` |
+| S1. Returned material equals the history entry for the returned revision | Safety, I4 for returned material | Fails under `defect-torn-observe` |
 | S2. A returned revision is not withdrawn, and that acquisition's own observation was permitted | Safety, I6 | Runs on every success. No single defect falsifies it; see below |
-| S3. The returned revision equals the revision observed by the same acquisition | Safety, I5 | Fails under `defect-no-revision-gate` |
+| S3. The returned revision equals the revision the same acquisition read from the source | Safety, I5 | Fails under `defect-no-revision-gate` and `defect-gate-applied-revision` |
 | Q1. After every thread has joined, acquisition matches revision 2: `Err(Withdrawn)`, or `Ok((2, K0))` after recovery | Availability | Fails under `defect-torn-observe` in the recovery scenario |
 | Q2. The watcher converts revision 2 | Bounded liveness, I8 | A lost notification is the Loom deadlock from `defect-notify-before-store` and `defect-observe-before-subscribe` |
 | I1, revision identity and monotonicity | Input | One writer thread |
+| I3, one snapshot per observation | Input | The baseline `observe` loads once; not asserted |
 | I7, recovery advances the revision | Input | `publish` always stores |
 | ArcSwap and `watch` | Input | Assumed |
 
@@ -200,8 +209,12 @@ only after the run has quiesced.
 S3 is what gives I5. The observation happens inside the acquisition, revisions
 never go backwards, and an acquisition that starts after revision N is stored
 observes N or later. S3 requires the returned revision to be that observation.
-The observation returned to the harness is the value the acquisition already
-read. The check adds no load, lock, or other schedule point.
+The harness compares against the observation as `Source::observe` returned it,
+not as the gate received it. A gate fed some other revision, such as the applied
+material's own, therefore cannot also change the expected value;
+`defect-gate-applied-revision` checks this. The recorded observation is a value
+the acquisition already read, so the check adds no load, lock, or other schedule
+point.
 
 S2 cannot be falsified by removing any one of its three checks. Conversion
 turns a withdrawn observation into `Blocked`. The revision gate rejects
@@ -221,9 +234,10 @@ Each Cargo feature compiles one variant. Enabling two is a compile error.
 | --- | --- | --- |
 | baseline | none | Exploration finishes |
 | `variant-source-first` | `acquire` observes the source before loading applied material | Exploration finishes. The documented order is sufficient for S1–S3; this order also passes |
-| `variant-torn-revision-first` | `observe` loads twice, revision first | Exploration finishes. Monotonic revisions make this benign. Production still uses one load |
+| `variant-torn-revision-first` | `observe` loads twice, revision first | Exploration finishes. Observations and stored material can mix snapshots, so I3 does not hold, but S1–S3 and Q1 do. Production still uses one load |
 | `defect-torn-observe` | `observe` loads twice, material first | Rotation: S1. Recovery: Q1 |
 | `defect-no-revision-gate` | The equality gate is removed | S3 in both scenarios |
+| `defect-gate-applied-revision` | The gate takes its source revision from the applied material | S3 in both scenarios |
 | `defect-notify-before-store` | Notify, then store | Lost notification in both scenarios |
 | `defect-observe-before-subscribe` | Observe, then subscribe | Lost notification in both scenarios |
 
@@ -242,7 +256,7 @@ exactly two scenarios run and passed, with none ignored or filtered.
 
 ## Exploration
 
-The canonical preemption bound is 3. All four defects show up at that bound.
+The canonical preemption bound is 3. All five defects show up at that bound.
 `defect-torn-observe` in the rotation scenario needs a bound of at least 3.
 Bound 4 is available for a slower look.
 

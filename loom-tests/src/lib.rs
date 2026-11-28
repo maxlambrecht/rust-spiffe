@@ -28,6 +28,7 @@ const fn enabled(on: bool) -> usize {
 /// Number of enabled `defect-*`/`variant-*` features; at most one is allowed.
 pub const ENABLED_VARIANTS: usize = enabled(cfg!(feature = "defect-torn-observe"))
     + enabled(cfg!(feature = "defect-no-revision-gate"))
+    + enabled(cfg!(feature = "defect-gate-applied-revision"))
     + enabled(cfg!(feature = "defect-notify-before-store"))
     + enabled(cfg!(feature = "defect-observe-before-subscribe"))
     + enabled(cfg!(feature = "variant-source-first"))
@@ -43,6 +44,8 @@ pub const VARIANT: &str = if cfg!(feature = "defect-torn-observe") {
     "defect-torn-observe"
 } else if cfg!(feature = "defect-no-revision-gate") {
     "defect-no-revision-gate"
+} else if cfg!(feature = "defect-gate-applied-revision") {
+    "defect-gate-applied-revision"
 } else if cfg!(feature = "defect-notify-before-store") {
     "defect-notify-before-store"
 } else if cfg!(feature = "defect-observe-before-subscribe") {
@@ -265,9 +268,11 @@ impl Source {
                 material: permitted(&for_material),
             }
         }
-        // Benign: two independent loads, revision before material (the field
-        // order of the production `SourceObservation` literal if each field
-        // called `state()` separately).
+        // Two independent loads, revision before material (the field order of
+        // the production `SourceObservation` literal if each field called
+        // `state()` separately). The observation can mix two snapshots. The
+        // variant is benign only for what acquisition returns: S1-S3 and Q1
+        // still hold.
         #[cfg(feature = "variant-torn-revision-first")]
         {
             let for_revision = self.snapshot.load_full();
@@ -358,9 +363,11 @@ pub enum AcquireError {
     MaterialUnavailable,
 }
 
-/// Result of one acquisition plus the exact source observation it used.
+/// Result of one acquisition plus what its source observation returned.
 ///
-/// Returning the observation is model-only instrumentation: it is a value the
+/// `observation` is recorded as `Source::observe` returned it, never as the
+/// gate received it, so a gate fed any other revision cannot also change what
+/// the harness compares against. It is model-only instrumentation: a value the
 /// acquisition already read, so it adds no schedule point or synchronization.
 #[derive(Clone, Copy, Debug)]
 pub struct Acquisition {
@@ -384,8 +391,17 @@ pub fn acquire(source: &Source, applied: &Register<MaterialState>) -> Acquisitio
         let applied = applied.load_full();
         (applied, observation)
     };
+    #[cfg(not(feature = "defect-gate-applied-revision"))]
+    let gate_input = observation;
+    // Defect: the gate takes its source revision from the applied material, so
+    // it compares that revision with itself.
+    #[cfg(feature = "defect-gate-applied-revision")]
+    let gate_input = Observation {
+        revision: applied.source_revision,
+        ..observation
+    };
     Acquisition {
-        result: acquire_from(&applied, observation),
+        result: acquire_from(&applied, gate_input),
         observation,
     }
 }

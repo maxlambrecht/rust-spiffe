@@ -170,6 +170,7 @@ name = "spiffe-loom-models"
 version = "0.0.0"
 dependencies = [
  "loom",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -18,6 +18,8 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{fmt, EnvFilter};
 
 // ---------------------------------------------------------------------------
 // Scenarios
@@ -126,9 +128,10 @@ fn check_safety(history: &History, acquisition: Acquisition) {
          (observation {observation:?})"
     );
     // S3: the material was converted from exactly the revision the acquisition
-    // observed. The observation is read inside the acquisition and revisions
-    // never decrease, so an acquisition that starts after revision N is
-    // published never uses N-1 or older.
+    // observed. `observation` is what the source returned, not what the gate was
+    // given. It is read inside the acquisition and revisions never decrease, so
+    // an acquisition that starts after revision N is published never uses N-1
+    // or older.
     assert_eq!(
         revision, observation.revision,
         "S3 violated: acquisition observed source revision {} but used revision {revision}",
@@ -241,7 +244,9 @@ fn expected(scenario: &Scenario) -> Expected {
         "variant-torn-revision-first" => Expected::Complete { iterations: 40_811 },
         "defect-torn-observe" if rotation => Expected::Violation("S1 violated"),
         "defect-torn-observe" => Expected::Violation("Q1 violated"),
-        "defect-no-revision-gate" => Expected::Violation("S3 violated"),
+        "defect-no-revision-gate" | "defect-gate-applied-revision" => {
+            Expected::Violation("S3 violated")
+        }
         "defect-notify-before-store" | "defect-observe-before-subscribe" => {
             Expected::LostNotification
         }
@@ -334,6 +339,15 @@ fn verify(scenario: &'static Scenario) {
     let iterations = std::sync::Arc::new(AtomicUsize::new(0));
     let started = Instant::now();
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+        // `Builder::check` installs no subscriber, so `LOOM_LOG` needs the one
+        // `loom::model` would install. Loom runs its threads on this OS thread,
+        // so a thread-local default sees all of them.
+        let _log = fmt()
+            .with_env_filter(EnvFilter::from_env("LOOM_LOG"))
+            .with_test_writer()
+            .without_time()
+            .finish()
+            .set_default();
         builder(bound).check(model(scenario, std::sync::Arc::clone(&iterations)));
     }));
     let explored = iterations.load(Ordering::Relaxed);
